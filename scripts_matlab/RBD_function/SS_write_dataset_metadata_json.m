@@ -2,7 +2,7 @@ function SS_write_dataset_metadata_json(metadata_file, split_strategy_dir_name, 
     split_metadata, split_files, split_names, num_segments, fs, ...
     segment_duration_s, segment_step_s, segment_start_s, segment_end_s, ...
     normalize_spectrum, use_plane_wave, range_file, theta_vec, freq_hz, ...
-    array_depths_m)
+    array_depths_m, rbd_config, dataset_variant_tag)
 %SS_WRITE_DATASET_METADATA_JSON Write split and dataset parameters next to HDF5.
 metadata = struct();
 metadata.format = ['Neural-network dataset: ', ...
@@ -11,6 +11,7 @@ metadata.real_imag_index = ...
     'X(:,:,:,1)=real(green_freq), X(:,:,:,2)=imag(green_freq).';
 metadata.split_strategy = split_metadata.split_strategy;
 metadata.split_strategy_dir_name = split_strategy_dir_name;
+metadata.dataset_variant_tag = char(dataset_variant_tag);
 metadata.global_num_segments = num_segments;
 metadata.candidate_segment_start_s = segment_start_s;
 metadata.candidate_segment_end_s = segment_end_s;
@@ -19,6 +20,7 @@ metadata.segment_duration_s = segment_duration_s;
 metadata.segment_step_s = segment_step_s;
 metadata.normalize_spectrum = logical(normalize_spectrum);
 metadata.use_plane_wave = logical(use_plane_wave);
+metadata.rbd_config = rbd_config;
 metadata.range_file = range_file;
 metadata.theta_num = numel(theta_vec);
 metadata.theta_min_rad = min(theta_vec);

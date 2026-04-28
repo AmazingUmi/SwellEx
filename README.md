@@ -54,7 +54,7 @@ The implementation is split by function under `scripts_py/network/`:
 
 ## Documentation Index
 
-- [Python toolchain and environment](doc/scripts_py_environment.md)
+- [Local Toolchain and Environment](doc/scripts_environment.md)
 - [HDF5 datasets and MATLAB split strategies](doc/scripts_py_datasets.md)
 - [Training workflow](doc/scripts_py_training.md)
 - [Prediction workflow](doc/scripts_py_prediction.md)

@@ -41,6 +41,7 @@ segment_end_s   = [];           % last segment start time [s];
 % Dataset output and split strategy
 save_results = true;
 split_strategy = "Range_nearby";    % "periodic" or "Range_nearby"
+dataset_variant_tag = "";           % user-controlled suffix for output files
 
 switch split_strategy
     case "periodic"
@@ -63,6 +64,13 @@ end
 theta_vec = linspace(-90, 90, 181) * pi / 180;   % [rad]
 use_plane_wave = false;
 normalize_spectrum = true;
+multipath_beam = true;
+if multipath_beam
+    multipath_peak_threshold_db = -6;
+    multipath_min_separation_deg = 2;
+    multipath_max_num_peaks = Inf;
+    multipath_sidelobe_reject_db = 3;
+end
 
 % Input labels
 range_file = fullfile(project_dir, 'events', 'range', ...
@@ -192,8 +200,28 @@ fprintf('Preparing steering delays...\n');
 tau_matrix = compute_tau(theta_vec, array_depths_m, ...
     sound_speed_ms, sound_speed_depth_m, use_plane_wave);
 
+rbd_options = {'NormalizeSpectrum', normalize_spectrum, ...
+    'multipath_beam', multipath_beam};
+rbd_config = struct();
+rbd_config.normalize_spectrum = logical(normalize_spectrum);
+rbd_config.use_plane_wave = logical(use_plane_wave);
+rbd_config.multipath_beam = logical(multipath_beam);
+if multipath_beam
+    rbd_options = [rbd_options, { ...
+        'MultipathPeakThresholdDb', multipath_peak_threshold_db, ...
+        'MultipathMinSeparationDeg', multipath_min_separation_deg, ...
+        'MultipathMaxNumPeaks', multipath_max_num_peaks, ...
+        'MultipathSidelobeRejectDb', multipath_sidelobe_reject_db}];
+    rbd_config.multipath_peak_threshold_db = multipath_peak_threshold_db;
+    rbd_config.multipath_min_separation_deg = multipath_min_separation_deg;
+    rbd_config.multipath_max_num_peaks = multipath_max_num_peaks;
+    rbd_config.multipath_sidelobe_reject_db = multipath_sidelobe_reject_db;
+end
+
 freq_hz = (0:floor(segment_num_samples / 2)) * fs / segment_num_samples;
 num_freq_bins = numel(freq_hz);
+num_arrival_slots = numel(theta_vec);
+rbd_config.num_arrival_slots = num_arrival_slots;
 
 if save_results
     [split_indices, split_names, segment_split_idx, split_metadata] = ...
@@ -211,6 +239,10 @@ if save_results
 
     dataset_tag = SS_make_dataset_tag(split_strategy, split_metadata, ...
         segment_start_s, segment_end_s, segment_step_s);
+    dataset_variant_tag = sanitize_dataset_variant_tag(dataset_variant_tag);
+    if strlength(dataset_variant_tag) > 0
+        dataset_tag = sprintf('%s_%s', dataset_tag, dataset_variant_tag);
+    end
     file_stem = sprintf('RBD_green_freq_nn_S5_%s', dataset_tag);
     metadata_file = fullfile(results_dir, sprintf('%s_metadata.json', file_stem));
     split_files = cell(1, numel(split_names));
@@ -232,7 +264,7 @@ if save_results
             array_depths_m, range_time_s, range_km_raw, segment_range_km, ...
             valid_sample, segment_start_time_s, segment_center_time_s, ...
             segment_stop_time_s, segment_sample_start_idx, ...
-            segment_sample_stop_idx);
+            segment_sample_stop_idx, num_arrival_slots);
 
         fprintf('Writing %s neural-network HDF5 to %s (%d samples)\n', ...
             split_names{split_idx}, split_files{split_idx}, ...
@@ -243,7 +275,8 @@ if save_results
         split_metadata, split_files, split_names, num_segments, fs, ...
         segment_duration_s, segment_step_s, ...
         segment_start_s, segment_end_s, normalize_spectrum, use_plane_wave, ...
-        range_file, theta_vec, freq_hz, array_depths_m);
+        range_file, theta_vec, freq_hz, array_depths_m, rbd_config, ...
+        dataset_variant_tag);
 
     fprintf('Running RBD and streaming train/test X/y to HDF5...\n');
 
@@ -257,8 +290,7 @@ if save_results
             segment_sample_start_idx(segment_idx):segment_sample_stop_idx(segment_idx));
 
         [green_freq, ~, rbd_result] = rbd_decompose( ...
-            signal_time_seg, fs, theta_vec, tau_matrix, ...
-            'NormalizeSpectrum', normalize_spectrum);
+            signal_time_seg, fs, theta_vec, tau_matrix, rbd_options{:});
 
         green_feature = zeros(1, num_elements, num_freq_bins, 2, 'single');
         green_feature(1, :, :, 1) = single(real(green_freq));
@@ -273,6 +305,15 @@ if save_results
             [local_idx, 1, 1, 1], [1, num_elements, num_freq_bins, 2]);
         h5write(h5_file, '/rbd/theta_best_rad', rbd_result.theta_best, ...
             [local_idx, 1], [1, 1]);
+        [theta_selected_row, selected_beam_power_row, num_selected_angles] = ...
+            make_arrival_rows(rbd_result, num_arrival_slots);
+        h5write(h5_file, '/rbd/num_selected_angles', ...
+            uint16(num_selected_angles), [local_idx, 1], [1, 1]);
+        h5write(h5_file, '/rbd/theta_selected_rad', theta_selected_row, ...
+            [local_idx, 1], [1, num_arrival_slots]);
+        h5write(h5_file, '/rbd/selected_beam_power', ...
+            single(selected_beam_power_row), ...
+            [local_idx, 1], [1, num_arrival_slots]);
         h5write(h5_file, '/rbd/beam_power', single(rbd_result.beam_power(:).'), ...
             [local_idx, 1], [1, numel(theta_vec)]);
         h5write(h5_file, '/rbd/signal_freq_scale', ...
@@ -300,3 +341,36 @@ end
 clear signal_time_full signal_time_seg green_freq rbd_result green_feature;
 
 fprintf('Signal segmentation complete.\n');
+
+function dataset_variant_tag = sanitize_dataset_variant_tag(dataset_variant_tag)
+dataset_variant_tag = string(dataset_variant_tag);
+dataset_variant_tag = strtrim(dataset_variant_tag);
+
+if strlength(dataset_variant_tag) == 0
+    return;
+end
+
+dataset_variant_tag = regexprep(dataset_variant_tag, '[^A-Za-z0-9_-]+', '_');
+dataset_variant_tag = regexprep(dataset_variant_tag, '_+', '_');
+dataset_variant_tag = regexprep(dataset_variant_tag, '^_|_$', '');
+end
+
+function [theta_selected_row, selected_beam_power_row, num_selected_angles] = ...
+    make_arrival_rows(rbd_result, num_arrival_slots)
+
+theta_selected_row = NaN(1, num_arrival_slots);
+selected_beam_power_row = NaN(1, num_arrival_slots);
+
+[~, arrival_sort_idx] = sort(rbd_result.selected_beam_power, 'descend');
+num_selected_angles = min(numel(arrival_sort_idx), num_arrival_slots);
+
+if num_selected_angles == 0
+    return;
+end
+
+arrival_sort_idx = arrival_sort_idx(1:num_selected_angles);
+theta_selected_row(1:num_selected_angles) = ...
+    rbd_result.theta_selected(arrival_sort_idx);
+selected_beam_power_row(1:num_selected_angles) = ...
+    rbd_result.selected_beam_power(arrival_sort_idx);
+end

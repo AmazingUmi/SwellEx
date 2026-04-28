@@ -17,10 +17,30 @@ catch
     script_dir = fileparts(mfilename('fullpath'));
 end
 project_dir = fileparts(script_dir);
-
+cd(project_dir);
 addpath(script_dir);
 addpath(fullfile(script_dir, 'RBD_function'));
 clear tmp;
+
+%% User parameters
+fs = 1500;                     % [Hz]
+segment_duration_s = 1.0;      % segment duration [s]
+segment_start_s = 400.0;       % segment start time [s]
+segment_num_samples = round(fs * segment_duration_s);
+segment_start_idx = round(fs * segment_start_s) + 1;
+
+theta_vec = linspace(-90, 90, 181) * pi / 180;   % [rad]
+use_plane_wave = false;
+
+% RBD feature extraction
+normalize_spectrum = true;
+multipath_beam = true;
+if multipath_beam
+    multipath_peak_threshold_db = -6;
+    multipath_min_separation_deg = 2;
+    multipath_max_num_peaks = Inf;
+    multipath_sidelobe_reject_db = 3;
+end
 
 %% Array and environment
 position_file = fullfile(project_dir, 'positions', 'positions_vla.txt');
@@ -28,21 +48,12 @@ position_table = readmatrix(position_file);   % [channel_index, depth_m]
 array_depths_m = flip(position_table(:, 2).');
 num_elements = numel(array_depths_m);
 
-fs = 1500;                     % [Hz]
-segment_duration_s = 1.0;      % segment duration [s]
-segment_start_s = 400.0;       % segment start time [s]
-segment_num_samples = round(fs * segment_duration_s);
-segment_start_idx = round(fs * segment_start_s) + 1;
-
 event_dir = fullfile(project_dir, 'events', 'S5');
 ctd_data = load(fullfile(event_dir, "CTD_i9605.mat"));
 sound_speed_depth_m = ctd_data.T.depth_m;
 sound_speed_ms = ctd_data.T.sound_speed_ms;
 [sound_speed_depth_m, sound_speed_ms] = extend_sound_speed_profile( ...
     sound_speed_depth_m, sound_speed_ms, max(array_depths_m));
-
-theta_vec = linspace(-90, 90, 181) * pi / 180;   % [rad]
-use_plane_wave = false;
 
 clear position_file position_table ctd_data;
 
@@ -90,13 +101,50 @@ fprintf('Running RBD decomposition...\n');
 tau_matrix = compute_tau(theta_vec, array_depths_m, ...
     sound_speed_ms, sound_speed_depth_m, use_plane_wave);
 
+rbd_options = {'NormalizeSpectrum', normalize_spectrum, ...
+    'multipath_beam', multipath_beam};
+if multipath_beam
+    rbd_options = [rbd_options, { ...
+        'MultipathPeakThresholdDb', multipath_peak_threshold_db, ...
+        'MultipathMinSeparationDeg', multipath_min_separation_deg, ...
+        'MultipathMaxNumPeaks', multipath_max_num_peaks, ...
+        'MultipathSidelobeRejectDb', multipath_sidelobe_reject_db}];
+end
+
 [green_freq, freq_hz, rbd_result] = rbd_decompose( ...
-    signal_time_seg, fs, theta_vec, tau_matrix);
+    signal_time_seg, fs, theta_vec, tau_matrix, rbd_options{:});
 
 beam_power = rbd_result.beam_power;
 theta_best = rbd_result.theta_best;
+theta_plot_arrivals = theta_best; %#ok<NASGU>
 
 fprintf('  Best steering angle: %.2f deg\n', theta_best * 180 / pi);
+if multipath_beam
+    [~, arrival_sort_idx] = sort(rbd_result.selected_beam_power, 'descend');
+    theta_arrival = rbd_result.theta_selected(arrival_sort_idx);
+    arrival_power_db = rbd_result.beam_power_db( ...
+        rbd_result.selected_angle_idx(arrival_sort_idx));
+    theta_plot_arrivals = theta_arrival;
+
+    fprintf('  Multipath beam: enabled\n');
+    fprintf('  Accepted steering angles (%d): %s deg\n', ...
+        rbd_result.num_selected_angles, ...
+        sprintf('%.2f ', theta_arrival * 180 / pi));
+    fprintf('  Accepted relative powers: %s dB\n', ...
+        sprintf('%.2f ', arrival_power_db));
+    fprintf(['  Peak threshold = %.2f dB, min separation = %.2f deg, ', ...
+        'sidelobe reject margin = %.2f dB\n'], ...
+        multipath_peak_threshold_db, multipath_min_separation_deg, ...
+        multipath_sidelobe_reject_db);
+
+    if isempty(rbd_result.theta_sidelobe_rejected)
+        fprintf('  Sidelobe-rejected candidate angles: none\n');
+    else
+        fprintf('  Sidelobe-rejected candidate angles (%d): %s deg\n', ...
+            numel(rbd_result.theta_sidelobe_rejected), ...
+            sprintf('%.2f ', rbd_result.theta_sidelobe_rejected * 180 / pi));
+    end
+end
 
 %% IFFT
 fprintf('Computing time-domain Green''s function...\n');
@@ -108,4 +156,4 @@ green_time = real(ifft(green_freq_full, [], 2));
 fprintf('Plotting results...\n');
 plot_results(green_time, num_elements, fs, segment_num_samples, ...
     theta_vec, beam_power, theta_best, use_plane_wave, array_depths_m, ...
-    green_freq, freq_hz);
+    green_freq, freq_hz, theta_plot_arrivals);

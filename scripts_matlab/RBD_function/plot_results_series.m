@@ -18,6 +18,10 @@ window_center_time_s = get_result_field(result, ...
     {'window_center_time_s', 't_window_center'});
 theta_vec = result.theta_vec;
 theta_best_history = result.theta_best_history;
+theta_selected_history = [];
+if isfield(result, 'theta_selected_history')
+    theta_selected_history = result.theta_selected_history;
+end
 beam_power_history = get_result_field(result, ...
     {'beam_power_history', 'B_power_history'});
 green_delay_s = get_result_field(result, {'green_delay_s', 'green_delay'});
@@ -30,9 +34,10 @@ green_peak_delay_s = get_result_field(result, ...
 num_elements = get_result_field(result, {'num_elements', 'N'});
 use_plane_wave = result.use_plane_wave;
 
-plot_best_angle(window_center_time_s, theta_best_history, use_plane_wave);
+plot_best_angle(window_center_time_s, theta_best_history, ...
+    theta_selected_history, use_plane_wave);
 plot_bartlett_angle_time(window_center_time_s, theta_vec, ...
-    theta_best_history, beam_power_history);
+    theta_best_history, theta_selected_history, beam_power_history);
 plot_green_selected(window_center_time_s, green_delay_s, ...
     green_selected, selected_element_idx);
 plot_green_peak_evolution(window_center_time_s, green_peak_amp, ...
@@ -50,23 +55,34 @@ end
 error('Missing expected result field. Tried: %s', strjoin(field_names, ', '));
 end
 
-function plot_best_angle(window_center_time_s, theta_best_history, use_plane_wave)
+function plot_best_angle(window_center_time_s, theta_best_history, ...
+    theta_selected_history, use_plane_wave)
 figure('Position', [100 100 1100 420]);
-plot(window_center_time_s, theta_best_history * 180 / pi, ...
+best_handle = plot(window_center_time_s, theta_best_history * 180 / pi, ...
     'k-', 'LineWidth', 1.6);
+hold on;
+arrival_handle = plot_selected_arrivals(window_center_time_s, ...
+    theta_selected_history);
+hold off;
 grid on;
 xlabel('Analysis time [s]');
-ylabel('Best steering angle [deg]');
+ylabel('Steering angle [deg]');
+if isempty(arrival_handle)
+    legend(best_handle, {'Best angle'}, 'Location', 'best');
+else
+    legend([best_handle, arrival_handle], ...
+        {'Best angle', 'Selected arrivals'}, 'Location', 'best');
+end
 
 if use_plane_wave
-    title('Best Bartlett steering angle versus time (plane wave)');
+    title('Selected Bartlett steering angles versus time (plane wave)');
 else
-    title('Best Bartlett steering angle versus time (ray-integral)');
+    title('Selected Bartlett steering angles versus time (ray-integral)');
 end
 end
 
 function plot_bartlett_angle_time(window_center_time_s, theta_vec, ...
-    theta_best_history, beam_power_history)
+    theta_best_history, theta_selected_history, beam_power_history)
 theta_deg = theta_vec * 180 / pi;
 beam_power_db = normalize_power_history(beam_power_history);
 
@@ -83,7 +99,45 @@ title('Normalized Bartlett power versus steering angle and time');
 hold on;
 plot(window_center_time_s, theta_best_history * 180 / pi, ...
     'w-', 'LineWidth', 1.8);
+plot_selected_arrivals(window_center_time_s, theta_selected_history, ...
+    'wo', 4);
 hold off;
+end
+
+function first_arrival_handle = plot_selected_arrivals( ...
+    window_center_time_s, theta_selected_history, ...
+    marker_style, marker_size)
+first_arrival_handle = [];
+if nargin < 3
+    marker_style = 'o';
+end
+if nargin < 4
+    marker_size = 4;
+end
+
+if isempty(theta_selected_history)
+    return;
+end
+
+theta_selected_deg = theta_selected_history * 180 / pi;
+plotted_for_legend = false;
+for arrival_idx = 1:size(theta_selected_deg, 1)
+    valid_idx = isfinite(theta_selected_deg(arrival_idx, :));
+    if ~any(valid_idx)
+        continue;
+    end
+
+    arrival_handle = plot(window_center_time_s(valid_idx), ...
+        theta_selected_deg(arrival_idx, valid_idx), marker_style, ...
+        'MarkerSize', marker_size, 'LineWidth', 0.8);
+    if isempty(first_arrival_handle)
+        first_arrival_handle = arrival_handle;
+    end
+    if plotted_for_legend
+        arrival_handle.Annotation.LegendInformation.IconDisplayStyle = 'off';
+    end
+    plotted_for_legend = true;
+end
 end
 
 function beam_power_db = normalize_power_history(beam_power_history)

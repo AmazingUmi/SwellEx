@@ -1,6 +1,6 @@
 function plot_results(green_time, num_elements, fs, segment_num_samples, ...
     theta_vec, beam_power, theta_best, use_plane_wave, array_depths_m, ...
-    green_freq, freq_hz)
+    green_freq, freq_hz, theta_selected)
 %PLOT_RESULTS Plot Bartlett power and Green's functions.
 %
 % Required inputs:
@@ -17,6 +17,7 @@ function plot_results(green_time, num_elements, fs, segment_num_samples, ...
 %   array_depths_m       1 x N array element depths [m]
 %   green_freq           N x Nf one-sided frequency-domain Green's function
 %   freq_hz              1 x Nf one-sided frequency vector [Hz]
+%   theta_selected       selected multipath steering angles [rad]
 
 if nargin < 9
     array_depths_m = [];
@@ -27,16 +28,12 @@ end
 if nargin < 11
     freq_hz = [];
 end
+if nargin < 12
+    theta_selected = theta_best;
+end
 
 has_depth_plot = ~isempty(array_depths_m);
 has_freq_plot = ~isempty(green_freq) && ~isempty(freq_hz);
-num_subplots = 2 + has_freq_plot + has_depth_plot + ...
-    (has_depth_plot && has_freq_plot);
-if has_depth_plot
-    fig_position = [100 40 1200 900 + 180 * num_subplots];
-else
-    fig_position = [100 80 1200 520 + 180 * num_subplots];
-end
 
 time_s = (0:segment_num_samples - 1) / fs;
 [time_plot_ms, green_plot_db] = prepare_green_display_data( ...
@@ -46,51 +43,78 @@ if has_freq_plot
         green_freq, freq_hz);
 end
 
-figure('Position', fig_position);
+figure('Name', 'RBD Bartlett Beam Power', 'Position', [50 50 1200 360]);
+plot_bartlett_power(theta_vec, beam_power, theta_best, use_plane_wave, ...
+    theta_selected);
 
-subplot(num_subplots, 1, 1);
-plot_bartlett_power(theta_vec, beam_power, theta_best, use_plane_wave);
+figure('Name', 'RBD Green Functions', 'Position', [50 50 1200 760]);
+green_layout = tiledlayout(2, 2, 'TileSpacing', 'compact', ...
+    'Padding', 'compact');
 
-subplot(num_subplots, 1, 2);
+nexttile(green_layout, 1);
 plot_green_by_element(time_plot_ms, green_plot_db, num_elements);
 
-subplot_idx = 3;
+nexttile(green_layout, 2);
 if has_freq_plot
-    subplot(num_subplots, 1, subplot_idx);
     plot_green_freq_by_element(freq_plot_hz, green_freq_plot_db, num_elements);
-    subplot_idx = subplot_idx + 1;
+else
+    plot_unavailable_panel('Frequency-domain Green''s function unavailable');
 end
 
+nexttile(green_layout, 3);
 if has_depth_plot
-    subplot(num_subplots, 1, subplot_idx);
     plot_green_by_depth(time_plot_ms, green_plot_db, array_depths_m, num_elements);
-    subplot_idx = subplot_idx + 1;
+else
+    plot_unavailable_panel('Depth-referenced Green''s function unavailable');
 end
 
+nexttile(green_layout, 4);
 if has_depth_plot && has_freq_plot
-    subplot(num_subplots, 1, subplot_idx);
     plot_green_freq_by_depth(freq_plot_hz, green_freq_plot_db, array_depths_m, num_elements);
+else
+    plot_unavailable_panel(['Depth-referenced frequency-domain ', ...
+        'Green''s function unavailable']);
 end
 
-sgtitle('RBD (Ray-Based Deconvolution) Results');
+title(green_layout, 'RBD Green Function Results');
 end
 
-function plot_bartlett_power(theta_vec, beam_power, theta_best, use_plane_wave)
+function plot_bartlett_power(theta_vec, beam_power, theta_best, use_plane_wave, ...
+    theta_selected)
 theta_deg = theta_vec * 180 / pi;
-beam_power_db = 10 * log10(beam_power / max(beam_power));
+beam_power_db = 10 * log10(beam_power / (max(beam_power) + eps) + eps);
+if isempty(theta_selected)
+    theta_selected = theta_best;
+end
 
 theta_deg_fine = linspace(theta_deg(1), theta_deg(end), ...
     max(numel(theta_deg) * 8, 1000));
 beam_power_db_fine = interp1(theta_deg, beam_power_db, ...
     theta_deg_fine, 'pchip');
 
-plot(theta_deg_fine, beam_power_db_fine, 'b-', 'LineWidth', 1.5);
+legend_handles = gobjects(0);
+legend_labels = {};
+beam_handle = plot(theta_deg_fine, beam_power_db_fine, 'b-', 'LineWidth', 1.5);
+legend_handles(end + 1) = beam_handle;
+legend_labels{end + 1} = 'Beam power';
 hold on;
-plot(theta_best * 180 / pi, 0, 'ro', 'MarkerFaceColor', 'r', 'MarkerSize', 6);
-yline(-3, 'k:', '-3 dB');
-xline(theta_best * 180 / pi, 'r--', ...
-    sprintf('theta = %.1f deg', theta_best * 180 / pi), ...
-    'LabelVerticalAlignment', 'middle');
+if ~isempty(theta_selected)
+    theta_selected_deg = theta_selected * 180 / pi;
+    arrival_colors = lines(numel(theta_selected_deg));
+    for arrival_idx = 1:numel(theta_selected_deg)
+        arrival_handle = xline(theta_selected_deg(arrival_idx), '--', ...
+            sprintf('Arrival %d', arrival_idx), ...
+            'Color', arrival_colors(arrival_idx, :), ...
+            'LineWidth', 1.4, ...
+            'LabelVerticalAlignment', 'middle', ...
+            'LabelHorizontalAlignment', 'left');
+        legend_handles(end + 1) = arrival_handle; %#ok<AGROW>
+        legend_labels{end + 1} = sprintf('Arrival %d', arrival_idx); %#ok<AGROW>
+    end
+end
+threshold_handle = yline(-3, 'k:', '-3 dB');
+legend_handles(end + 1) = threshold_handle;
+legend_labels{end + 1} = '-3 dB';
 hold off;
 
 xlim([theta_deg(1) theta_deg(end)]);
@@ -98,6 +122,7 @@ ylim([-20 3]);
 grid on;
 xlabel('Steering angle [deg]');
 ylabel('Normalized power [dB]');
+legend(legend_handles, legend_labels, 'Location', 'best');
 
 if use_plane_wave
     title('Bartlett beam power with plane-wave delays');
@@ -233,6 +258,14 @@ hold on;
 plot(freq_fine_idx(1) * ones(size(depth_sorted_m)), depth_sorted_m, ...
     'ko', 'MarkerFaceColor', 'w', 'MarkerSize', 4);
 hold off;
+end
+
+function plot_unavailable_panel(message_text)
+axis off;
+text(0.5, 0.5, message_text, ...
+    'HorizontalAlignment', 'center', ...
+    'VerticalAlignment', 'middle', ...
+    'FontWeight', 'bold');
 end
 
 function [center_freq_hz, band_power] = third_octave_band_power( ...

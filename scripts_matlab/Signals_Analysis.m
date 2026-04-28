@@ -31,11 +31,21 @@ clear tmp;
 fs = 1500;                         % [Hz]
 segment_duration_s = 1.0;          % analysis-window duration [s]
 segment_step_s = 1.0;              % time step between adjacent windows [s]
-segment_start_s = 300.0;           % first window start time [s]
+segment_start_s = 0;           % first window start time [s]
 segment_end_s = 400.0;             % last window start time [s]; set [] for full record
 
 theta_vec = linspace(-90, 90, 181) * pi / 180;   % [rad]
 use_plane_wave = false;
+
+% RBD feature extraction
+normalize_spectrum = true;
+multipath_beam = true;
+if multipath_beam
+    multipath_peak_threshold_db = -6;
+    multipath_min_separation_deg = 2;
+    multipath_max_num_peaks = Inf;
+    multipath_sidelobe_reject_db = 3;
+end
 
 green_plot_duration_s = 0.10;      % display first 0.10 s of g_e [s]
 selected_element_idx = [1 6 11 16 21];
@@ -123,10 +133,31 @@ fprintf('Preparing steering delays...\n');
 tau_matrix = compute_tau(theta_vec, array_depths_m, ...
     sound_speed_ms, sound_speed_depth_m, use_plane_wave);
 
+rbd_options = {'NormalizeSpectrum', normalize_spectrum, ...
+    'multipath_beam', multipath_beam};
+rbd_config = struct();
+rbd_config.normalize_spectrum = logical(normalize_spectrum);
+rbd_config.use_plane_wave = logical(use_plane_wave);
+rbd_config.multipath_beam = logical(multipath_beam);
+if multipath_beam
+    rbd_options = [rbd_options, { ...
+        'MultipathPeakThresholdDb', multipath_peak_threshold_db, ...
+        'MultipathMinSeparationDeg', multipath_min_separation_deg, ...
+        'MultipathMaxNumPeaks', multipath_max_num_peaks, ...
+        'MultipathSidelobeRejectDb', multipath_sidelobe_reject_db}];
+    rbd_config.multipath_peak_threshold_db = multipath_peak_threshold_db;
+    rbd_config.multipath_min_separation_deg = multipath_min_separation_deg;
+    rbd_config.multipath_max_num_peaks = multipath_max_num_peaks;
+    rbd_config.multipath_sidelobe_reject_db = multipath_sidelobe_reject_db;
+end
+
 green_num_samples = min(segment_num_samples, round(fs * green_plot_duration_s));
 green_delay_s = (0:green_num_samples - 1) / fs;
 
 theta_best_history = zeros(1, num_windows);
+theta_selected_history = NaN(numel(theta_vec), num_windows);
+selected_beam_power_history = NaN(numel(theta_vec), num_windows);
+num_selected_angles_history = zeros(1, num_windows, 'uint16');
 beam_power_history = zeros(numel(theta_vec), num_windows);
 green_selected = zeros(numel(selected_element_idx), green_num_samples, num_windows);
 green_peak_amp = zeros(num_elements, num_windows);
@@ -142,12 +173,19 @@ for window_idx = 1:num_windows
     signal_time_seg = signal_time_full(:, sample_start_idx:sample_stop_idx);
 
     [green_freq, ~, rbd_result] = rbd_decompose( ...
-        signal_time_seg, fs, theta_vec, tau_matrix);
+        signal_time_seg, fs, theta_vec, tau_matrix, rbd_options{:});
 
     green_freq_full = [green_freq, conj(green_freq(:, end - 1:-1:2))];
     green_time = real(ifft(green_freq_full, [], 2));
 
     theta_best_history(window_idx) = rbd_result.theta_best;
+    [~, arrival_sort_idx] = sort(rbd_result.selected_beam_power, 'descend');
+    num_selected_angles = numel(arrival_sort_idx);
+    theta_selected_history(1:num_selected_angles, window_idx) = ...
+        rbd_result.theta_selected(arrival_sort_idx);
+    selected_beam_power_history(1:num_selected_angles, window_idx) = ...
+        rbd_result.selected_beam_power(arrival_sort_idx);
+    num_selected_angles_history(window_idx) = uint16(num_selected_angles);
     beam_power_history(:, window_idx) = rbd_result.beam_power(:);
     green_selected(:, :, window_idx) = green_time(selected_element_idx, 1:green_num_samples);
 
@@ -156,8 +194,10 @@ for window_idx = 1:num_windows
     green_peak_delay_s(:, window_idx) = green_delay_s(peak_idx);
 
     if mod(window_idx, max(1, floor(num_windows / 10))) == 0 || window_idx == num_windows
-        fprintf('  %d/%d windows complete. Current best angle = %.2f deg\n', ...
-            window_idx, num_windows, rbd_result.theta_best * 180 / pi);
+        fprintf(['  %d/%d windows complete. Current best angle = %.2f deg, ', ...
+            'arrivals = %d\n'], ...
+            window_idx, num_windows, rbd_result.theta_best * 180 / pi, ...
+            rbd_result.num_selected_angles);
     end
 end
 
@@ -173,6 +213,9 @@ result.window_center_time_s = window_center_time_s;
 result.t_window_center = window_center_time_s;
 result.theta_vec = theta_vec;
 result.theta_best_history = theta_best_history;
+result.theta_selected_history = theta_selected_history;
+result.selected_beam_power_history = selected_beam_power_history;
+result.num_selected_angles_history = num_selected_angles_history;
 result.beam_power_history = beam_power_history;
 result.B_power_history = beam_power_history;
 result.green_delay_s = green_delay_s;
@@ -186,6 +229,9 @@ result.green_peak_delay = green_peak_delay_s;
 result.num_elements = num_elements;
 result.N = num_elements;
 result.use_plane_wave = use_plane_wave;
+result.normalize_spectrum = normalize_spectrum;
+result.multipath_beam = multipath_beam;
+result.rbd_config = rbd_config;
 
 plot_results_series(result);
 
@@ -204,9 +250,12 @@ if save_results
         'segment_start_s', 'segment_end_s', ...
         'window_start_time_s', 'window_center_time_s', ...
         'theta_vec', 'theta_best_history', 'beam_power_history', ...
+        'theta_selected_history', 'selected_beam_power_history', ...
+        'num_selected_angles_history', ...
         'selected_element_idx', 'green_delay_s', 'green_selected', ...
         'green_peak_amp', 'green_peak_delay_s', ...
-        'use_plane_wave', '-v7.3');
+        'use_plane_wave', 'normalize_spectrum', 'multipath_beam', ...
+        'rbd_config', '-v7.3');
 
     fprintf('Saved results to %s\n', result_file);
 end
