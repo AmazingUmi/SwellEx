@@ -1,13 +1,46 @@
+# Default: ignore everything not explicitly allowed below.
 *
+
+# Repository documentation and source code.
+!.gitignore
+!README.md
+!doc/
+!doc/**
 !scripts_py/
 !scripts_py/**
 !scripts_matlab/
 !scripts_matlab/**
-!doc/
-!doc/**
-!.gitignore
 
-# Ignore Python cache
+# Python cache and local environments.
 scripts_py/**/__pycache__/
 scripts_py/**/*.py[cod]
 scripts_py/**/$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+env/
+
+# MATLAB generated files.
+*.asv
+*.m~
+*.mex*
+*.slxc
+*.mlappinstall
+
+# Local editor and OS metadata.
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Generated data, model checkpoints, plots, and local project assets.
+outputs/
+environments/
+events/
+positions/
+source/
