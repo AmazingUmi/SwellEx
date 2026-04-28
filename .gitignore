@@ -6,3 +6,8 @@
 !doc/
 !doc/**
 !.gitignore
+
+# Ignore Python cache
+scripts_py/**/__pycache__/
+scripts_py/**/*.py[cod]
+scripts_py/**/$py.class
