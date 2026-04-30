@@ -22,7 +22,7 @@ end
 
 project_dir = fileparts(script_dir);
 
-% cd(script_dir);
+cd(script_dir);
 addpath(script_dir);
 addpath(fullfile(script_dir, 'RBD_function'));
 clear tmp;
@@ -41,7 +41,7 @@ segment_end_s   = [];           % last segment start time [s];
 % Dataset output and split strategy
 save_results = true;
 split_strategy = "Range_nearby";    % "periodic" or "Range_nearby"
-dataset_variant_tag = "";           % user-controlled suffix for output files
+dataset_variant_tag = "Multipath";           % user-controlled suffix for output files
 
 switch split_strategy
     case "periodic"

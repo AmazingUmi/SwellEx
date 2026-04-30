@@ -105,6 +105,8 @@ end
 num_selected_angles = numel(selected_angle_idx);
 phase_rotation_components = zeros(num_selected_angles, num_freq_bins);
 green_freq_components = zeros(num_elements, num_freq_bins, num_selected_angles);
+green_freq_weights = compute_green_freq_weights( ...
+    beam_power(selected_angle_idx), num_selected_angles);
 
 for selected_idx = 1:num_selected_angles
     angle_idx = selected_angle_idx(selected_idx);
@@ -115,7 +117,8 @@ for selected_idx = 1:num_selected_angles
         signal_freq_seg .* phase_rotation_components(selected_idx, :);
 end
 
-green_freq = sum(green_freq_components, 3);
+green_freq = sum(green_freq_components .* ...
+    reshape(green_freq_weights, 1, 1, num_selected_angles), 3);
 phase_rotation = phase_rotation_components(1, :);
 
 result = struct();
@@ -133,6 +136,7 @@ result.theta_best = theta_best;
 result.selected_angle_idx = selected_angle_idx;
 result.theta_selected = theta_vec(selected_angle_idx);
 result.selected_beam_power = beam_power(selected_angle_idx);
+result.green_freq_weights = green_freq_weights;
 result.sidelobe_rejected_angle_idx = sidelobe_rejected_angle_idx;
 result.theta_sidelobe_rejected = theta_vec(sidelobe_rejected_angle_idx);
 result.sidelobe_prediction_power = sidelobe_prediction_power;
@@ -220,6 +224,20 @@ end
 relative_power = beam_power ./ (max_power + eps);
 relative_power(~isfinite(relative_power) | relative_power < 0) = 0;
 beam_power_db = 10 * log10(relative_power + eps);
+end
+
+function green_freq_weights = compute_green_freq_weights( ...
+    selected_beam_power, num_selected_angles)
+selected_beam_power = selected_beam_power(:).';
+selected_beam_power(~isfinite(selected_beam_power) | selected_beam_power < 0) = 0;
+
+total_power = sum(selected_beam_power);
+
+if total_power > 0
+    green_freq_weights = selected_beam_power ./ total_power;
+else
+    green_freq_weights = ones(1, num_selected_angles) ./ num_selected_angles;
+end
 end
 
 function [selected_angle_idx, sidelobe_rejected_angle_idx, ...

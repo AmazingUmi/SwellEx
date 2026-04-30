@@ -13,6 +13,14 @@ The training script expects:
 - `/y_range_km`: source-to-array range label in km
 - `/valid_sample`: optional mask; only finite valid labels are used
 - `/split/source_segment_idx`: original global segment index in the full record
+- `/rbd/theta_best_rad`: strongest Bartlett beam angle for each sample
+- `/rbd/num_selected_angles`: number of accepted multipath beam peaks
+- `/rbd/theta_selected_rad`: accepted multipath steering angles, padded with
+  `NaN`
+- `/rbd/selected_beam_power`: beam power for each accepted steering angle,
+  padded with `NaN`
+- `/rbd/beam_power`: full Bartlett beam-power scan over `/rbd/theta_vec_rad`
+- `/rbd/signal_freq_scale`: spectrum normalization scale used by RBD
 
 The dataset is loaded lazily with `h5py`, so samples are read on demand instead
 of loading the whole HDF5 file into memory.
@@ -66,6 +74,35 @@ range around the minimum range point. The full candidate segmentation interval
 is still recorded in `*_metadata.json` as `candidate_segment_start_s` and
 `candidate_segment_end_s`.
 
+## MATLAB RBD Multipath Peak Detection
+
+`Signals_Segmentation.m`, `Signals_Analysis.m`, and `RBD_main.m` can enable
+multi-peak Bartlett beam detection before estimating the equivalent Green's
+function:
+
+```matlab
+multipath_beam = true;
+if multipath_beam
+    multipath_peak_threshold_db = -6;
+    multipath_min_separation_deg = 2;
+    multipath_max_num_peaks = Inf;
+    multipath_sidelobe_reject_db = 3;
+end
+```
+
+When `multipath_beam` is `false`, RBD uses only the strongest beam angle. When
+it is `true`, `rbd_decompose` detects local beam-power peaks above the relative
+threshold, enforces minimum angular separation, rejects candidates that can be
+explained by sidelobe leakage from already selected peaks, and then sums the
+Green's-function components from the accepted arrivals.
+
+The HDF5 neural-network input `/X` remains the same shape and still stores the
+summed complex Green's function. The additional `/rbd/...` datasets preserve the
+beam diagnostics and accepted multipath arrivals for later analysis.
+
+See [RBD multipath peak detection](rbd_multipath_detection.md) for the detailed
+algorithm and output fields.
+
 ## Dataset Contract
 
 The HDF5 dataset contract is:
@@ -76,6 +113,13 @@ The HDF5 dataset contract is:
 /valid_sample              optional, boolean mask
 /split/source_segment_idx  optional, original segment id
 /time/window_center_s      optional, plotting x-axis
+/rbd/theta_best_rad        optional, strongest beam angle [rad]
+/rbd/num_selected_angles   optional, accepted multipath peak count
+/rbd/theta_selected_rad    optional, accepted peak angles [rad], NaN-padded
+/rbd/selected_beam_power   optional, accepted peak beam powers, NaN-padded
+/rbd/beam_power            optional, full beam-power scan
+/rbd/theta_vec_rad         optional, beam scan angle grid [rad]
+/rbd/signal_freq_scale     optional, RBD spectrum normalization scale
 ```
 
 The loader accepts either Python-style layout:
