@@ -12,6 +12,8 @@ registry in `network/model.py`:
 MODEL_REGISTRY = {
     "complex_cnn_range": (ComplexRangeCNNConfig, ComplexRangeCNN),
     "real_cnn_range": (RealRangeCNNConfig, RealRangeCNN),
+    "resnet18_range": (ResNetRangeConfig, ResNet18Range),
+    "resnet50_range": (ResNetRangeConfig, ResNet50Range),
 }
 ```
 

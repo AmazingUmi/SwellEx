@@ -73,6 +73,10 @@ omega = 2 * pi * freq_hz;
 signal_freq_seg = fft(signal_time_seg, segment_num_samples, 2);
 signal_freq_seg = signal_freq_seg(:, 1:num_freq_bins);
 
+% Normalize: D_j(omega) = P_tilde_j(omega) / sqrt(sum_j abs(P_tilde_j(omega))^2)
+signal_freq_norm_factor = sqrt(sum(abs(signal_freq_seg).^2, 1));  % 1 x Nf
+signal_freq_seg_Dj = signal_freq_seg ./ (signal_freq_norm_factor + eps);
+
 signal_freq_scale = 1;
 if normalize_spectrum
     signal_freq_power_by_element = sum(abs(signal_freq_seg).^2, 2);
@@ -114,11 +118,15 @@ for selected_idx = 1:num_selected_angles
     phase_rotation_components(selected_idx, :) = ...
         exp(-1j * angle(beam_selected)).';
     green_freq_components(:, :, selected_idx) = ...
-        signal_freq_seg .* phase_rotation_components(selected_idx, :);
+        signal_freq_seg_Dj .* phase_rotation_components(selected_idx, :);
 end
 
 green_freq = sum(green_freq_components .* ...
     reshape(green_freq_weights, 1, 1, num_selected_angles), 3);
+% Normalize the Green's function to have consistent scaling across frequencies.
+% green_freq_norm_factor = sqrt(sum(abs(green_freq).^2, 1));
+% green_freq = green_freq ./ (green_freq_norm_factor + eps);
+
 phase_rotation = phase_rotation_components(1, :);
 
 result = struct();

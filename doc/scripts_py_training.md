@@ -58,6 +58,10 @@ The built-in model choices are:
   input channels
 - `real_cnn_range`: real-valued convolution model that converts real/imaginary
   input to magnitude, then normalizes the magnitude map inside the model
+- `resnet18_range`: torchvision ResNet-18 with a two-channel input stem and
+  scalar regression head
+- `resnet50_range`: torchvision ResNet-50 with the same RBD input/output
+  adaptation
 
 To train the real-valued magnitude model:
 
@@ -65,6 +69,25 @@ To train the real-valued magnitude model:
 python scripts_py/Network_main.py train `
   --model real_cnn_range `
   --data periodic_4_1 `
+  --no-resume
+```
+
+To train a ResNet model:
+
+```powershell
+python scripts_py/Network_main.py train `
+  --model resnet18_range `
+  --data periodic_4_1 `
+  --no-resume
+```
+
+Use a smaller batch size for `resnet50_range` if GPU memory is limited:
+
+```powershell
+python scripts_py/Network_main.py train `
+  --model resnet50_range `
+  --data periodic_4_1 `
+  --batch-size 4 `
   --no-resume
 ```
 

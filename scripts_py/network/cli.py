@@ -11,7 +11,12 @@ from .paths import (
 )
 
 
-MODEL_CHOICES = ["complex_cnn_range", "real_cnn_range"]
+MODEL_CHOICES = [
+    "complex_cnn_range",
+    "real_cnn_range",
+    "resnet18_range",
+    "resnet50_range",
+]
 
 
 try:

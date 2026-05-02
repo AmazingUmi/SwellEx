@@ -15,16 +15,25 @@ from .models.model_real_cnn_range import (
     ModelConfig as RealRangeCNNConfig,
     RealRangeCNN,
 )
+from .models.model_resnet_range import (
+    ModelConfig as ResNetRangeConfig,
+    ResNet18Range,
+    ResNet50Range,
+)
 
 
 MODEL_REGISTRY = {
     "complex_cnn_range": (ComplexRangeCNNConfig, ComplexRangeCNN),
     "real_cnn_range": (RealRangeCNNConfig, RealRangeCNN),
+    "resnet18_range": (ResNetRangeConfig, ResNet18Range),
+    "resnet50_range": (ResNetRangeConfig, ResNet50Range),
 }
 
 MODEL_DATASET_INPUT_NORM = {
     "complex_cnn_range": True,
     "real_cnn_range": False,
+    "resnet18_range": True,
+    "resnet50_range": True,
 }
 
 

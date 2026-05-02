@@ -41,7 +41,7 @@ segment_end_s   = [];           % last segment start time [s];
 % Dataset output and split strategy
 save_results = true;
 split_strategy = "Range_nearby";    % "periodic" or "Range_nearby"
-dataset_variant_tag = "Multipath";           % user-controlled suffix for output files
+dataset_variant_tag = "before_singlepath_nonormal";           % user-controlled suffix for output files
 
 switch split_strategy
     case "periodic"
@@ -55,7 +55,7 @@ switch split_strategy
         % Skip windows nearest to the minimum range point.
         split_options.gap_s = 30;
         % Use "before" or "after" the minimum range point for training.
-        split_options.train_side = "after";
+        split_options.train_side = "before";
     otherwise
         error('Unsupported split_strategy: %s.', split_strategy);
 end
@@ -63,8 +63,8 @@ end
 % RBD feature extraction
 theta_vec = linspace(-90, 90, 181) * pi / 180;   % [rad]
 use_plane_wave = false;
-normalize_spectrum = true;
-multipath_beam = true;
+normalize_spectrum = false;
+multipath_beam = false;
 if multipath_beam
     multipath_peak_threshold_db = -6;
     multipath_min_separation_deg = 2;
@@ -229,8 +229,13 @@ if save_results
         segment_range_km, segment_center_time_s, segment_step_s, ...
         split_options);
 
+    dataset_variant_tag = sanitize_dataset_variant_tag(dataset_variant_tag);
     split_strategy_dir_name = SS_make_split_strategy_dir_name( ...
         split_strategy, split_metadata);
+    if strlength(dataset_variant_tag) > 0
+        split_strategy_dir_name = sprintf('%s_%s', ...
+            split_strategy_dir_name, dataset_variant_tag);
+    end
     results_dir = fullfile(project_dir, 'outputs', 'Datasets', ...
         split_strategy_dir_name);
     if ~isfolder(results_dir)
@@ -239,7 +244,6 @@ if save_results
 
     dataset_tag = SS_make_dataset_tag(split_strategy, split_metadata, ...
         segment_start_s, segment_end_s, segment_step_s);
-    dataset_variant_tag = sanitize_dataset_variant_tag(dataset_variant_tag);
     if strlength(dataset_variant_tag) > 0
         dataset_tag = sprintf('%s_%s', dataset_tag, dataset_variant_tag);
     end

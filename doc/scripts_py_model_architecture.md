@@ -106,3 +106,30 @@ mag_norm = (mag - sample_mean) / sample_std
 Then `mag_norm` is passed to a real-valued CNN. Because this model performs
 magnitude normalization internally, the training pipeline automatically disables
 the dataset-level real/imaginary channel normalization for `real_cnn_range`.
+
+## Torchvision ResNet Models
+
+`resnet18_range` and `resnet50_range` use torchvision ResNet backbones with
+ImageNet weights disabled. They receive the same real/imaginary tensor:
+
+```text
+x: [batch, 2, element, frequency]
+```
+
+The first convolution is replaced with a two-channel RBD input stem:
+
+```text
+Conv2d(2, 64, kernel_size=3, stride=(1, 2), padding=1)
+```
+
+The original ResNet max-pooling layer is replaced with `Identity()` so the
+small array-element dimension is not downsampled too aggressively. The final
+classification layer is replaced with:
+
+```text
+Dropout(p=0.15)
+Linear(backbone_features, 1)
+```
+
+The scalar output is the normalized range prediction used by the shared
+training loop.

@@ -22,6 +22,8 @@ Built-in models:
 
 - `complex_cnn_range`: complex-valued CNN using real/imaginary channels
 - `real_cnn_range`: real-valued CNN using normalized complex magnitude
+- `resnet18_range`: torchvision ResNet-18 adapted to two-channel RBD input
+- `resnet50_range`: torchvision ResNet-50 adapted to two-channel RBD input
 
 Default outputs are written under:
 
@@ -47,6 +49,7 @@ The implementation is split by function under `scripts_py/network/`:
   `ComplexRangeCNN`
 - `models/model_real_cnn_range.py`: real convolution model using normalized
   complex magnitude
+- `models/model_resnet_range.py`: torchvision ResNet-18/50 range regressors
 - `training.py`: target normalization, metrics, checkpoint resume, and training
   loop
 - `prediction.py`: checkpoint loading, CSV writing, and prediction plot output
