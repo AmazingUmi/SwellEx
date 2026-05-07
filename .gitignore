@@ -3,6 +3,7 @@
 
 # Repository documentation and source code.
 !.gitignore
+!.gitattributes
 !README.md
 !doc/
 !doc/**
@@ -10,6 +11,8 @@
 !scripts_py/**
 !scripts_matlab/
 !scripts_matlab/**
+!simulation/
+!simulation/**
 
 # Python cache and local environments.
 scripts_py/**/__pycache__/
