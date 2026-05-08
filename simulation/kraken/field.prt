@@ -1,0 +1,53 @@
+
+ __________________________________________________________________________
+ Running FIELD
+ Sums modes, producing pressure
+
+ Point source
+ Omnidirectional source
+ Coherent mode addition
+
+    Number of Profile ranges, RProf =            1
+    Profile ranges, RProf (km)
+                 0.00000    
+
+ Range-independent calculation
+
+    Number of Receiver r-coordinates, Rr =          500
+    Receiver r-coordinates, Rr (km)
+                0.200000E-01  0.400000E-01  0.600000E-01  0.800000E-01
+  0.100000      0.120000      0.140000      0.160000      0.180000    
+  0.200000    
+          ... 
+   10.0000    
+
+
+    Number of Source   z-coordinates, Sz =           50
+    Source   z-coordinates, Sz (m)
+                 2.00000       6.04082       10.0816       14.1224    
+   18.1633       22.2041       26.2449       30.2857       34.3265    
+   38.3673    
+          ... 
+   200.000    
+
+ __________________________________________________________________________
+
+    Number of Receiver z-coordinates, Rz =           21
+    Receiver z-coordinates, Rz (m)
+                 94.1250       99.7550       105.380       111.000    
+   116.620       122.250       127.880       139.120       144.740    
+   150.380    
+          ... 
+   212.250    
+
+
+    Number of receiver range offsets (array tilt), Rro =           21
+    receiver range offsets (array tilt), Rro (m)
+                 0.00000       0.00000       0.00000       0.00000    
+   0.00000       0.00000       0.00000       0.00000       0.00000    
+   0.00000    
+          ... 
+   0.00000    
+
+
+ Field completed successfully

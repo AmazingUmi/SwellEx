@@ -16,7 +16,7 @@ project_dir = fileparts(scripts_dir);
 
 cd(script_dir);
 addpath(script_dir);
-addpath(fullfile(scripts_dir, 'function'));
+addpath(genpath(fullfile(scripts_dir, 'function')));
 clear tmp;
 
 %% Input path

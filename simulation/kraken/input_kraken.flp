@@ -1,0 +1,13 @@
+'Field- Arcmfp-1 Track'    ! TITLE
+'RAO'                      ! OPT: R=range/depth coordinates, A=adiabatic modes, O=omnidirectional source
+9999                       ! MLimit: maximum number of modes to include
+1                          ! NProf: number of mode-profile ranges
+0.0                        ! RProf(1:NProf), km; first profile must be 0 km
+500                        ! NRr: number of receiver ranges
+0.020 10.0 /               ! Rr(1:NRr), km; '/' means linearly spaced from 0.020 to 10.0 km
+50                         ! NSz: number of source-depth grid points
+2 200 /                    ! Sz(1:NSz), m; source depths linearly spaced from 2 to 200 m
+21                         ! NRz: number of receiver depths / array elements
+94.125 99.755 105.38 111.00 116.62 122.25 127.88 139.12 144.74 150.38 155.99 161.62 167.26 172.88 178.49 184.12 189.76 195.38 200.99 206.62 212.25  ! Rz(1:NRz), m
+21                         ! NRro: number of receiver range offsets; must equal NRz
+0.0 /                      ! Rro(1:NRro), m; all offsets repeated as 0.0, vertical array with no tilt

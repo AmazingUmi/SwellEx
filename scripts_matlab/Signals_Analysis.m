@@ -24,7 +24,7 @@ project_dir = fileparts(script_dir);
 
 cd(script_dir);
 addpath(script_dir);
-addpath(fullfile(script_dir, 'RBD_function'));
+addpath(genpath(fullfile(script_dir, 'function')));
 clear tmp;
 
 %% User parameters

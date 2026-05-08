@@ -18,6 +18,8 @@ scripts_dir = fileparts(script_dir);
 project_dir = fileparts(scripts_dir);
 
 cd(script_dir);
+addpath(script_dir);
+addpath(genpath(fullfile(scripts_dir, 'function')));
 clear tmp;
 
 %% User options
