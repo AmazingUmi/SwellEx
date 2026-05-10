@@ -295,16 +295,16 @@
    10.0000    
 
 
- Coherent TL calculation
+ Ray trace run
  Geometric hat beams in Cartesian coordinates
  Point source (cylindrical coordinates)
  Rectilinear receiver grid: Receivers at Rr( : ) x Rz( : )
  __________________________________________________________________________
 
-    Number of beams in elevation   =         1451
+    Number of beams in elevation   =           50
     Beam take-off angles (degrees)
-  -80.0000      -79.8897      -79.7793      -79.6690      -79.5586    
-  -79.4483      -79.3379      -79.2276      -79.1172      -79.0069    
+  -80.0000      -76.7347      -73.4694      -70.2041      -66.9388    
+  -63.6735      -60.4082      -57.1429      -53.8776      -50.6122    
           ... 
    80.0000    
 
@@ -321,61 +321,54 @@
 
 
 Tracing beam       1    -80.00
+Tracing beam       2    -76.73
+Tracing beam       3    -73.47
+Tracing beam       4    -70.20
+Tracing beam       5    -66.94
+Tracing beam       6    -63.67
+Tracing beam       7    -60.41
+Tracing beam       8    -57.14
+Tracing beam       9    -53.88
+Tracing beam      10    -50.61
+Tracing beam      11    -47.35
+Tracing beam      12    -44.08
+Tracing beam      13    -40.82
+Tracing beam      14    -37.55
+Tracing beam      15    -34.29
+Tracing beam      16    -31.02
+Tracing beam      17    -27.76
+Tracing beam      18    -24.49
+Tracing beam      19    -21.22
+Tracing beam      20    -17.96
+Tracing beam      21    -14.69
+Tracing beam      22    -11.43
+Tracing beam      23     -8.16
+Tracing beam      24     -4.90
+Tracing beam      25     -1.63
+Tracing beam      26      1.63
+Tracing beam      27      4.90
+Tracing beam      28      8.16
+Tracing beam      29     11.43
+Tracing beam      30     14.69
+Tracing beam      31     17.96
+Tracing beam      32     21.22
+Tracing beam      33     24.49
+Tracing beam      34     27.76
+Tracing beam      35     31.02
+Tracing beam      36     34.29
+Tracing beam      37     37.55
+Tracing beam      38     40.82
+Tracing beam      39     44.08
+Tracing beam      40     47.35
+Tracing beam      41     50.61
+Tracing beam      42     53.88
+Tracing beam      43     57.14
+Tracing beam      44     60.41
+Tracing beam      45     63.67
+Tracing beam      46     66.94
+Tracing beam      47     70.20
+Tracing beam      48     73.47
+Tracing beam      49     76.73
+Tracing beam      50     80.00
 
- Geometric hat beams                     
- HalfWidth  =    648.29947472439494     
- epsilonOpt =                (0.0000000000000000,512310123.38045198)
- EpsMult    =    1.0000000000000000     
-
-Tracing beam      30    -76.80
-Tracing beam      59    -73.60
-Tracing beam      88    -70.40
-Tracing beam     117    -67.20
-Tracing beam     146    -64.00
-Tracing beam     175    -60.80
-Tracing beam     204    -57.60
-Tracing beam     233    -54.40
-Tracing beam     262    -51.20
-Tracing beam     291    -48.00
-Tracing beam     320    -44.80
-Tracing beam     349    -41.60
-Tracing beam     378    -38.40
-Tracing beam     407    -35.20
-Tracing beam     436    -32.00
-Tracing beam     465    -28.80
-Tracing beam     494    -25.60
-Tracing beam     523    -22.40
-Tracing beam     552    -19.20
-Tracing beam     581    -16.00
-Tracing beam     610    -12.80
-Tracing beam     639     -9.60
-Tracing beam     668     -6.40
-Tracing beam     697     -3.20
-Tracing beam     726     -0.00
-Tracing beam     755      3.20
-Tracing beam     784      6.40
-Tracing beam     813      9.60
-Tracing beam     842     12.80
-Tracing beam     871     16.00
-Tracing beam     900     19.20
-Tracing beam     929     22.40
-Tracing beam     958     25.60
-Tracing beam     987     28.80
-Tracing beam    1016     32.00
-Tracing beam    1045     35.20
-Tracing beam    1074     38.40
-Tracing beam    1103     41.60
-Tracing beam    1132     44.80
-Tracing beam    1161     48.00
-Tracing beam    1190     51.20
-Tracing beam    1219     54.40
-Tracing beam    1248     57.60
-Tracing beam    1277     60.80
-Tracing beam    1306     64.00
-Tracing beam    1335     67.20
-Tracing beam    1364     70.40
-Tracing beam    1393     73.60
-Tracing beam    1422     76.80
-Tracing beam    1451     80.00
-
- CPU Time =        1.69    s
+ CPU Time =       0.562    s
