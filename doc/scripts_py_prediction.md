@@ -1,45 +1,61 @@
 # Prediction Workflow
 
-## Basic Prediction
+Prediction also uses method-specific entry points.
 
-```powershell
-python scripts_py/Network_main.py predict `
-  --model complex_cnn_range `
-  --data periodic_4_1
+## RBD Prediction
+
+```bash
+python3 scripts_py/RBD_method/Network_main.py predict \
+  --model complex_cnn_range \
+  --data Range_nearby_after_800s_gap15s_test_no_beamformer
 ```
 
-If `--checkpoint` is omitted, prediction first tries
-`outputs/networks_results/<model_name>/train_outputs/<dataset>_best.pt`. If
-that fixed path does not exist, the newest
-`<dataset>_best_MMDD_HHMMSS.pt` file in the model's `train_outputs` directory is
-used automatically.
+## ELM Prediction
 
-The checkpoint contains `model_name` and, for new checkpoints, `dataset_name`,
-so prediction reconstructs the matching registered model and fails fast if the
-checkpoint does not match `--model` or `--data`.
+```bash
+python3 scripts_py/ELM_method/Network_main.py predict \
+  --model elm_complex_cnn_range \
+  --data Range_nearby_after_800s_gap15s_elm_pairwise_ratio
+```
 
-Older checkpoints without the dataset prefix, such as `best_0426_162801.pt`,
-are not used by automatic lookup. Pass them explicitly with `--checkpoint` if
-they are still needed.
+If `--checkpoint` is omitted, prediction first tries:
+
+```text
+outputs/networks_results/<method>/<model>/train_outputs/<dataset>_best.pt
+```
+
+If that fixed path does not exist, it uses the newest timestamped:
+
+```text
+<dataset>_best_MMDD_HHMMSS.pt
+```
 
 ## Outputs
 
-Predictions are written to:
+RBD predictions:
 
 ```text
-outputs/networks_results/complex_cnn_range/test_outputs/periodic_4_1_predictions_MMDD_HHMMSS.csv
+outputs/networks_results/RBD_method/<model>/test_outputs/<dataset>_predictions_MMDD_HHMMSS.csv
+outputs/networks_results/RBD_method/<model>/test_outputs/<dataset>_range_prediction_MMDD_HHMMSS.png
 ```
 
-A plot is also written to:
+ELM predictions:
 
 ```text
-outputs/networks_results/complex_cnn_range/test_outputs/periodic_4_1_range_prediction_MMDD_HHMMSS.png
+outputs/networks_results/ELM_method/<model>/test_outputs/<dataset>_predictions_MMDD_HHMMSS.csv
+outputs/networks_results/ELM_method/<model>/test_outputs/<dataset>_range_prediction_MMDD_HHMMSS.png
 ```
 
-The prediction CSV includes `source_segment_idx` when the HDF5 file provides
-`/split/source_segment_idx`, so rows can be mapped back to MATLAB's global
-segment numbering.
+Prediction CSV fields:
 
-The plot draws the label range as a connected line over `window_center_s` and
-draws the predicted ranges as scatter points. Use `--no-plot` to skip plot
-generation, or `--plot-path` to choose another output file.
+```text
+sample
+source_segment_idx
+window_center_s
+pred_range_km
+true_range_km
+abs_error_km
+```
+
+Use `--no-plot` to skip plot generation, or `--plot-path` to choose another
+plot path.

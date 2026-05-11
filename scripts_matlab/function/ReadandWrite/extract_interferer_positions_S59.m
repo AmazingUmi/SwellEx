@@ -14,6 +14,7 @@ end
 function_dir = fileparts(script_dir);
 scripts_dir = fileparts(function_dir);
 project_dir = fileparts(scripts_dir);
+origindata_dir = fullfile(project_dir, 'Origindata');
 
 cd(script_dir);
 addpath(script_dir);
@@ -21,10 +22,10 @@ addpath(genpath(function_dir));
 clear tmp;
 
 %% Input and output paths
-xlsx_file = fullfile(project_dir, 'events', 'S59', 'Interferer_Positions.xlsx');
+xlsx_file = fullfile(origindata_dir, 'events', 'S59', 'Interferer_Positions.xlsx');
 assert(isfile(xlsx_file) == 1, 'File not found: %s', xlsx_file);
 
-output_file = fullfile(project_dir, 'events', 'S59', 'Interferer_Positions_deg.m');
+output_file = fullfile(origindata_dir, 'events', 'S59', 'Interferer_Positions_deg.m');
 
 %% Read and convert
 position_table = readtable(xlsx_file, 'PreserveVariableNames', true);

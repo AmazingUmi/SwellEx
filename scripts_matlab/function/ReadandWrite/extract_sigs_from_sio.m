@@ -14,6 +14,7 @@ end
 function_dir = fileparts(script_dir);
 scripts_dir = fileparts(function_dir);
 project_dir = fileparts(scripts_dir);
+origindata_dir = fullfile(project_dir, 'Origindata');
 
 cd(script_dir);
 addpath(script_dir);
@@ -21,8 +22,8 @@ addpath(genpath(function_dir));
 clear tmp;
 
 %% Input and output paths
-sio_file = fullfile(project_dir, 'events', 'S5', 'J1312315.vla.21els.sio');
-output_dir = fullfile(project_dir, 'events', 'S5', 'vla_matfiles');
+sio_file = fullfile(origindata_dir, 'events', 'S5', 'J1312315.vla.21els.sio');
+output_dir = fullfile(origindata_dir, 'events', 'S5', 'vla_matfiles');
 output_name_fmt = 'S5_VLA_NO_%d.mat';
 
 if ~isfolder(output_dir)

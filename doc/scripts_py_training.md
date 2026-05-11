@@ -1,168 +1,117 @@
 # Training Workflow
 
-## Basic Training
+The Python training code is now split by method.
 
-From the project root, explicitly pass a model and a dataset:
-
-```powershell
-python scripts_py/Network_main.py train `
-  --model complex_cnn_range `
-  --data periodic_4_1
+```text
+scripts_py/RBD_method/Network_main.py
+scripts_py/ELM_method/Network_main.py
 ```
 
-The command above resolves the dataset directory
-`outputs/Datasets/periodic_4_1`, loads `*_train.h5`, uses `*_val.h5` when
-present, and otherwise splits the training files 3:1 into training and
-validation sets:
+Both commands read datasets from `outputs/Datasets/<dataset_name>/` and write
+results under method-specific output roots:
 
-- source: `outputs/Datasets/periodic_4_1/*_train.h5`
-- train/val split: 75% / 25%
-
-Useful options:
-
-```powershell
-python scripts_py/Network_main.py train `
-  --model complex_cnn_range `
-  --data periodic_4_1 `
-  --val-fraction 0.25 `
-  --epochs 200 `
-  --batch-size 16 `
-  --lr 3e-4 `
-  --output-dir outputs/networks_results
+```text
+outputs/networks_results/RBD_method/
+outputs/networks_results/ELM_method/
 ```
 
-For custom HDF5 globs, still pass the dataset code through `--data` and override
-the training files with `--train-data`:
+## RBD Training
 
-```powershell
-python scripts_py/Network_main.py train `
-  --model complex_cnn_range `
-  --data periodic_4_1 `
-  --train-data "outputs/Datasets/periodic_4_1/*_train.h5"
+RBD HDF5 input:
+
+```text
+/X: [sample, element, frequency, real_imag]
+torch: [batch, 2, element, frequency]
 ```
 
-## Model Selection
+Example:
 
-Use `--model complex_cnn_range` to select the complex model:
-
-```powershell
-python scripts_py/Network_main.py train `
-  --model complex_cnn_range `
-  --data periodic_4_1 `
-  --no-resume
+```bash
+python3 scripts_py/RBD_method/Network_main.py train \
+  --model complex_cnn_range \
+  --data Range_nearby_after_800s_gap15s_test_no_beamformer
 ```
 
-The built-in model choices are:
+Available RBD models:
 
-- `complex_cnn_range`: complex-valued convolution model using real/imaginary
-  input channels
-- `real_cnn_range`: real-valued convolution model that converts real/imaginary
-  input to magnitude, then normalizes the magnitude map inside the model
-- `resnet18_range`: torchvision ResNet-18 with a two-channel input stem and
-  scalar regression head
-- `resnet50_range`: torchvision ResNet-50 with the same RBD input/output
-  adaptation
+- `complex_cnn_range`
+- `real_cnn_range`
+- `resnet18_range`
+- `resnet50_range`
 
-To train the real-valued magnitude model:
+## ELM Training
 
-```powershell
-python scripts_py/Network_main.py train `
-  --model real_cnn_range `
-  --data periodic_4_1 `
-  --no-resume
+ELM HDF5 input:
+
+```text
+/X: [sample, numerator_element, denominator_element, frequency, real_imag]
+torch: [batch, 2, element_pair, frequency]
 ```
 
-To train a ResNet model:
+where:
 
-```powershell
-python scripts_py/Network_main.py train `
-  --model resnet18_range `
-  --data periodic_4_1 `
-  --no-resume
+```text
+element_pair = numerator_element * denominator_element
 ```
 
-Use a smaller batch size for `resnet50_range` if GPU memory is limited:
+Example:
 
-```powershell
-python scripts_py/Network_main.py train `
-  --model resnet50_range `
-  --data periodic_4_1 `
-  --batch-size 4 `
-  --no-resume
+```bash
+python3 scripts_py/ELM_method/Network_main.py train \
+  --model elm_complex_cnn_range \
+  --data Range_nearby_after_800s_gap15s_elm_pairwise_ratio
 ```
 
-To use a fixed validation split instead of a random split from the training
-files, pass both `--train-data` and `--val-data`.
+Available ELM models:
+
+- `elm_complex_cnn_range`
+- `elm_real_cnn_range`
+- `elm_resnet18_range`
+- `elm_resnet50_range`
+
+## Common Options
+
+```bash
+--epochs 100
+--batch-size 16
+--lr 3e-4
+--weight-decay 1e-4
+--val-fraction 0.25
+--no-resume
+--resume-checkpoint <path>
+--train-data "outputs/Datasets/<dataset>/*_train.h5"
+--val-data "outputs/Datasets/<dataset>/*_val.h5"
+```
+
+If `*_val.h5` is not present and `--val-data` is omitted, the selected training
+files are split into train/validation sets by `--seed` and `--val-fraction`.
 
 ## Outputs
 
-Training writes:
-
-- `outputs/networks_results/<model_name>/train_outputs/<dataset>_best_MMDD_HHMMSS.pt`
-- `outputs/networks_results/<model_name>/train_outputs/<dataset>_last_MMDD_HHMMSS.pt`
-- `outputs/networks_results/<model_name>/train_outputs/<dataset>_history_MMDD_HHMMSS.json`
-
-For `complex_cnn_range` trained on `periodic_4_1`, these are:
-
-- `outputs/networks_results/complex_cnn_range/train_outputs/periodic_4_1_best_MMDD_HHMMSS.pt`
-- `outputs/networks_results/complex_cnn_range/train_outputs/periodic_4_1_last_MMDD_HHMMSS.pt`
-- `outputs/networks_results/complex_cnn_range/train_outputs/periodic_4_1_history_MMDD_HHMMSS.json`
-
-`--output-dir` is the base output directory. With the default `--output-dir
-outputs/networks_results`, each model gets its own result folder:
+RBD example:
 
 ```text
-outputs/
-  networks_results/
-    complex_cnn_range/
-      train_outputs/
-      test_outputs/
+outputs/networks_results/RBD_method/<model>/train_outputs/<dataset>_best_MMDD_HHMMSS.pt
+outputs/networks_results/RBD_method/<model>/train_outputs/<dataset>_last_MMDD_HHMMSS.pt
+outputs/networks_results/RBD_method/<model>/train_outputs/<dataset>_history_MMDD_HHMMSS.json
 ```
 
-If `--output-dir` already names the model folder, for example
-`--output-dir outputs/networks_results/complex_cnn_range`, the script uses that
-folder directly and does not create
-`outputs/networks_results/complex_cnn_range/complex_cnn_range`.
+ELM example:
 
-## Resume Training
-
-When a previous `<dataset>_last_MMDD_HHMMSS.pt` exists under
-`outputs/networks_results/<model_name>/train_outputs`, `train` automatically
-continues from the newest checkpoint for the selected `--model` and `--data`.
-In this case `--epochs` is the number of additional epochs to run.
-
-Use `--no-resume` to force a fresh run, or `--resume-checkpoint
-path/to/checkpoint.pt` to continue from a specific file. New checkpoints store
-`dataset_name`; resume fails if the checkpoint dataset does not match `--data`.
-
-Examples:
-
-```powershell
-# Continue from the newest saved last checkpoint for 50 more epochs.
-python scripts_py/Network_main.py train `
-  --model complex_cnn_range `
-  --data periodic_4_1 `
-  --epochs 50
-
-# Start a new run and ignore previous checkpoints.
-python scripts_py/Network_main.py train `
-  --model complex_cnn_range `
-  --data periodic_4_1 `
-  --no-resume
-
-# Continue from a specific checkpoint.
-python scripts_py/Network_main.py train `
-  --model complex_cnn_range `
-  --data periodic_4_1 `
-  --resume-checkpoint outputs/networks_results/complex_cnn_range/train_outputs/periodic_4_1_last_0426_102042.pt `
-  --epochs 50
+```text
+outputs/networks_results/ELM_method/<model>/train_outputs/<dataset>_best_MMDD_HHMMSS.pt
+outputs/networks_results/ELM_method/<model>/train_outputs/<dataset>_last_MMDD_HHMMSS.pt
+outputs/networks_results/ELM_method/<model>/train_outputs/<dataset>_history_MMDD_HHMMSS.json
 ```
 
-Each checkpoint stores enough state to resume training:
+Checkpoints store:
 
-- `model_name` and `model_config`
+- `model_name`
+- `model_config`
 - model weights
 - optimizer and scheduler state
 - target normalization statistics
+- input normalization flag
 - train/validation split metadata
+- source HDF5 paths
 - full training history

@@ -11,6 +11,7 @@ end
 function_dir = fileparts(script_dir);
 scripts_dir = fileparts(function_dir);
 project_dir = fileparts(scripts_dir);
+origindata_dir = fullfile(project_dir, 'Origindata');
 
 cd(script_dir);
 addpath(script_dir);
@@ -18,7 +19,7 @@ addpath(genpath(function_dir));
 clear tmp;
 
 %% Output path
-output_file = fullfile(project_dir, 'source', 'SourceInfo.mat');
+output_file = fullfile(origindata_dir, 'source', 'SourceInfo.mat');
 output_dir = fileparts(output_file);
 if ~isfolder(output_dir)
     mkdir(output_dir);

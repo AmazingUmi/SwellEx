@@ -14,6 +14,7 @@ end
 function_dir = fileparts(script_dir);
 scripts_dir = fileparts(function_dir);
 project_dir = fileparts(scripts_dir);
+origindata_dir = fullfile(project_dir, 'Origindata');
 
 cd(script_dir);
 addpath(script_dir);
@@ -21,10 +22,10 @@ addpath(genpath(function_dir));
 clear tmp;
 
 %% Input and output paths
-ctd_file = fullfile(project_dir, 'environments', 'ctds', 'i9605.prn');
+ctd_file = fullfile(origindata_dir, 'environments', 'ctds', 'i9605.prn');
 assert(isfile(ctd_file) == 1, 'File not found: %s', ctd_file);
 
-output_file = fullfile(project_dir, 'events', 'S5', 'CTD_i9605.mat');
+output_file = fullfile(origindata_dir, 'events', 'S5', 'CTD_i9605.mat');
 output_dir = fileparts(output_file);
 if ~isfolder(output_dir)
     mkdir(output_dir);
@@ -67,8 +68,8 @@ sgtitle(sprintf('CTD: %s', ctd_info.filename));
 %% Save
 save_output = true;
 if save_output
-    T = ctd_table; %#ok<NASGU>
-    CTD = ctd_info; %#ok<NASGU>
+    T = ctd_table;
+    CTD = ctd_info;
     save(output_file, 'T', 'CTD');
     fprintf('Saved: %s\n', output_file);
 end

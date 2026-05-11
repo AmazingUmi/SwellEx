@@ -5,9 +5,9 @@
 The RBD preprocessing can now use multiple Bartlett beam-power peaks instead of
 only the strongest steering angle. This is controlled by `multipath_beam` in:
 
-- `scripts_matlab/RBD_main.m`
-- `scripts_matlab/Signals_Analysis.m`
-- `scripts_matlab/Signals_Segmentation.m`
+- `scripts_matlab/RBD_method/RBD_main.m`
+- `scripts_matlab/RBD_method/Signals_Analysis.m`
+- `scripts_matlab/RBD_method/Signals_Segmentation.m`
 
 When enabled, the selected arrivals are used to construct the equivalent
 frequency-domain Green's function. Dataset files also store the selected angles

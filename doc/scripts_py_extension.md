@@ -1,138 +1,91 @@
-# Shared Interfaces and Extension Guide
+# Python Extension Guide
 
-## Shared Interfaces
-
-The training and prediction code no longer instantiate `ComplexRangeCNN`
-directly. Concrete model implementations live in separate files such as
-`network/models/model_complex_cnn_range.py` and
-`network/models/model_real_cnn_range.py`. New models should be added through the
-registry in `network/model.py`:
-
-```python
-MODEL_REGISTRY = {
-    "complex_cnn_range": (ComplexRangeCNNConfig, ComplexRangeCNN),
-    "real_cnn_range": (RealRangeCNNConfig, RealRangeCNN),
-    "resnet18_range": (ResNetRangeConfig, ResNet18Range),
-    "resnet50_range": (ResNetRangeConfig, ResNet50Range),
-}
-```
-
-The shared helpers are:
-
-- `build_model_config(model_name, input_shape, ...)`: creates the config for a
-  selected model
-- `build_model(model_name, config)`: constructs the PyTorch module
-- `model_config_from_checkpoint(checkpoint)`: restores the model type and config
-  for resume and prediction
-- `serialize_model_config(config)`: stores config data in checkpoint files
-
-Data preparation is centralized in `network/data.py`:
-
-- `RbdRangeH5Dataset`: lazy HDF5 dataset
-- `random_split_bundle(...)`: one dataset with seeded random train/validation
-  split
-- `fixed_split_bundle(...)`: separate training and validation HDF5 inputs
-- `DatasetBundle`: common object consumed by the training loop
-
-This means new model architectures or new split strategies should plug into the
-registry or return a `DatasetBundle`, while the epoch loop, checkpoint format,
-resume logic, prediction CSV, and plot generation remain shared.
-
-## Change Model
-
-The public training and prediction code should stay model-agnostic:
+The Python code is intentionally split by feature family:
 
 ```text
-Network_main.py
-  -> network.cli
-      -> network.training
-          -> network.model
-          -> network.data
-      -> network.prediction
-          -> network.model
-          -> network.data
+scripts_py/RBD_method/network/
+scripts_py/ELM_method/network/
 ```
 
-To add a new model architecture:
-
-1. Create a new file under `scripts_py/network/models/`, for example:
+Use the RBD method when the HDF5 input is:
 
 ```text
-scripts_py/network/models/model_real_cnn_range.py
+[sample, element, frequency, real_imag]
 ```
 
-2. Define a dataclass config and a PyTorch module. The config must include
-   `input_elements` and `input_freq_bins`, because `network/model.py` fills
-   those fields from the HDF5 input shape:
+Use the ELM method when the HDF5 input is:
+
+```text
+[sample, numerator_element, denominator_element, frequency, real_imag]
+```
+
+## Add A Model
+
+Each method has its own registry:
+
+```text
+scripts_py/RBD_method/network/model.py
+scripts_py/ELM_method/network/model.py
+```
+
+Add the implementation under the matching `models/` directory, then register
+the config class and module class in `MODEL_REGISTRY`.
+
+RBD configs use:
 
 ```python
-from dataclasses import dataclass
-
-from torch import nn
-
-
-@dataclass
-class ModelConfig:
-    input_elements: int
-    input_freq_bins: int
-    hidden_channels: int = 32
-    dropout: float = 0.15
-
-
-class RealRangeCNN(nn.Module):
-    def __init__(self, config: ModelConfig) -> None:
-        super().__init__()
-        ...
-
-    def forward(self, x):
-        ...
+input_elements: int
+input_freq_bins: int
 ```
 
-The forward output should have shape `[batch, 1]` and should predict normalized
-range, not km. The shared training loop handles target normalization and metric
-conversion back to km.
-
-3. Register the model in `scripts_py/network/model.py`:
+ELM flat-pair configs use:
 
 ```python
-from .models.model_real_cnn_range import (
-    RealRangeCNN,
-    ModelConfig as RealRangeCNNConfig,
-)
-
-
-MODEL_REGISTRY = {
-    "complex_cnn_range": (ComplexRangeCNNConfig, ComplexRangeCNN),
-    "real_cnn_range": (RealRangeCNNConfig, RealRangeCNN),
-}
+input_pairs: int
+input_freq_bins: int
 ```
 
-4. Add the model name to the `--model` choices in `scripts_py/network/cli.py`.
+All models should return normalized range predictions with shape:
 
-5. Train the new model:
-
-```powershell
-python scripts_py/Network_main.py train `
-  --model real_cnn_range `
-  --data periodic_4_1 `
-  --no-resume
+```text
+[batch, 1]
 ```
 
-Use `--no-resume` when switching architectures. Resume checkpoints store
-`model_name` and `model_config`; prediction checks that the checkpoint model
-matches the `--model` argument, so mismatched model/checkpoint combinations fail
-fast.
+The shared training loop handles target normalization and converts metrics back
+to km.
 
-Prediction also requires the model name. If `--checkpoint` is omitted, the
-checkpoint is resolved from that model's `train_outputs` directory:
+## Add A Dataset Format
 
-```powershell
-python scripts_py/Network_main.py predict `
-  --model real_cnn_range `
-  --checkpoint outputs/networks_results/real_cnn_range/train_outputs/periodic_4_1_best_0426_102042.pt `
-  --data periodic_4_1
+For RBD, extend:
+
+```text
+scripts_py/RBD_method/network/data.py
 ```
 
-The checkpoint records `model_name` and `dataset_name`, so `predict` rebuilds
-the correct registered model automatically and checks that it matches the
-command arguments.
+For ELM, extend:
+
+```text
+scripts_py/ELM_method/network/data.py
+```
+
+Keep the `DatasetBundle` fields stable:
+
+```text
+train_dataset
+val_dataset
+train_idx
+val_idx
+train_labels
+input_shape
+split_mode
+source_paths
+```
+
+ELM additionally tracks:
+
+```text
+pair_grid_shape
+```
+
+This lets training, checkpoint resume, prediction CSV export, and plotting stay
+unchanged.

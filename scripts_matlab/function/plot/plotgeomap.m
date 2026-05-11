@@ -10,8 +10,9 @@ plot_dir = fileparts(this_file);
 function_dir = fileparts(plot_dir);
 scripts_dir = fileparts(function_dir);
 project_dir = fileparts(scripts_dir);
+origindata_dir = fullfile(project_dir, 'Origindata');
 
-etopo_file = fullfile(project_dir, 'environments', 'etopo2022_swellex.mat');
+etopo_file = fullfile(origindata_dir, 'environments', 'etopo2022_swellex.mat');
 etopo = load(etopo_file);
 
 lon_all = etopo.Lon;
