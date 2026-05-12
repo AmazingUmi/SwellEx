@@ -1,5 +1,5 @@
 function [ratio_freq, freq_hz, feature_info] = ELM_extract_ratio_feature( ...
-    signal_time_seg, fs, denom_floor_relative, freq_bin_idx)
+    signal_time_seg, fs, denom_floor_relative, freq_bin_idx, pair_i, pair_j)
 %ELM_EXTRACT_RATIO_FEATURE Build pairwise element frequency-ratio features.
 %
 % For each one-sided frequency bin, this returns
@@ -12,9 +12,11 @@ function [ratio_freq, freq_hz, feature_info] = ELM_extract_ratio_feature( ...
 %   fs                     sampling frequency [Hz]
 %   denom_floor_relative   relative denominator power floor
 %   freq_bin_idx           optional one-sided FFT bin indices to keep
+%   pair_i                 numerator element indices for vector output
+%   pair_j                 denominator element indices for vector output
 %
 % Outputs:
-%   ratio_freq             N x N x F complex pairwise ratio tensor
+%   ratio_freq             P x F pair-vector tensor
 %   freq_hz                1 x F one-sided frequency vector [Hz]
 %   feature_info           struct with numerical metadata
 
@@ -59,6 +61,22 @@ signal_freq = signal_freq(:, freq_bin_idx);
 freq_hz = full_freq_hz(freq_bin_idx);
 num_freq_bins = numel(freq_hz);
 
+if nargin < 6 || isempty(pair_i) || isempty(pair_j)
+    error('pair_i and pair_j are required; ELM stores only pair-vector features.');
+end
+
+pair_i = double(pair_i(:));
+pair_j = double(pair_j(:));
+if numel(pair_i) ~= numel(pair_j)
+    error('pair_i and pair_j must have the same number of entries.');
+end
+if any(~isfinite(pair_i)) || any(~isfinite(pair_j)) || ...
+        any(pair_i ~= round(pair_i)) || any(pair_j ~= round(pair_j)) || ...
+        any(pair_i < 1) || any(pair_i > num_elements) || ...
+        any(pair_j < 1) || any(pair_j > num_elements)
+    error('pair_i and pair_j must contain valid element indices.');
+end
+
 signal_power = abs(signal_freq).^2;
 finite_power = signal_power(isfinite(signal_power));
 if isempty(finite_power)
@@ -68,14 +86,18 @@ else
 end
 denom_floor = denom_floor_relative * median_power;
 
-numer = reshape(signal_freq, num_elements, 1, num_freq_bins);
-denom = reshape(signal_freq, 1, num_elements, num_freq_bins);
+numer = signal_freq(pair_i, :);
+denom = signal_freq(pair_j, :);
 ratio_freq = numer .* conj(denom) ./ (abs(denom).^2 + denom_floor + eps);
 
 feature_info = struct();
 feature_info.mode = 'element_pairwise_frequency_ratio';
 feature_info.definition = 'ratio_freq(i,j,f)=FFT(element_i,f)/FFT(element_j,f)';
 feature_info.num_elements = num_elements;
+feature_info.output_layout = 'pair_vector';
+feature_info.num_pairs = numel(pair_i);
+feature_info.pair_numerator_element_idx = uint16(pair_i);
+feature_info.pair_denominator_element_idx = uint16(pair_j);
 feature_info.segment_num_samples = segment_num_samples;
 feature_info.full_num_freq_bins = full_num_freq_bins;
 feature_info.num_freq_bins = num_freq_bins;

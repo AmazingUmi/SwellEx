@@ -4,20 +4,20 @@ This script exposes the training and prediction pipeline implemented in
 `scripts_py/ELM_method/network/`.
 
 Expected HDF5 layout:
-    Files are produced by `scripts_matlab/Signals_Segmentation_elm.m`.
+    Files are produced by `scripts_matlab/ELM_method/Signals_Segmentation.m`.
 
     outputs/Datasets/<split_strategy>/*_train.h5
     outputs/Datasets/<split_strategy>/*_test.h5
-    /X                         [window, numerator_element,
-                                denominator_element, frequency, real_imag]
+    /X                         [window, pair, frequency, real_imag]
+    /pair/numerator_element_idx [pair, 1]
+    /pair/denominator_element_idx [pair, 1]
     /y_range_km                [window, 1]
     /valid_sample              [window, 1], optional
     /split/source_segment_idx  [window, 1], optional
     /time/window_center_s      [window, 1], optional
 
-The first ELM network path flattens the pair grid:
-    torch input = [batch, 2, element_pair, frequency]
-    where element_pair = numerator_element * denominator_element.
+The ELM network input is:
+    torch input = [batch, 2, pair, frequency]
 """
 
 from __future__ import annotations

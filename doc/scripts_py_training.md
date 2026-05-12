@@ -58,14 +58,15 @@ Available RBD models:
 ELM HDF5 input:
 
 ```text
-/X: [sample, numerator_element, denominator_element, frequency, real_imag]
-torch: [batch, 2, element_pair, frequency]
+/X: [sample, pair, frequency, real_imag]
+torch: [batch, 2, pair, frequency]
 ```
 
 where:
 
 ```text
-element_pair = numerator_element * denominator_element
+pair contains strict upper-triangle element pairs with i < j
+pair_count = element_count * (element_count - 1) / 2
 ```
 
 Example:
@@ -73,7 +74,7 @@ Example:
 ```bash
 python3 scripts_py/ELM_method/Network_main.py train \
   --model elm_complex_cnn_range \
-  --data Range_nearby_after_800s_gap15s_elm_pairwise_ratio
+  --data periodic_4_1_elm_pairwise_ratio_upper_mel64
 ```
 
 Physical-error loss example:
@@ -81,7 +82,7 @@ Physical-error loss example:
 ```bash
 python3 scripts_py/ELM_method/Network_main.py train \
   --model elm_complex_cnn_range \
-  --data Range_nearby_after_800s_gap15s_elm_pairwise_ratio \
+  --data periodic_4_1_elm_pairwise_ratio_upper_mel64 \
   --loss-space km --huber-beta 0.5
 ```
 

@@ -18,7 +18,7 @@ python3 scripts_py/RBD_method/Network_main.py predict \
 ```bash
 python3 scripts_py/ELM_method/Network_main.py predict \
   --model elm_complex_cnn_range \
-  --data Range_nearby_after_800s_gap15s_elm_pairwise_ratio
+  --data periodic_4_1_elm_pairwise_ratio_upper_mel64
 ```
 
 If `--checkpoint` is omitted, prediction first tries:

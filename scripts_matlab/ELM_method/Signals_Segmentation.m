@@ -5,10 +5,11 @@
 % Main dataset output:
 %   - outputs/Datasets/<split_strategy>/*_train.h5 and *_test.h5
 %   - outputs/Datasets/<split_strategy>/*_metadata.json
-%   - /X: num_samples x num_elements x num_elements x num_freq_bins x 2
-%         X(:,:,:,:,1) is real(ratio_freq)
-%         X(:,:,:,:,2) is imag(ratio_freq)
+%   - /X: num_samples x num_pairs x num_freq_bins x 2
+%         X(:,:,:,1) is real(ratio_freq)
+%         X(:,:,:,2) is imag(ratio_freq)
 %         ratio_freq(i,j,f)=FFT(element_i,f)/FFT(element_j,f)
+%         pairs are strict upper-triangle element pairs with i < j
 %         frequency can be the full one-sided FFT axis or Mel-spaced bins
 %   - /y_range_km: range label for each segment
 %   - /valid_sample: 1 if y_range_km is finite, otherwise 0
@@ -45,7 +46,7 @@ segment_end_s   = [];           % last segment start time [s]
 % Dataset output and split strategy
 save_results = true;
 split_strategy = "periodic";    % "periodic" or "Range_nearby"
-dataset_variant_tag = "elm_pairwise_ratio_mel64";   % user-controlled suffix
+dataset_variant_tag = "elm_pairwise_ratio_upper_mel64";   % user-controlled suffix
 
 switch split_strategy
     case "periodic"
@@ -75,6 +76,7 @@ feature_config = struct();
 feature_config.mode = 'element_pairwise_frequency_ratio';
 feature_config.definition = ...
     'ratio_freq(i,j,f)=FFT(element_i,f)/FFT(element_j,f)';
+feature_config.output_layout = 'strict_upper_pair_vector';
 feature_config.denom_floor_relative = denom_floor_relative;
 feature_config.frequency_selection = 'mel_nearest_fft_bin';
 feature_config.use_mel_frequency_selection = use_mel_frequency_selection;
@@ -82,9 +84,9 @@ feature_config.mel_num_bins_requested = mel_num_bins;
 feature_config.mel_min_freq_hz = mel_min_freq_hz;
 feature_config.mel_max_freq_hz = mel_max_freq_hz;
 feature_config.h5_x_shape = ...
-    'sample x numerator_element x denominator_element x frequency x real_imag';
+    'sample x pair x frequency x real_imag';
 feature_config.real_imag_index = ...
-    'X(:,:,:,:,1)=real(ratio_freq), X(:,:,:,:,2)=imag(ratio_freq).';
+    'X(:,:,:,1)=real(ratio_freq), X(:,:,:,2)=imag(ratio_freq).';
 
 % Input labels
 event_name = 'S5';
@@ -97,6 +99,12 @@ range_file = fullfile(origindata_dir, 'events', 'range', ...
 [signal_time_full, array_depths_m, ~] = ...
     DS_load_vla_signals(project_dir, event_name, fs);
 num_elements = numel(array_depths_m);
+[pair_i, pair_j] = ELM_make_upper_pair_indices(num_elements);
+num_pairs = numel(pair_i);
+feature_config.num_pairs = num_pairs;
+feature_config.pair_selection = 'strict_upper_triangle_i_lt_j';
+feature_config.pair_numerator_element_idx = pair_i;
+feature_config.pair_denominator_element_idx = pair_j;
 
 %% Segment signals
 segments = DS_build_segments(signal_time_full, fs, segment_duration_s, ...
@@ -170,7 +178,7 @@ if save_results
         end
 
         ELM_create_nn_h5(split_files{split_idx}, split_indices{split_idx}, ...
-            num_elements, num_freq_bins, freq_hz, array_depths_m, ...
+            num_pairs, num_freq_bins, freq_hz, array_depths_m, pair_i, pair_j, ...
             range_time_s, range_km_raw, segment_range_km, valid_sample, ...
             segment_start_time_s, segment_center_time_s, ...
             segment_stop_time_s, segment_sample_start_idx, ...
@@ -200,16 +208,15 @@ if save_results
 
         [ratio_freq, feature_freq_hz, feature_info] = ...
             ELM_extract_ratio_feature(signal_time_seg, fs, ...
-            denom_floor_relative, freq_bin_idx);
+            denom_floor_relative, freq_bin_idx, pair_i, pair_j);
         if numel(feature_freq_hz) ~= num_freq_bins || ...
                 any(abs(feature_freq_hz - freq_hz) > 10 * eps(max(freq_hz)))
             error('Feature frequency axis does not match expected frequency axis.');
         end
 
-        ratio_feature = zeros(1, num_elements, num_elements, ...
-            num_freq_bins, 2, 'single');
-        ratio_feature(1, :, :, :, 1) = single(real(ratio_freq));
-        ratio_feature(1, :, :, :, 2) = single(imag(ratio_freq));
+        ratio_feature = zeros(1, num_pairs, num_freq_bins, 2, 'single');
+        ratio_feature(1, :, :, 1) = single(real(ratio_freq));
+        ratio_feature(1, :, :, 2) = single(imag(ratio_freq));
 
         split_write_counts(split_idx) = split_write_counts(split_idx) + 1;
         local_idx = split_write_counts(split_idx);
@@ -217,8 +224,8 @@ if save_results
         h5_file = split_files{split_idx};
 
         h5write(h5_file, '/X', ratio_feature, ...
-            [local_idx, 1, 1, 1, 1], ...
-            [1, num_elements, num_elements, num_freq_bins, 2]);
+            [local_idx, 1, 1, 1], ...
+            [1, num_pairs, num_freq_bins, 2]);
 
         if mod(total_written_samples, max(1, floor(total_split_samples / 10))) == 0 || ...
                 total_written_samples == total_split_samples

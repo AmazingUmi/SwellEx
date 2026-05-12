@@ -87,15 +87,18 @@ scripts_matlab/ELM_method/Signals_Segmentation.m
 HDF5 输入：
 
 ```text
-/X: [sample, numerator_element, denominator_element, frequency, real_imag]
+/X: [sample, pair, frequency, real_imag]
+/pair/numerator_element_idx: [pair, 1]
+/pair/denominator_element_idx: [pair, 1]
 ```
 
 含义：
 
 ```text
 ratio_freq(i,j,f) = FFT(element_i,f) / FFT(element_j,f)
-X(:,:,:,:,1) = real(ratio_freq)
-X(:,:,:,:,2) = imag(ratio_freq)
+pair 为严格上三角阵元对，i < j
+X(:,:,:,1) = real(ratio_freq)
+X(:,:,:,2) = imag(ratio_freq)
 ```
 
 ## 3. Python 当前结构
@@ -144,10 +147,11 @@ RBD PyTorch 输入：
 ELM 当前 PyTorch 输入：
 
 ```text
-[batch, 2, element_pair, frequency]
+[batch, 2, pair, frequency]
 ```
 
-其中 `element_pair = numerator_element * denominator_element`。
+其中 `pair = element_count * (element_count - 1) / 2`，旧版 full matrix
+ELM 数据仍由 Python loader 兼容展平。
 
 训练损失空间已统一为两套方法都支持：
 

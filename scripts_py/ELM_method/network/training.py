@@ -189,8 +189,7 @@ def train(args: argparse.Namespace) -> None:
     print(f"Train/val samples: {train_count}/{val_count}")
     print(
         "Input: "
-        f"2 x {pairs} pairs x {freq_bins} freq bins "
-        f"(pair grid {data_bundle.pair_grid_shape[0]} x {data_bundle.pair_grid_shape[1]})"
+        f"2 x {pairs} pair-vector entries x {freq_bins} freq bins"
     )
     print(f"Target normalization: mean={y_mean:.4f} km, std={y_std:.4f} km")
     print(f"Loss space: {loss_space} (SmoothL1 beta={args.huber_beta:g})")
@@ -242,7 +241,6 @@ def train(args: argparse.Namespace) -> None:
             "huber_beta": args.huber_beta,
             "input_normalized_per_sample": input_normalized,
             "input_shape": input_shape,
-            "pair_grid_shape": data_bundle.pair_grid_shape,
             "split_mode": split_mode,
             "source_h5_paths": [str(p) for p in source_paths],
             "val_fraction": args.val_fraction,

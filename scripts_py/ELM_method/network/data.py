@@ -17,8 +17,7 @@ from common.h5_utils import resolve_h5_paths, split_indices, subset_labels
 @dataclass(frozen=True)
 class H5Layout:
     sample_axis: int
-    numerator_axis: int
-    denominator_axis: int
+    pair_axis: int
     freq_axis: int
     ri_axis: int
     n_samples: int
@@ -36,7 +35,6 @@ class DatasetBundle:
     val_idx: list[int]
     train_labels: torch.Tensor
     input_shape: tuple[int, int, int]
-    pair_grid_shape: tuple[int, int]
     split_mode: str
     source_paths: list[Path]
 
@@ -63,7 +61,6 @@ def random_split_bundle(
         val_idx=val_idx,
         train_labels=train_labels,
         input_shape=dataset.input_shape,
-        pair_grid_shape=dataset.pair_grid_shape,
         split_mode=split_mode,
         source_paths=source_paths,
     )
@@ -85,13 +82,6 @@ def fixed_split_bundle(
             "Train and validation files must share input shape. "
             f"Train has {train_dataset.input_shape}, val has {val_dataset.input_shape}."
         )
-    if train_dataset.pair_grid_shape != val_dataset.pair_grid_shape:
-        raise ValueError(
-            "Train and validation files must share pair grid shape. "
-            f"Train has {train_dataset.pair_grid_shape}, "
-            f"val has {val_dataset.pair_grid_shape}."
-        )
-
     train_idx = list(range(len(train_dataset)))
     val_idx = list(range(len(val_dataset)))
     return DatasetBundle(
@@ -102,7 +92,6 @@ def fixed_split_bundle(
         val_idx=val_idx,
         train_labels=torch.tensor(train_dataset.labels, dtype=torch.float32).view(-1, 1),
         input_shape=train_dataset.input_shape,
-        pair_grid_shape=train_dataset.pair_grid_shape,
         split_mode=split_mode,
         source_paths=[*train_paths, *val_paths],
     )
@@ -120,7 +109,6 @@ class ElmRangeH5Dataset(Dataset):
         self.window_center_s: list[float] = []
         self.layouts: list[H5Layout] = []
         self.input_shape: tuple[int, int, int] | None = None
-        self.pair_grid_shape: tuple[int, int] = (0, 0)
         self._handles: dict[int, h5py.File] = {}
 
         for file_idx, path in enumerate(self.h5_paths):
@@ -129,10 +117,10 @@ class ElmRangeH5Dataset(Dataset):
                     raise KeyError(f"{path} must contain /X and /y_range_km.")
 
                 x_shape = tuple(int(v) for v in h5["/X"].shape)
-                if len(x_shape) != 5 or 2 not in x_shape:
+                if len(x_shape) != 4 or 2 not in x_shape:
                     raise ValueError(
-                        f"{path} /X must be 5-D with one real/imag axis of length 2, "
-                        f"got {x_shape}."
+                        f"{path} /X must be 4-D pair-vector with one real/imag "
+                        f"axis of length 2, got {x_shape}."
                     )
 
                 y = np.asarray(h5["/y_range_km"]).reshape(-1).astype(np.float32)
@@ -140,19 +128,12 @@ class ElmRangeH5Dataset(Dataset):
                 self.layouts.append(layout)
 
                 shape_chw = (2, layout.n_pairs, layout.n_freq_bins)
-                pair_grid_shape = (layout.n_elements, layout.n_elements)
                 if self.input_shape is None:
                     self.input_shape = shape_chw
-                    self.pair_grid_shape = pair_grid_shape
                 elif self.input_shape != shape_chw:
                     raise ValueError(
                         f"All files must share input shape. Expected {self.input_shape}, "
                         f"got {shape_chw} in {path}."
-                    )
-                elif self.pair_grid_shape != pair_grid_shape:
-                    raise ValueError(
-                        "All files must share pair grid shape. "
-                        f"Expected {self.pair_grid_shape}, got {pair_grid_shape} in {path}."
                     )
 
                 valid = np.ones_like(y, dtype=bool)
@@ -179,7 +160,7 @@ class ElmRangeH5Dataset(Dataset):
 
     @staticmethod
     def _infer_layout(
-        h5: h5py.File, x_shape: tuple[int, int, int, int, int], n_labels: int, path: Path
+        h5: h5py.File, x_shape: tuple[int, ...], n_labels: int, path: Path
     ) -> H5Layout:
         ri_candidates = [axis for axis, size in enumerate(x_shape) if size == 2]
         sample_candidates = [axis for axis, size in enumerate(x_shape) if size == n_labels]
@@ -200,59 +181,60 @@ class ElmRangeH5Dataset(Dataset):
             raise ValueError(f"{path} cannot distinguish sample and real/imag axes: {x_shape}.")
 
         remaining_axes = [
-            axis for axis in range(5) if axis not in (ri_axis, sample_axis)
+            axis for axis in range(len(x_shape)) if axis not in (ri_axis, sample_axis)
         ]
-        if len(remaining_axes) != 3:
-            raise ValueError(
-                f"{path} cannot infer numerator/denominator/frequency axes: {x_shape}."
-            )
+        if len(remaining_axes) != 2:
+            raise ValueError(f"{path} cannot infer pair/frequency axes: {x_shape}.")
 
         element_count = (
-            int(max(h5["/array/depth_m"].shape)) if "/array/depth_m" in h5 else None
+            int(max(h5["/array/depth_m"].shape)) if "/array/depth_m" in h5 else 0
         )
         freq_count = (
             int(max(h5["/frequency/freq_hz"].shape))
             if "/frequency/freq_hz" in h5
             else None
         )
+        pair_count = (
+            int(max(h5["/pair/numerator_element_idx"].shape))
+            if "/pair/numerator_element_idx" in h5
+            else None
+        )
 
+        freq_axis = None
+        pair_axis = None
         if freq_count is not None:
-            freq_matches = [axis for axis in remaining_axes if x_shape[axis] == freq_count]
-        else:
-            freq_matches = []
-        if freq_matches:
-            freq_axis = freq_matches[0]
-        else:
+            for axis in remaining_axes:
+                if x_shape[axis] == freq_count:
+                    freq_axis = axis
+                    break
+        if pair_count is not None:
+            for axis in remaining_axes:
+                if x_shape[axis] == pair_count:
+                    pair_axis = axis
+                    break
+
+        if pair_axis is None and freq_axis is not None:
+            pair_axis = next(axis for axis in remaining_axes if axis != freq_axis)
+        if freq_axis is None and pair_axis is not None:
+            freq_axis = next(axis for axis in remaining_axes if axis != pair_axis)
+        if pair_axis is None or freq_axis is None:
             freq_axis = max(remaining_axes, key=lambda axis: x_shape[axis])
+            pair_axis = next(axis for axis in remaining_axes if axis != freq_axis)
 
-        pair_axes = [axis for axis in remaining_axes if axis != freq_axis]
-        if len(pair_axes) != 2:
-            raise ValueError(f"{path} cannot infer pair axes: {x_shape}.")
-
-        if element_count is not None:
-            bad_axes = [axis for axis in pair_axes if x_shape[axis] != element_count]
-            if bad_axes:
-                raise ValueError(
-                    f"{path} pair axes must match array element count {element_count}, "
-                    f"got {x_shape}."
-                )
-
-        numerator_axis, denominator_axis = pair_axes
-        n_elements = x_shape[numerator_axis]
-        if x_shape[denominator_axis] != n_elements:
+        n_pairs = x_shape[pair_axis]
+        if pair_count is not None and pair_count != n_pairs:
             raise ValueError(
-                f"{path} numerator and denominator axes must have equal size, got {x_shape}."
+                f"{path} /pair metadata has {pair_count} pairs but /X has {n_pairs}."
             )
 
         return H5Layout(
             sample_axis=sample_axis,
-            numerator_axis=numerator_axis,
-            denominator_axis=denominator_axis,
+            pair_axis=pair_axis,
             freq_axis=freq_axis,
             ri_axis=ri_axis,
             n_samples=x_shape[sample_axis],
-            n_elements=n_elements,
-            n_pairs=n_elements * n_elements,
+            n_elements=element_count,
+            n_pairs=n_pairs,
             n_freq_bins=x_shape[freq_axis],
         )
 
@@ -271,20 +253,17 @@ class ElmRangeH5Dataset(Dataset):
         h5 = self._h5(file_idx)
         layout = self.layouts[file_idx]
 
-        selection: list[int | slice] = [slice(None)] * 5
+        selection: list[int | slice] = [slice(None)] * 4
         selection[layout.sample_axis] = sample_idx
         raw = np.asarray(h5["/X"][tuple(selection)], dtype=np.float32)
 
-        remaining_axes = [axis for axis in range(5) if axis != layout.sample_axis]
-        numerator_pos = remaining_axes.index(layout.numerator_axis)
-        denominator_pos = remaining_axes.index(layout.denominator_axis)
+        remaining_axes = [
+            axis for axis in range(4) if axis != layout.sample_axis
+        ]
         freq_pos = remaining_axes.index(layout.freq_axis)
         ri_pos = remaining_axes.index(layout.ri_axis)
-
-        # Reorder to [numerator, denominator, frequency, real_imag], then flatten
-        # the pair grid to [pair, frequency, real_imag].
-        x_np = np.transpose(raw, (numerator_pos, denominator_pos, freq_pos, ri_pos))
-        x_np = x_np.reshape(layout.n_pairs, layout.n_freq_bins, 2)
+        pair_pos = remaining_axes.index(layout.pair_axis)
+        x_np = np.transpose(raw, (pair_pos, freq_pos, ri_pos))
         x = torch.from_numpy(x_np).permute(2, 0, 1).contiguous()
 
         if self.normalize_input:

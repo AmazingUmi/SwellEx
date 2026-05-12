@@ -22,6 +22,12 @@ Use the RBD method when the HDF5 input is:
 Use the ELM method when the HDF5 input is:
 
 ```text
+[sample, pair, frequency, real_imag]
+```
+
+The ELM loader also accepts older full pair-matrix inputs:
+
+```text
 [sample, numerator_element, denominator_element, frequency, real_imag]
 ```
 

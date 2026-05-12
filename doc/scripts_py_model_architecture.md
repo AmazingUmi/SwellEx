@@ -75,15 +75,18 @@ fc = Dropout + Linear(..., 1)
 ELM HDF5 input:
 
 ```text
-/X: [sample, numerator_element, denominator_element, frequency, real_imag]
+/X: [sample, pair, frequency, real_imag]
 ```
 
-The current Python loader flattens the element-pair grid:
+The current Python loader reads the strict upper-triangle pair vector:
 
 ```text
-x: [batch, 2, element_pair, frequency]
-element_pair = numerator_element * denominator_element
+x: [batch, 2, pair, frequency]
+pair = strict upper-triangle element ratio with i < j
 ```
+
+It remains compatible with older 5-D full pair-matrix datasets by flattening
+`[sample, N, N, F, 2]` to `[batch, 2, N*N, F]`.
 
 Built-in ELM model names:
 

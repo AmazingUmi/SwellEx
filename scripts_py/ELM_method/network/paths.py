@@ -21,7 +21,7 @@ from common.paths import (
 from common.paths import PROJECT_ROOT
 
 
-DEFAULT_DATASET_STRATEGY = "Range_nearby_after_800s_gap15s_elm_pairwise_ratio"
+DEFAULT_DATASET_STRATEGY = "periodic_4_1_elm_pairwise_ratio_upper_mel64"
 DEFAULT_DATASET_DIR = DATASETS_DIR / DEFAULT_DATASET_STRATEGY
 DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "outputs" / "networks_results" / "ELM_method"
 DEFAULT_OUTPUT_DIR = DEFAULT_OUTPUT_ROOT

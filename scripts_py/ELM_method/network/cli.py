@@ -63,7 +63,10 @@ def build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument(
         "--data",
         required=True,
-        help="Dataset code under outputs/Datasets, for example Range_nearby_...",
+        help=(
+            "Dataset code under outputs/Datasets, for example "
+            "periodic_4_1_elm_pairwise_ratio_upper_mel64."
+        ),
     )
     train_parser.add_argument(
         "--train-data",
