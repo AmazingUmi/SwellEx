@@ -3,9 +3,14 @@
 The Python training code is now split by method.
 
 ```text
+scripts_py/common/
 scripts_py/RBD_method/Network_main.py
 scripts_py/ELM_method/Network_main.py
 ```
+
+`scripts_py/common/` contains shared path helpers, HDF5 path/split helpers,
+training utilities, and prediction export/plot utilities. RBD and ELM still keep
+their own dataset loaders and model registries because their HDF5 layouts differ.
 
 Both commands read datasets from `outputs/Datasets/<dataset_name>/` and write
 results under method-specific output roots:
@@ -30,6 +35,15 @@ Example:
 python3 scripts_py/RBD_method/Network_main.py train \
   --model complex_cnn_range \
   --data Range_nearby_after_800s_gap15s_test_no_beamformer
+```
+
+Physical-error loss example:
+
+```bash
+python3 scripts_py/RBD_method/Network_main.py train \
+  --model complex_cnn_range \
+  --data Range_nearby_after_800s_gap15s_test_no_beamformer \
+  --loss-space km --huber-beta 0.5
 ```
 
 Available RBD models:
@@ -62,6 +76,15 @@ python3 scripts_py/ELM_method/Network_main.py train \
   --data Range_nearby_after_800s_gap15s_elm_pairwise_ratio
 ```
 
+Physical-error loss example:
+
+```bash
+python3 scripts_py/ELM_method/Network_main.py train \
+  --model elm_complex_cnn_range \
+  --data Range_nearby_after_800s_gap15s_elm_pairwise_ratio \
+  --loss-space km --huber-beta 0.5
+```
+
 Available ELM models:
 
 - `elm_complex_cnn_range`
@@ -76,12 +99,19 @@ Available ELM models:
 --batch-size 16
 --lr 3e-4
 --weight-decay 1e-4
+--dropout 0.15
+--huber-beta 0.5
+--loss-space normalized
 --val-fraction 0.25
 --no-resume
 --resume-checkpoint <path>
 --train-data "outputs/Datasets/<dataset>/*_train.h5"
 --val-data "outputs/Datasets/<dataset>/*_val.h5"
 ```
+
+`--loss-space normalized` keeps the original target-normalized SmoothL1 loss.
+`--loss-space km` computes SmoothL1 directly on physical range error in
+kilometers. With `--loss-space km`, `--huber-beta` is interpreted in kilometers.
 
 If `*_val.h5` is not present and `--val-data` is omitted, the selected training
 files are split into train/validation sets by `--seed` and `--val-fraction`.
@@ -111,6 +141,7 @@ Checkpoints store:
 - model weights
 - optimizer and scheduler state
 - target normalization statistics
+- loss space and Huber beta
 - input normalization flag
 - train/validation split metadata
 - source HDF5 paths

@@ -1,6 +1,9 @@
 # Prediction Workflow
 
 Prediction also uses method-specific entry points.
+Shared CSV writing and plotting helpers live in `scripts_py/common/`, while
+method-specific prediction modules still choose the dataset loader and model
+registry.
 
 ## RBD Prediction
 

@@ -3,9 +3,13 @@
 The repository currently keeps RBD and ELM networks separate:
 
 ```text
+scripts_py/common/
 scripts_py/RBD_method/network/
 scripts_py/ELM_method/network/
 ```
+
+The common package contains shared training and prediction infrastructure. The
+method packages keep their own dataset loaders and model registries.
 
 Both methods predict normalized range with shape:
 
@@ -13,7 +17,9 @@ Both methods predict normalized range with shape:
 [batch, 1]
 ```
 
-The training loop converts normalized predictions back to km for metrics.
+The training loop converts normalized predictions back to km for metrics. The
+training loss can be computed in normalized target space or directly in
+kilometers via `--loss-space`.
 
 ## RBD Models
 
@@ -118,3 +124,16 @@ pred_range_km = pred_norm * train_std_km + train_mean_km
 
 Checkpoints store the target mean/std so prediction can restore the original
 range units.
+
+## Loss Space
+
+Both RBD and ELM training commands support:
+
+```text
+--loss-space normalized
+--loss-space km
+```
+
+`normalized` is the original behavior and computes SmoothL1 loss on `pred_norm`
+and `y_norm`. `km` computes SmoothL1 on `pred_range_km` and `y_range_km`; in
+that mode `--huber-beta` is also measured in kilometers.

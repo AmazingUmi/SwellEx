@@ -117,6 +117,16 @@ def build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument("--dropout", type=float, default=0.15)
     train_parser.add_argument("--huber-beta", type=float, default=0.5)
     train_parser.add_argument(
+        "--loss-space",
+        choices=["normalized", "km"],
+        default="normalized",
+        help=(
+            "Space used to compute the training loss. 'normalized' matches the "
+            "current target-normalized behavior; 'km' computes loss directly on "
+            "physical range error in kilometers."
+        ),
+    )
+    train_parser.add_argument(
         "--val-fraction",
         type=float,
         default=0.25,

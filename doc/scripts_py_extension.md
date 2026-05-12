@@ -3,9 +3,15 @@
 The Python code is intentionally split by feature family:
 
 ```text
+scripts_py/common/
 scripts_py/RBD_method/network/
 scripts_py/ELM_method/network/
 ```
+
+`scripts_py/common/` contains shared path helpers, HDF5 path resolution and
+split helpers, range-regression training utilities, and prediction CSV/plot
+helpers. Keep method-specific tensor layout logic in the RBD or ELM method
+package.
 
 Use the RBD method when the HDF5 input is:
 
@@ -52,7 +58,8 @@ All models should return normalized range predictions with shape:
 ```
 
 The shared training loop handles target normalization and converts metrics back
-to km.
+to km. It can compute SmoothL1 loss either in normalized target space or
+directly in physical kilometers via `--loss-space`.
 
 ## Add A Dataset Format
 
@@ -89,3 +96,12 @@ pair_grid_shape
 
 This lets training, checkpoint resume, prediction CSV export, and plotting stay
 unchanged.
+
+Shared HDF5 helper functions live in:
+
+```text
+scripts_py/common/h5_utils.py
+```
+
+Use them for path resolution, random train/validation split indices, and label
+subsets instead of duplicating that logic inside method-specific loaders.

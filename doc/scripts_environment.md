@@ -55,6 +55,13 @@ of the default `python`, for example:
 C:\Users\user\.conda\envs\pytorch\python.exe -m py_compile scripts_py\RBD_method\Network_main.py scripts_py\ELM_method\Network_main.py
 ```
 
+After shared Python utilities were introduced, include `scripts_py\common` in
+broader compile checks:
+
+```powershell
+C:\Users\user\.conda\envs\pytorch\python.exe -m py_compile scripts_py\common\*.py scripts_py\RBD_method\Network_main.py scripts_py\ELM_method\Network_main.py
+```
+
 When Codex runs local MATLAB checks on `TouJI`, prefer the MATLAB executable
 above instead of the default `matlab`, for example:
 
@@ -134,6 +141,14 @@ of the default `python`, for example:
 ```bash
 conda activate pytorch
 python -m py_compile scripts_py/RBD_method/Network_main.py scripts_py/ELM_method/Network_main.py
+```
+
+After shared Python utilities were introduced, include `scripts_py/common` in
+broader compile checks:
+
+```bash
+conda activate pytorch
+python -m py_compile scripts_py/common/*.py scripts_py/RBD_method/Network_main.py scripts_py/ELM_method/Network_main.py
 ```
 
 When Codex runs local MATLAB checks on `HaiQin1`, prefer the MATLAB executable

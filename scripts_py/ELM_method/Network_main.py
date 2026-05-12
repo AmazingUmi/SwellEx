@@ -22,6 +22,13 @@ The first ELM network path flattens the pair grid:
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+SCRIPTS_PY_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPTS_PY_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_PY_DIR))
+
 try:
     from network.cli import main
 except ModuleNotFoundError as exc:

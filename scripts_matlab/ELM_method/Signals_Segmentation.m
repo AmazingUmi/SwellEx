@@ -9,6 +9,7 @@
 %         X(:,:,:,:,1) is real(ratio_freq)
 %         X(:,:,:,:,2) is imag(ratio_freq)
 %         ratio_freq(i,j,f)=FFT(element_i,f)/FFT(element_j,f)
+%         frequency can be the full one-sided FFT axis or Mel-spaced bins
 %   - /y_range_km: range label for each segment
 %   - /valid_sample: 1 if y_range_km is finite, otherwise 0
 
@@ -43,8 +44,8 @@ segment_end_s   = [];           % last segment start time [s]
 
 % Dataset output and split strategy
 save_results = true;
-split_strategy = "Range_nearby";    % "periodic" or "Range_nearby"
-dataset_variant_tag = "elm_pairwise_ratio";   % user-controlled suffix
+split_strategy = "periodic";    % "periodic" or "Range_nearby"
+dataset_variant_tag = "elm_pairwise_ratio_mel64";   % user-controlled suffix
 
 switch split_strategy
     case "periodic"
@@ -58,18 +59,28 @@ switch split_strategy
         % Skip windows nearest to the minimum range point.
         split_options.gap_s = 15;
         % Use "before" or "after" the minimum range point for training.
-        split_options.train_side = "after";
+        split_options.train_side = "before";
     otherwise
         error('Unsupported split_strategy: %s.', split_strategy);
 end
 
 % Element-ratio feature extraction
 denom_floor_relative = 1e-6;
+use_mel_frequency_selection = true;
+mel_num_bins = 64;
+mel_min_freq_hz = 1;             % avoid the DC bin by default
+mel_max_freq_hz = fs / 2;
+
 feature_config = struct();
 feature_config.mode = 'element_pairwise_frequency_ratio';
 feature_config.definition = ...
     'ratio_freq(i,j,f)=FFT(element_i,f)/FFT(element_j,f)';
 feature_config.denom_floor_relative = denom_floor_relative;
+feature_config.frequency_selection = 'mel_nearest_fft_bin';
+feature_config.use_mel_frequency_selection = use_mel_frequency_selection;
+feature_config.mel_num_bins_requested = mel_num_bins;
+feature_config.mel_min_freq_hz = mel_min_freq_hz;
+feature_config.mel_max_freq_hz = mel_max_freq_hz;
 feature_config.h5_x_shape = ...
     'sample x numerator_element x denominator_element x frequency x real_imag';
 feature_config.real_imag_index = ...
@@ -103,8 +114,20 @@ segment_sample_stop_idx = segments.segment_sample_stop_idx;
 num_segments = segments.num_segments;
 
 %% Element-ratio feature and neural-network HDF5 output
-freq_hz = (0:floor(segment_num_samples / 2)) * fs / segment_num_samples;
+full_freq_hz = (0:floor(segment_num_samples / 2)) * fs / segment_num_samples;
+if use_mel_frequency_selection
+    [freq_bin_idx, freq_hz, mel_center_freq_hz] = ELM_make_mel_frequency_bins( ...
+        full_freq_hz, mel_num_bins, mel_min_freq_hz, mel_max_freq_hz);
+else
+    freq_bin_idx = 1:numel(full_freq_hz);
+    freq_hz = full_freq_hz;
+    mel_center_freq_hz = [];
+end
 num_freq_bins = numel(freq_hz);
+feature_config.num_freq_bins = num_freq_bins;
+feature_config.selected_fft_bin_idx = uint32(freq_bin_idx);
+feature_config.selected_freq_hz = freq_hz;
+feature_config.mel_center_freq_hz = mel_center_freq_hz;
 
 if save_results
     [split_indices, split_names, segment_split_idx, split_metadata] = ...
@@ -176,7 +199,8 @@ if save_results
             segment_sample_start_idx(segment_idx):segment_sample_stop_idx(segment_idx));
 
         [ratio_freq, feature_freq_hz, feature_info] = ...
-            ELM_extract_ratio_feature(signal_time_seg, fs, denom_floor_relative);
+            ELM_extract_ratio_feature(signal_time_seg, fs, ...
+            denom_floor_relative, freq_bin_idx);
         if numel(feature_freq_hz) ~= num_freq_bins || ...
                 any(abs(feature_freq_hz - freq_hz) > 10 * eps(max(freq_hz)))
             error('Feature frequency axis does not match expected frequency axis.');

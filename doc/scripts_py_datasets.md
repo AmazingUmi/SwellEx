@@ -116,6 +116,10 @@ The MATLAB implementation uses the stable equivalent:
 FFT_i * conj(FFT_j) / (abs(FFT_j)^2 + denominator_floor)
 ```
 
+The ELM script can optionally keep only Mel-spaced FFT bins while preserving the
+complex ratio values. This selection maps Mel-spaced center frequencies to the
+nearest one-sided FFT bins; it does not apply triangular Mel energy weighting.
+
 Python route:
 
 ```text
@@ -169,12 +173,30 @@ python3 scripts_py/RBD_method/Network_main.py train \
   --data Range_nearby_after_800s_gap15s_test_no_beamformer
 ```
 
+RBD with physical-error loss:
+
+```bash
+python3 scripts_py/RBD_method/Network_main.py train \
+  --model complex_cnn_range \
+  --data Range_nearby_after_800s_gap15s_test_no_beamformer \
+  --loss-space km --huber-beta 0.5
+```
+
 ELM:
 
 ```bash
 python3 scripts_py/ELM_method/Network_main.py train \
   --model elm_complex_cnn_range \
   --data Range_nearby_after_800s_gap15s_elm_pairwise_ratio
+```
+
+ELM with physical-error loss:
+
+```bash
+python3 scripts_py/ELM_method/Network_main.py train \
+  --model elm_complex_cnn_range \
+  --data Range_nearby_after_800s_gap15s_elm_pairwise_ratio \
+  --loss-space km --huber-beta 0.5
 ```
 
 Prediction uses the same method-specific entry point with `predict`.
