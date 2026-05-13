@@ -75,6 +75,13 @@ require_option(split_options, 'train_side', 'Range_nearby');
 range_nearby_half_duration_s = split_options.half_duration_s;
 range_nearby_gap_s = split_options.gap_s;
 range_nearby_train_side = split_options.train_side;
+if isfield(split_options, 'test_step_s')
+    range_nearby_test_step_s = split_options.test_step_s;
+    range_nearby_has_custom_test_step = true;
+else
+    range_nearby_test_step_s = segment_step_s;
+    range_nearby_has_custom_test_step = false;
+end
 
 if range_nearby_half_duration_s <= 0
     error('range_nearby_half_duration_s must be positive.');
@@ -84,6 +91,9 @@ if range_nearby_gap_s < 0
 end
 if segment_step_s <= 0
     error('segment_step_s must be positive.');
+end
+if range_nearby_test_step_s < segment_step_s
+    error('range_nearby_test_step_s must be >= segment_step_s.');
 end
 
 valid_idx = find(valid_sample & isfinite(segment_range_km));
@@ -124,21 +134,28 @@ end
 switch string(range_nearby_train_side)
     case "before"
         train_segment_idx = left_idx;
-        test_segment_idx = right_idx;
+        test_segment_idx_full = right_idx;
     case "after"
         train_segment_idx = right_idx;
-        test_segment_idx = left_idx;
+        test_segment_idx_full = left_idx;
     otherwise
         error('range_nearby_train_side must be "before" or "after".');
 end
+
+test_stride_segments = max(1, round(range_nearby_test_step_s / segment_step_s));
+test_segment_idx = test_segment_idx_full(1:test_stride_segments:end);
 
 split_metadata = struct();
 split_metadata.range_nearby_train_side = char(range_nearby_train_side);
 split_metadata.range_nearby_half_duration_s = range_nearby_half_duration_s;
 split_metadata.range_nearby_gap_s = range_nearby_gap_s;
+split_metadata.range_nearby_test_step_s = range_nearby_test_step_s;
+split_metadata.range_nearby_has_custom_test_step = range_nearby_has_custom_test_step;
+split_metadata.range_nearby_test_stride_segments = test_stride_segments;
 split_metadata.range_nearby_half_num_segments = range_nearby_half_num_segments;
 split_metadata.range_nearby_gap_num_segments = range_nearby_gap_num_segments;
 split_metadata.range_nearby_usable_num_segments_per_side = numel(left_idx);
+split_metadata.range_nearby_full_test_num_segments = numel(test_segment_idx_full);
 split_metadata.range_min_segment_idx = range_min_segment_idx;
 split_metadata.range_min_time_s = segment_center_time_s(range_min_segment_idx);
 split_metadata.range_min_km = range_min_km;

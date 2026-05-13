@@ -1,4 +1,4 @@
-"""ELM network path defaults."""
+"""SCM network path defaults."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from common.paths import (
 from common.paths import PROJECT_ROOT
 
 
-DEFAULT_DATASET_STRATEGY = "periodic_4_1_elm_pairwise_lsr_upper_mel64_snap1s_ns4_ov3"
+DEFAULT_DATASET_STRATEGY = "periodic_4_1_scm_upper_diag_mel64_snap1s_ns4_ov3"
 DEFAULT_DATASET_DIR = DATASETS_DIR / DEFAULT_DATASET_STRATEGY
-DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "outputs" / "networks_results" / "ELM_method"
+DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "outputs" / "networks_results" / "SCM_method"
 DEFAULT_OUTPUT_DIR = DEFAULT_OUTPUT_ROOT

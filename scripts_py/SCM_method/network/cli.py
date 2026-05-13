@@ -1,4 +1,4 @@
-"""Command-line interface for ELM range-regression workflows."""
+"""Command-line interface for SCM range-regression workflows."""
 
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ from .paths import DEFAULT_OUTPUT_DIR
 
 
 MODEL_CHOICES = [
-    "elm_complex_cnn_range",
-    "elm_real_cnn_range",
-    "elm_resnet18_range",
-    "elm_resnet50_range",
+    "scm_complex_cnn_range",
+    "scm_real_cnn_range",
+    "scm_resnet18_range",
+    "scm_resnet50_range",
 ]
 
 
@@ -55,7 +55,7 @@ def predict_command(args: argparse.Namespace) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Range regression for ELM pairwise-ratio HDF5 datasets."
+        description="Range regression for SCM pair-vector HDF5 datasets."
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -65,7 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help=(
             "Dataset code under outputs/Datasets, for example "
-            "periodic_4_1_elm_pairwise_lsr_upper_mel64_snap1s_ns4_ov3."
+            "periodic_4_1_scm_upper_diag_mel64_snap1s_ns4_ov3."
         ),
     )
     train_parser.add_argument(
