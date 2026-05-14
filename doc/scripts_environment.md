@@ -52,21 +52,21 @@ When Codex runs local Python tests on `TouJI`, prefer this interpreter instead
 of the default `python`, for example:
 
 ```powershell
-C:\Users\user\.conda\envs\pytorch\python.exe -m py_compile scripts_py\RBD_method\Network_main.py scripts_py\ELM_method\Network_main.py
+C:\Users\user\.conda\envs\pytorch\python.exe -m py_compile scripts_py\RBD_method\Network_main.py scripts_py\ELM_method\Network_main.py scripts_py\SCM_method\Network_main.py
 ```
 
 After shared Python utilities were introduced, include `scripts_py\common` in
 broader compile checks:
 
 ```powershell
-C:\Users\user\.conda\envs\pytorch\python.exe -m py_compile scripts_py\common\*.py scripts_py\RBD_method\Network_main.py scripts_py\ELM_method\Network_main.py
+C:\Users\user\.conda\envs\pytorch\python.exe -m py_compile scripts_py\common\*.py scripts_py\RBD_method\Network_main.py scripts_py\ELM_method\Network_main.py scripts_py\SCM_method\Network_main.py
 ```
 
 When Codex runs local MATLAB checks on `TouJI`, prefer the MATLAB executable
 above instead of the default `matlab`, for example:
 
 ```powershell
-& "D:\Matlab\bin\matlab.exe" -batch "checkcode('scripts_matlab/RBD_method/Signals_Segmentation.m'); checkcode('scripts_matlab/ELM_method/Signals_Segmentation.m');"
+& "D:\Matlab\bin\matlab.exe" -batch "checkcode('scripts_matlab/RBD_method/Signals_Segmentation.m'); checkcode('scripts_matlab/ELM_method/Signals_Segmentation.m'); checkcode('scripts_matlab/SCM_method/Signals_Segmentation.m');"
 ```
 
 ## HaiQin1 Local Toolchain
@@ -140,7 +140,7 @@ of the default `python`, for example:
 
 ```bash
 conda activate pytorch
-python -m py_compile scripts_py/RBD_method/Network_main.py scripts_py/ELM_method/Network_main.py
+python -m py_compile scripts_py/RBD_method/Network_main.py scripts_py/ELM_method/Network_main.py scripts_py/SCM_method/Network_main.py
 ```
 
 After shared Python utilities were introduced, include `scripts_py/common` in
@@ -148,12 +148,12 @@ broader compile checks:
 
 ```bash
 conda activate pytorch
-python -m py_compile scripts_py/common/*.py scripts_py/RBD_method/Network_main.py scripts_py/ELM_method/Network_main.py
+python -m py_compile scripts_py/common/*.py scripts_py/RBD_method/Network_main.py scripts_py/ELM_method/Network_main.py scripts_py/SCM_method/Network_main.py
 ```
 
 When Codex runs local MATLAB checks on `HaiQin1`, prefer the MATLAB executable
 above instead of the default `matlab`, for example:
 
 ```bash
-/usr/local/bin/matlab -batch "checkcode('scripts_matlab/RBD_method/Signals_Segmentation.m'); checkcode('scripts_matlab/ELM_method/Signals_Segmentation.m');"
+/usr/local/bin/matlab -batch "checkcode('scripts_matlab/RBD_method/Signals_Segmentation.m'); checkcode('scripts_matlab/ELM_method/Signals_Segmentation.m'); checkcode('scripts_matlab/SCM_method/Signals_Segmentation.m');"
 ```

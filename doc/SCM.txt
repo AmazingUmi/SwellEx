@@ -29,3 +29,26 @@ for each frequency q = 1, 2, ..., Q:
     F[q, :] = u_q
 
 return F
+
+Repository implementation notes:
+
+    MATLAB:
+        scripts_matlab/SCM_method/Signals_Segmentation.m
+        scripts_matlab/function/scm_function/SCM_extract_feature.m
+
+    HDF5:
+        /X ∈ R^(sample × pair × frequency × real_imag)
+        pair uses upper_triangle(C_q), including diagonal, i <= j
+
+    Python:
+        scripts_py/SCM_method/Network_main.py
+        torch input = [batch, 2, pair, frequency]
+
+    Snapshot controls:
+        segment_duration_s
+        num_snapshots_per_segment
+        snapshot_overlap_count
+
+    Example averaged SCM:
+        num_snapshots_per_segment = 4
+        snapshot_overlap_count = 3

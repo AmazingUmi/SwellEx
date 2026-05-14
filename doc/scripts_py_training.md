@@ -6,11 +6,13 @@ The Python training code is now split by method.
 scripts_py/common/
 scripts_py/RBD_method/Network_main.py
 scripts_py/ELM_method/Network_main.py
+scripts_py/SCM_method/Network_main.py
 ```
 
 `scripts_py/common/` contains shared path helpers, HDF5 path/split helpers,
-training utilities, and prediction export/plot utilities. RBD and ELM still keep
-their own dataset loaders and model registries because their HDF5 layouts differ.
+training utilities, and prediction export/plot utilities. RBD, ELM, and SCM keep
+their own dataset loaders and model registries because their HDF5 layouts differ
+or carry different feature semantics.
 
 Both commands read datasets from `outputs/Datasets/<dataset_name>/` and write
 results under method-specific output roots:
@@ -18,6 +20,7 @@ results under method-specific output roots:
 ```text
 outputs/networks_results/RBD_method/
 outputs/networks_results/ELM_method/
+outputs/networks_results/SCM_method/
 ```
 
 ## RBD Training
@@ -69,12 +72,24 @@ pair contains strict upper-triangle element pairs with i < j
 pair_count = element_count * (element_count - 1) / 2
 ```
 
+The current ELM dataset uses a least-squares element-ratio estimator across
+snapshots:
+
+```text
+sum_s FFT_i,s(f) * conj(FFT_j,s(f)) / (sum_s abs(FFT_j,s(f))^2 + floor)
+```
+
+The MATLAB script controls snapshot duration, `Ns`, overlap, and frequency
+selection. ELM and SCM share the same frequency modes: `full`, `mel`, `deep`,
+`shallow`, and `adapt`. Dataset generation prints the exact dataset name and
+recommended train/predict commands to the MATLAB Command Window.
+
 Example:
 
 ```bash
 python3 scripts_py/ELM_method/Network_main.py train \
   --model elm_complex_cnn_range \
-  --data periodic_4_1_elm_pairwise_ratio_upper_mel64
+  --data <elm_dataset_name>
 ```
 
 Physical-error loss example:
@@ -82,7 +97,7 @@ Physical-error loss example:
 ```bash
 python3 scripts_py/ELM_method/Network_main.py train \
   --model elm_complex_cnn_range \
-  --data periodic_4_1_elm_pairwise_ratio_upper_mel64 \
+  --data <elm_dataset_name> \
   --loss-space km --huber-beta 0.5
 ```
 
@@ -92,6 +107,37 @@ Available ELM models:
 - `elm_real_cnn_range`
 - `elm_resnet18_range`
 - `elm_resnet50_range`
+
+## SCM Training
+
+SCM HDF5 input:
+
+```text
+/X: [sample, pair, frequency, real_imag]
+torch: [batch, 2, pair, frequency]
+```
+
+where:
+
+```text
+pair contains upper-triangle covariance entries with i <= j
+pair_count = element_count * (element_count + 1) / 2
+```
+
+Example:
+
+```bash
+python3 scripts_py/SCM_method/Network_main.py train \
+  --model scm_complex_cnn_range \
+  --data <scm_dataset_name>
+```
+
+Available SCM models:
+
+- `scm_complex_cnn_range`
+- `scm_real_cnn_range`
+- `scm_resnet18_range`
+- `scm_resnet50_range`
 
 ## Common Options
 
@@ -133,6 +179,14 @@ ELM example:
 outputs/networks_results/ELM_method/<model>/train_outputs/<dataset>_best_MMDD_HHMMSS.pt
 outputs/networks_results/ELM_method/<model>/train_outputs/<dataset>_last_MMDD_HHMMSS.pt
 outputs/networks_results/ELM_method/<model>/train_outputs/<dataset>_history_MMDD_HHMMSS.json
+```
+
+SCM example:
+
+```text
+outputs/networks_results/SCM_method/<model>/train_outputs/<dataset>_best_MMDD_HHMMSS.pt
+outputs/networks_results/SCM_method/<model>/train_outputs/<dataset>_last_MMDD_HHMMSS.pt
+outputs/networks_results/SCM_method/<model>/train_outputs/<dataset>_history_MMDD_HHMMSS.json
 ```
 
 Checkpoints store:

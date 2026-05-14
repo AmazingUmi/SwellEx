@@ -10,7 +10,7 @@
 %         X(:,:,:,2) is imag(ratio_freq)
 %         ratio_freq(i,j,f) is a least-squares ratio across snapshots
 %         pairs are strict upper-triangle element pairs with i < j
-%         frequency can be the full one-sided FFT axis or Mel-spaced bins
+%         frequency bins are selected by shared modes: full/mel/deep/shallow/adapt
 %   - /y_range_km: range label for each segment
 %   - /valid_sample: 1 if y_range_km is finite, otherwise 0
 
@@ -40,8 +40,8 @@ fs = 1500;                      % [Hz]
 % averaged across Ns consecutive snapshots.
 segment_duration_s = 1.0;       % one ELM snapshot length [s]
 segment_step_s  = 1.0;          % time step between adjacent snapshots [s]
-num_snapshots_per_segment = 4;   % Ns
-snapshot_overlap_count = 3;      % first ELM: 1-4 s, second ELM: 2-5 s
+num_snapshots_per_segment = 1;   % Ns
+snapshot_overlap_count = 0;      % first ELM: 1-4 s, second ELM: 2-5 s
 segment_start_s = [];           % first segment start time [s]
 % set [] for record start from the start of sig
 
@@ -51,7 +51,7 @@ segment_end_s   = [];           % last segment start time [s]
 % Dataset output and split strategy
 save_results = true;
 split_strategy = "periodic";    % "periodic" or "Range_nearby"
-dataset_variant_tag = "elm_pairwise_lsr_upper_mel64_snap1s_ns4_ov3";
+manual_dataset_variant_tag = ""; % optional extra suffix appended after auto tag
 
 switch split_strategy
     case "periodic"
@@ -72,10 +72,16 @@ end
 
 % Element-ratio feature extraction
 denom_floor_relative = 1e-6;
-use_mel_frequency_selection = true;
+frequency_selection_modes = "mel";         % "full", "mel", "deep", "shallow", "adapt"
 mel_num_bins = 64;
 mel_min_freq_hz = 1;             % avoid the DC bin by default
 mel_max_freq_hz = fs / 2;
+deep_target_freq_hz = [49 64 79 94 112 130 148 166 201 235 283 338 388];
+shallow_target_freq_hz = [109 127 145 163 198 232 280 335 385];
+adapt_num_bins = 16;
+adapt_min_freq_hz = 1;           % avoid the DC bin by default
+adapt_max_freq_hz = fs / 2;
+adapt_max_num_segments = [];     % [] uses all valid candidate ELM windows
 
 feature_config = struct();
 feature_config.mode = 'element_pairwise_frequency_ratio';
@@ -88,11 +94,17 @@ feature_config.snapshot_step_s = segment_step_s;
 feature_config.num_snapshots_per_segment = num_snapshots_per_segment;
 feature_config.snapshot_overlap_count = snapshot_overlap_count;
 feature_config.denom_floor_relative = denom_floor_relative;
-feature_config.frequency_selection = 'mel_nearest_fft_bin';
-feature_config.use_mel_frequency_selection = use_mel_frequency_selection;
+feature_config.frequency_selection = 'combined_frequency_selection_modes';
+feature_config.frequency_selection_modes = frequency_selection_modes;
 feature_config.mel_num_bins_requested = mel_num_bins;
 feature_config.mel_min_freq_hz = mel_min_freq_hz;
 feature_config.mel_max_freq_hz = mel_max_freq_hz;
+feature_config.deep_target_freq_hz = deep_target_freq_hz;
+feature_config.shallow_target_freq_hz = shallow_target_freq_hz;
+feature_config.adapt_num_bins = adapt_num_bins;
+feature_config.adapt_min_freq_hz = adapt_min_freq_hz;
+feature_config.adapt_max_freq_hz = adapt_max_freq_hz;
+feature_config.adapt_pooling = 'mean_power_over_elements_snapshots_windows';
 feature_config.h5_x_shape = ...
     'sample x pair x frequency x real_imag';
 feature_config.real_imag_index = ...
@@ -169,19 +181,46 @@ feature_config.actual_num_snapshots = num_snapshots_per_segment;
 
 %% Element-ratio feature and neural-network HDF5 output
 full_freq_hz = (0:floor(snapshot_num_samples / 2)) * fs / snapshot_num_samples;
-if use_mel_frequency_selection
-    [freq_bin_idx, freq_hz, mel_center_freq_hz] = ELM_make_mel_frequency_bins( ...
-        full_freq_hz, mel_num_bins, mel_min_freq_hz, mel_max_freq_hz);
-else
-    freq_bin_idx = 1:numel(full_freq_hz);
-    freq_hz = full_freq_hz;
-    mel_center_freq_hz = [];
+
+frequency_selection_config = struct();
+frequency_selection_config.mel_num_bins = mel_num_bins;
+frequency_selection_config.mel_min_freq_hz = mel_min_freq_hz;
+frequency_selection_config.mel_max_freq_hz = mel_max_freq_hz;
+frequency_selection_config.deep_target_freq_hz = deep_target_freq_hz;
+frequency_selection_config.shallow_target_freq_hz = shallow_target_freq_hz;
+frequency_selection_config.adapt_num_bins = adapt_num_bins;
+frequency_selection_config.adapt_min_freq_hz = adapt_min_freq_hz;
+frequency_selection_config.adapt_max_freq_hz = adapt_max_freq_hz;
+frequency_selection_config.adapt_max_num_segments = adapt_max_num_segments;
+frequency_selection_config.adapt_pooling = feature_config.adapt_pooling;
+
+dataset_variant_tag = ELM_make_dataset_variant_tag( ...
+    frequency_selection_modes, frequency_selection_config, ...
+    segment_duration_s, num_snapshots_per_segment, snapshot_overlap_count);
+manual_dataset_variant_tag = DS_sanitize_dataset_variant_tag(manual_dataset_variant_tag);
+if strlength(manual_dataset_variant_tag) > 0
+    dataset_variant_tag = sprintf('%s_%s', ...
+        dataset_variant_tag, manual_dataset_variant_tag);
 end
+feature_config.manual_dataset_variant_tag = manual_dataset_variant_tag;
+
+if any(lower(string(frequency_selection_modes)) == "adapt")
+    frequency_selection_config.signal_time_full = signal_time_full;
+    frequency_selection_config.segment_sample_start_idx = elm_segment_sample_start_idx;
+    frequency_selection_config.segment_sample_stop_idx = elm_segment_sample_stop_idx;
+    frequency_selection_config.adapt_candidate_segment_idx = find(elm_valid_sample);
+    frequency_selection_config.fs = fs;
+    frequency_selection_config.snapshot_num_samples = snapshot_num_samples;
+    frequency_selection_config.snapshot_step_samples = snapshot_step_samples;
+end
+
+[freq_bin_idx, freq_hz, frequency_selection_info] = DS_select_frequency_bins( ...
+    full_freq_hz, frequency_selection_modes, frequency_selection_config);
 num_freq_bins = numel(freq_hz);
 feature_config.num_freq_bins = num_freq_bins;
 feature_config.selected_fft_bin_idx = uint32(freq_bin_idx);
 feature_config.selected_freq_hz = freq_hz;
-feature_config.mel_center_freq_hz = mel_center_freq_hz;
+feature_config.frequency_selection_info = frequency_selection_info;
 
 if save_results
     [split_indices, split_names, segment_split_idx, split_metadata] = ...
@@ -196,6 +235,13 @@ if save_results
         split_strategy_dir_name = sprintf('%s_%s', ...
             split_strategy_dir_name, dataset_variant_tag);
     end
+    dataset_name = split_strategy_dir_name;
+    recommended_model_name = "elm_complex_cnn_range";
+    train_command = sprintf(['python3 scripts_py/ELM_method/Network_main.py train ', ...
+        '--model %s --data %s'], recommended_model_name, dataset_name);
+    predict_command = sprintf(['python3 scripts_py/ELM_method/Network_main.py predict ', ...
+        '--model %s --data %s'], recommended_model_name, dataset_name);
+
     results_dir = fullfile(project_dir, 'outputs', 'Datasets', ...
         split_strategy_dir_name);
     if ~isfolder(results_dir)
@@ -292,6 +338,10 @@ if save_results
         fprintf('Saved %s dataset to %s\n', ...
             split_names{split_idx}, split_files{split_idx});
     end
+
+    fprintf('\nDataset name:\n  %s\n', dataset_name);
+    fprintf('Recommended training command:\n  %s\n', train_command);
+    fprintf('Recommended prediction command:\n  %s\n\n', predict_command);
 end
 
 clear signal_time_full signal_time_seg ratio_freq ratio_feature segments;

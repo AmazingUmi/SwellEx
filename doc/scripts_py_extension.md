@@ -6,12 +6,13 @@ The Python code is intentionally split by feature family:
 scripts_py/common/
 scripts_py/RBD_method/network/
 scripts_py/ELM_method/network/
+scripts_py/SCM_method/network/
 ```
 
 `scripts_py/common/` contains shared path helpers, HDF5 path resolution and
 split helpers, range-regression training utilities, and prediction CSV/plot
-helpers. Keep method-specific tensor layout logic in the RBD or ELM method
-package.
+helpers. Keep method-specific tensor layout logic in the RBD, ELM, or SCM
+method package.
 
 Use the RBD method when the HDF5 input is:
 
@@ -25,11 +26,15 @@ Use the ELM method when the HDF5 input is:
 [sample, pair, frequency, real_imag]
 ```
 
-The ELM loader also accepts older full pair-matrix inputs:
+Use the SCM method when the HDF5 input is:
 
 ```text
-[sample, numerator_element, denominator_element, frequency, real_imag]
+[sample, pair, frequency, real_imag]
 ```
+
+ELM and SCM share the same tensor rank, but their pair semantics differ:
+ELM uses strict upper-triangle LS ratio pairs `i < j`; SCM uses upper-triangle
+covariance entries with diagonal `i <= j`.
 
 ## Add A Model
 
@@ -38,6 +43,7 @@ Each method has its own registry:
 ```text
 scripts_py/RBD_method/network/model.py
 scripts_py/ELM_method/network/model.py
+scripts_py/SCM_method/network/model.py
 ```
 
 Add the implementation under the matching `models/` directory, then register
@@ -50,7 +56,7 @@ input_elements: int
 input_freq_bins: int
 ```
 
-ELM flat-pair configs use:
+ELM and SCM flat-pair configs use:
 
 ```python
 input_pairs: int
@@ -81,6 +87,12 @@ For ELM, extend:
 scripts_py/ELM_method/network/data.py
 ```
 
+For SCM, extend:
+
+```text
+scripts_py/SCM_method/network/data.py
+```
+
 Keep the `DatasetBundle` fields stable:
 
 ```text
@@ -92,12 +104,6 @@ train_labels
 input_shape
 split_mode
 source_paths
-```
-
-ELM additionally tracks:
-
-```text
-pair_grid_shape
 ```
 
 This lets training, checkpoint resume, prediction CSV export, and plotting stay

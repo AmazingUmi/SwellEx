@@ -1,11 +1,12 @@
 # Model Notes and Network Architecture
 
-The repository currently keeps RBD and ELM networks separate:
+The repository currently keeps RBD, ELM, and SCM networks separate:
 
 ```text
 scripts_py/common/
 scripts_py/RBD_method/network/
 scripts_py/ELM_method/network/
+scripts_py/SCM_method/network/
 ```
 
 The common package contains shared training and prediction infrastructure. The
@@ -85,8 +86,14 @@ x: [batch, 2, pair, frequency]
 pair = strict upper-triangle element ratio with i < j
 ```
 
-It remains compatible with older 5-D full pair-matrix datasets by flattening
-`[sample, N, N, F, 2]` to `[batch, 2, N*N, F]`.
+The current ELM MATLAB dataset computes the pair vector with a least-squares
+ratio estimator across snapshots, but the Python tensor layout is unchanged:
+
+```text
+ratio(i,j,f)
+  = sum_s FFT_i,s(f) * conj(FFT_j,s(f))
+    / (sum_s abs(FFT_j,s(f))^2 + floor)
+```
 
 Built-in ELM model names:
 
@@ -116,9 +123,44 @@ input_elements
 input_freq_bins
 ```
 
+## SCM Models
+
+SCM HDF5 input:
+
+```text
+/X: [sample, pair, frequency, real_imag]
+```
+
+The SCM loader reads an upper-triangle pair vector with diagonal:
+
+```text
+x: [batch, 2, pair, frequency]
+pair = SCM entries with i <= j
+```
+
+Built-in SCM model names:
+
+- `scm_complex_cnn_range`
+- `scm_real_cnn_range`
+- `scm_resnet18_range`
+- `scm_resnet50_range`
+
+Implementations live in:
+
+```text
+scripts_py/SCM_method/network/models/
+```
+
+The SCM model configs also use:
+
+```text
+input_pairs
+input_freq_bins
+```
+
 ## Target Normalization
 
-For both methods:
+For all methods:
 
 ```text
 y_norm = (y_range_km - train_mean_km) / train_std_km
@@ -130,7 +172,7 @@ range units.
 
 ## Loss Space
 
-Both RBD and ELM training commands support:
+RBD, ELM, and SCM training commands support:
 
 ```text
 --loss-space normalized

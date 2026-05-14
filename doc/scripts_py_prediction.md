@@ -18,8 +18,19 @@ python3 scripts_py/RBD_method/Network_main.py predict \
 ```bash
 python3 scripts_py/ELM_method/Network_main.py predict \
   --model elm_complex_cnn_range \
-  --data periodic_4_1_elm_pairwise_ratio_upper_mel64
+  --data <elm_dataset_name>
 ```
+
+## SCM Prediction
+
+```bash
+python3 scripts_py/SCM_method/Network_main.py predict \
+  --model scm_complex_cnn_range \
+  --data <scm_dataset_name>
+```
+
+The ELM and SCM MATLAB dataset scripts print the matching prediction command
+after dataset generation, using the automatically generated dataset name.
 
 If `--checkpoint` is omitted, prediction first tries:
 
@@ -47,6 +58,13 @@ ELM predictions:
 ```text
 outputs/networks_results/ELM_method/<model>/test_outputs/<dataset>_predictions_MMDD_HHMMSS.csv
 outputs/networks_results/ELM_method/<model>/test_outputs/<dataset>_range_prediction_MMDD_HHMMSS.png
+```
+
+SCM predictions:
+
+```text
+outputs/networks_results/SCM_method/<model>/test_outputs/<dataset>_predictions_MMDD_HHMMSS.csv
+outputs/networks_results/SCM_method/<model>/test_outputs/<dataset>_range_prediction_MMDD_HHMMSS.png
 ```
 
 Prediction CSV fields:
