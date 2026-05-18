@@ -1,4 +1,4 @@
-function [signal_freq_seg, freq_hz, result] = rbd_decompose( ...
+function [signal_freq_seg, freq_hz, result] = RBD_decompose( ...
     signal_time_seg, fs, theta_vec, tau_matrix, varargin)
 %RBD_DECOMPOSE Estimate element-wise frequency-domain Green's functions.
 %
@@ -31,6 +31,9 @@ function [signal_freq_seg, freq_hz, result] = rbd_decompose( ...
 %                                  predicted sidelobe leakage from already
 %                                  selected peaks by this margin in dB
 %                                  (default 3)
+%   'FrequencyBinIdx'              optional one-sided FFT bin indices used
+%                                  for physical RBD estimation. Empty keeps
+%                                  all one-sided bins.
 %
 % Outputs:
 %   green_freq            N x Nf one-sided frequency-domain Green's function
@@ -39,7 +42,7 @@ function [signal_freq_seg, freq_hz, result] = rbd_decompose( ...
 
 [normalize_spectrum, multipath_beam, multipath_peak_threshold_db, ...
     multipath_min_separation_deg, multipath_max_num_peaks, ...
-    multipath_sidelobe_reject_db] = ...
+    multipath_sidelobe_reject_db, frequency_bin_idx] = ...
     parse_options(varargin{:});
 
 if ~ismatrix(signal_time_seg)
@@ -65,13 +68,22 @@ if ~isequal(size(tau_matrix), [num_elements, numel(theta_vec)])
         num_elements, numel(theta_vec));
 end
 
-freq_hz_full = (0:segment_num_samples - 1) * fs / segment_num_samples;
-num_freq_bins = floor(segment_num_samples / 2) + 1;
-freq_hz = freq_hz_full(1:num_freq_bins);
+full_num_freq_bins = floor(segment_num_samples / 2) + 1;
+full_freq_hz = (0:full_num_freq_bins - 1) * fs / segment_num_samples;
+if isempty(frequency_bin_idx)
+    frequency_bin_idx = 1:full_num_freq_bins;
+else
+    frequency_bin_idx = validate_frequency_bin_idx( ...
+        frequency_bin_idx, full_num_freq_bins);
+end
+
+freq_hz = full_freq_hz(frequency_bin_idx);
+num_freq_bins = numel(freq_hz);
 omega = 2 * pi * freq_hz;
 
 signal_freq_seg = fft(signal_time_seg, segment_num_samples, 2);
-signal_freq_seg = signal_freq_seg(:, 1:num_freq_bins);
+signal_freq_seg = signal_freq_seg(:, 1:full_num_freq_bins);
+signal_freq_seg = signal_freq_seg(:, frequency_bin_idx);
 
 % Normalize: D_j(omega) = P_tilde_j(omega) / sqrt(sum_j abs(P_tilde_j(omega))^2)
 signal_freq_norm_factor = sqrt(sum(abs(signal_freq_seg).^2, 1));  % 1 x Nf
@@ -84,7 +96,7 @@ if normalize_spectrum
     signal_freq_seg = signal_freq_seg ./ (signal_freq_scale + eps);
 end
 
-beam_output = bartlett_beamformer(signal_freq_seg, omega, ...
+beam_output = RBD_bartlett_beamformer(signal_freq_seg, omega, ...
     tau_matrix, num_elements);
 
 beam_power = sum(abs(beam_output).^2, 1);
@@ -132,6 +144,8 @@ phase_rotation = phase_rotation_components(1, :);
 result = struct();
 result.green_freq = green_freq;
 result.freq_hz = freq_hz;
+result.full_freq_hz = full_freq_hz;
+result.selected_fft_bin_idx = uint32(frequency_bin_idx);
 result.omega = omega;
 result.signal_freq_seg = signal_freq_seg;
 result.signal_freq_scale = signal_freq_scale;
@@ -162,18 +176,20 @@ result.multipath_max_num_peaks = multipath_max_num_peaks;
 result.multipath_sidelobe_reject_db = multipath_sidelobe_reject_db;
 result.num_elements = num_elements;
 result.segment_num_samples = segment_num_samples;
+result.full_num_freq_bins = full_num_freq_bins;
 result.num_freq_bins = num_freq_bins;
 end
 
 function [normalize_spectrum, multipath_beam, multipath_peak_threshold_db, ...
     multipath_min_separation_deg, multipath_max_num_peaks, ...
-    multipath_sidelobe_reject_db] = parse_options(varargin)
+    multipath_sidelobe_reject_db, frequency_bin_idx] = parse_options(varargin)
 normalize_spectrum = true;
 multipath_beam = false;
 multipath_peak_threshold_db = -6;
 multipath_min_separation_deg = 2;
 multipath_max_num_peaks = Inf;
 multipath_sidelobe_reject_db = 3;
+frequency_bin_idx = [];
 
 if mod(numel(varargin), 2) ~= 0
     error('Options must be name-value pairs.');
@@ -196,6 +212,8 @@ for option_idx = 1:2:numel(varargin)
             multipath_max_num_peaks = option_value;
         case "multipathsideloberejectdb"
             multipath_sidelobe_reject_db = option_value;
+        case {"frequencybinidx", "freqbinidx"}
+            frequency_bin_idx = option_value;
         otherwise
             error('Unknown option: %s.', varargin{option_idx});
     end
@@ -218,6 +236,23 @@ end
 
 if multipath_max_num_peaks < 1
     error('MultipathMaxNumPeaks must be at least 1.');
+end
+end
+
+function frequency_bin_idx = validate_frequency_bin_idx( ...
+    frequency_bin_idx, full_num_freq_bins)
+frequency_bin_idx = double(frequency_bin_idx(:).');
+if isempty(frequency_bin_idx)
+    return;
+end
+if any(~isfinite(frequency_bin_idx)) || ...
+        any(frequency_bin_idx ~= round(frequency_bin_idx)) || ...
+        any(frequency_bin_idx < 1) || ...
+        any(frequency_bin_idx > full_num_freq_bins)
+    error('FrequencyBinIdx must contain valid one-sided FFT bin indices.');
+end
+if numel(unique(frequency_bin_idx)) ~= numel(frequency_bin_idx)
+    error('FrequencyBinIdx must not contain duplicate bin indices.');
 end
 end
 

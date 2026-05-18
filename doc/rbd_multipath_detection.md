@@ -39,7 +39,7 @@ Parameter meanings:
 
 ## Algorithm
 
-`rbd_decompose` performs the following steps after Bartlett beamforming:
+`RBD_decompose` performs the following steps after Bartlett beamforming:
 
 1. Compute `beam_power` and `beam_power_db` over `theta_vec`.
 2. Find local maxima above `multipath_peak_threshold_db` relative to the

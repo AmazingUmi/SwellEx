@@ -37,7 +37,7 @@ Example:
 ```bash
 python3 scripts_py/RBD_method/Network_main.py train \
   --model complex_cnn_range \
-  --data Range_nearby_after_800s_gap15s_test_no_beamformer
+  --data <rbd_dataset_name>
 ```
 
 Physical-error loss example:
@@ -45,9 +45,14 @@ Physical-error loss example:
 ```bash
 python3 scripts_py/RBD_method/Network_main.py train \
   --model complex_cnn_range \
-  --data Range_nearby_after_800s_gap15s_test_no_beamformer \
+  --data <rbd_dataset_name> \
   --loss-space km --huber-beta 0.5
 ```
+
+The RBD MATLAB script automatically builds a dataset variant tag from the
+frequency selection, RBD frequency-estimation mode (`estfull` or `estsel`),
+segment length/step, spectrum normalization, plane-wave setting, and beam mode.
+It prints the exact train/predict commands after dataset generation.
 
 Available RBD models:
 
@@ -80,9 +85,9 @@ sum_s FFT_i,s(f) * conj(FFT_j,s(f)) / (sum_s abs(FFT_j,s(f))^2 + floor)
 ```
 
 The MATLAB script controls snapshot duration, `Ns`, overlap, and frequency
-selection. ELM and SCM share the same frequency modes: `full`, `mel`, `deep`,
-`shallow`, and `adapt`. Dataset generation prints the exact dataset name and
-recommended train/predict commands to the MATLAB Command Window.
+selection. RBD, ELM, and SCM share the same frequency modes: `full`, `mel`,
+`deep`, `shallow`, and `adapt`. Dataset generation prints the exact dataset
+name and recommended train/predict commands to the MATLAB Command Window.
 
 Example:
 

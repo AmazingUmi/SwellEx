@@ -72,7 +72,7 @@ end
 
 % Element-ratio feature extraction
 denom_floor_relative = 1e-6;
-frequency_selection_modes = "mel";         % "full", "mel", "deep", "shallow", "adapt"
+frequency_selection_modes = ["deep", "shallow"];         % "full", "mel", "deep", "shallow", "adapt"
 mel_num_bins = 64;
 mel_min_freq_hz = 1;             % avoid the DC bin by default
 mel_max_freq_hz = fs / 2;
@@ -198,10 +198,8 @@ dataset_variant_tag = ELM_make_dataset_variant_tag( ...
     frequency_selection_modes, frequency_selection_config, ...
     segment_duration_s, num_snapshots_per_segment, snapshot_overlap_count);
 manual_dataset_variant_tag = DS_sanitize_dataset_variant_tag(manual_dataset_variant_tag);
-if strlength(manual_dataset_variant_tag) > 0
-    dataset_variant_tag = sprintf('%s_%s', ...
-        dataset_variant_tag, manual_dataset_variant_tag);
-end
+dataset_variant_tag = DS_append_dataset_variant_suffix( ...
+    dataset_variant_tag, manual_dataset_variant_tag);
 feature_config.manual_dataset_variant_tag = manual_dataset_variant_tag;
 
 if any(lower(string(frequency_selection_modes)) == "adapt")

@@ -10,7 +10,7 @@ registry.
 ```bash
 python3 scripts_py/RBD_method/Network_main.py predict \
   --model complex_cnn_range \
-  --data Range_nearby_after_800s_gap15s_test_no_beamformer
+  --data <rbd_dataset_name>
 ```
 
 ## ELM Prediction
@@ -29,7 +29,7 @@ python3 scripts_py/SCM_method/Network_main.py predict \
   --data <scm_dataset_name>
 ```
 
-The ELM and SCM MATLAB dataset scripts print the matching prediction command
+The RBD, ELM, and SCM MATLAB dataset scripts print the matching prediction command
 after dataset generation, using the automatically generated dataset name.
 
 If `--checkpoint` is omitted, prediction first tries:

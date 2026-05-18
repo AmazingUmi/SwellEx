@@ -1,6 +1,6 @@
-function [depth_ext_m, sound_speed_ext_ms] = extend_sound_speed_profile( ...
+function [depth_ext_m, sound_speed_ext_ms] = RBD_extend_sound_speed_profile( ...
     depth_m, sound_speed_ms, depth_max_required_m)
-%EXTEND_SOUND_SPEED_PROFILE Extend a sound-speed profile to the required depth.
+%RBD_EXTEND_SOUND_SPEED_PROFILE Extend a sound-speed profile to the required depth.
 %
 % Inputs:
 %   depth_m               sound-speed profile depths [m]

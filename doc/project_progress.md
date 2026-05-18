@@ -54,10 +54,14 @@ scripts_matlab/SCM_method/
 ```text
 scripts_matlab/function/dataset_function/   DS_*
 scripts_matlab/function/split_function/     SPL_*
-scripts_matlab/function/rbd_function/       RBD_* and RBD core functions
+scripts_matlab/function/rbd_function/       RBD_*
 scripts_matlab/function/elm_function/       ELM_*
 scripts_matlab/function/scm_function/       SCM_*
 ```
+
+RBD 函数命名规则已经统一为公开函数使用 `RBD_` 前缀，例如
+`RBD_decompose`、`RBD_compute_tau`、`RBD_bartlett_beamformer`。旧的小写
+函数名已移除，脚本应统一使用 `RBD_*` 命名。
 
 ### RBD Dataset
 
@@ -138,13 +142,13 @@ X(:,:,:,2) = imag(C_q pair-vector)
 
 ### Shared Frequency Selection
 
-ELM 与 SCM 的差异主要是特征不同，频率选择已经统一到：
+RBD、ELM 与 SCM 的差异主要是特征不同，频率选择已经统一到：
 
 ```text
 scripts_matlab/function/dataset_function/DS_select_frequency_bins.m
 ```
 
-两者都支持：
+三者都支持：
 
 ```matlab
 frequency_selection_modes = "full";
@@ -161,7 +165,12 @@ Hz，`shallow` 频率为 `[109 127 145 163 198 232 280 335 385]` Hz。
 `adapt` 根据有效候选窗的平均频谱能量选取最强频点，仍生成固定的
 dataset-level 频率轴，保证 CNN 的 frequency 维语义一致。
 
-ELM 与 SCM 脚本都会自动生成 dataset variant tag。`manual_dataset_variant_tag`
+RBD 可通过 `rbd_frequency_estimation` 选择物理分解使用完整 one-sided FFT
+频率轴，或只使用共享频率选择后的目标频点。无论哪种估计模式，神经网络
+输入 `/X` 的 F 维都由共享频率选择控制，并在 tag 中用 `estfull` 或
+`estsel` 区分。
+
+RBD、ELM 与 SCM 脚本都会自动生成 dataset variant tag。`manual_dataset_variant_tag`
 非空时会追加在自动 tag 后面，而不是替换自动 tag。数据集生成完成后，
 MATLAB Command Window 会打印对应的训练和预测命令。
 
@@ -241,7 +250,7 @@ ELM 当前 PyTorch 输入：
 - RBD：带物理先验的 Green 函数特征。
 - ELM：不做 RBD，学习阵元间频域 least-squares ratio。
 - SCM：学习归一化阵列向量的空间协方差矩阵。
-- ELM 与 SCM 共用频率选择：`full`、`mel`、`deep`、`shallow`、`adapt`
+- RBD、ELM 与 SCM 共用频率选择：`full`、`mel`、`deep`、`shallow`、`adapt`
   及其组合，用于控制 F 维度和目标频点。
 
 这些路线应先保持分离，分别训练和评估，避免 loader、checkpoint 和

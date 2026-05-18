@@ -38,8 +38,8 @@ fs = 1500;                      % [Hz]
 % snapshots; adjacent SCM samples share snapshot_overlap_count snapshots.
 segment_duration_s = 1.0;       % one SCM snapshot length [s]
 segment_step_s  = 1.0;          % time step between adjacent snapshots [s]
-num_snapshots_per_segment = 4;   % Ns   4,1
-snapshot_overlap_count = 3;      % first SCM: 1-4 s, second SCM: 2-5 s   0,3
+num_snapshots_per_segment = 1;   % Ns   4,1
+snapshot_overlap_count = 0;      % first SCM: 1-4 s, second SCM: 2-5 s   0,3
 segment_start_s = [];           % first segment start time [s]
 segment_end_s   = [];           % last segment start time [s]
 
@@ -66,7 +66,7 @@ end
 
 % SCM feature extraction
 norm_floor = 1.0e-12;
-frequency_selection_modes = "mel";         % "full", "mel", "deep", "shallow", "adapt"
+frequency_selection_modes = ["deep", "shallow"];         % "full", "mel", "deep", "shallow", "adapt"
 mel_num_bins = 64;
 mel_min_freq_hz = 1;
 mel_max_freq_hz = fs / 2;
@@ -191,10 +191,8 @@ dataset_variant_tag = SCM_make_dataset_variant_tag( ...
     frequency_selection_modes, frequency_selection_config, ...
     segment_duration_s, num_snapshots_per_segment, snapshot_overlap_count);
 manual_dataset_variant_tag = DS_sanitize_dataset_variant_tag(manual_dataset_variant_tag);
-if strlength(manual_dataset_variant_tag) > 0
-    dataset_variant_tag = sprintf('%s_%s', ...
-        dataset_variant_tag, manual_dataset_variant_tag);
-end
+dataset_variant_tag = DS_append_dataset_variant_suffix( ...
+    dataset_variant_tag, manual_dataset_variant_tag);
 feature_config.manual_dataset_variant_tag = manual_dataset_variant_tag;
 
 if any(lower(string(frequency_selection_modes)) == "adapt")

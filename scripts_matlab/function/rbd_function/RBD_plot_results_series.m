@@ -1,5 +1,5 @@
-function plot_results_series(result)
-%PLOT_RESULTS_SERIES Plot sliding-window RBD time-series results.
+function RBD_plot_results_series(result)
+%RBD_PLOT_RESULTS_SERIES Plot sliding-window RBD time-series results.
 %
 % Supported result fields:
 %   window_center_time_s or t_window_center

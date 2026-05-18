@@ -70,7 +70,7 @@ event_dir = fullfile(origindata_dir, 'events', 'S5');
 ctd_data = load(fullfile(event_dir, "CTD_i9605.mat"));
 sound_speed_depth_m = ctd_data.T.depth_m;
 sound_speed_ms = ctd_data.T.sound_speed_ms;
-[sound_speed_depth_m, sound_speed_ms] = extend_sound_speed_profile( ...
+[sound_speed_depth_m, sound_speed_ms] = RBD_extend_sound_speed_profile( ...
     sound_speed_depth_m, sound_speed_ms, max(array_depths_m));
 
 clear position_file position_table ctd_data;
@@ -132,7 +132,7 @@ clear channel_data channel_signal channel_idx channel_file channel_data_dir;
 %% Steering delays
 fprintf('Preparing steering delays...\n');
 
-tau_matrix = compute_tau(theta_vec, array_depths_m, ...
+tau_matrix = RBD_compute_tau(theta_vec, array_depths_m, ...
     sound_speed_ms, sound_speed_depth_m, use_plane_wave);
 
 rbd_options = {'NormalizeSpectrum', normalize_spectrum, ...
@@ -174,7 +174,7 @@ for window_idx = 1:num_windows
 
     signal_time_seg = signal_time_full(:, sample_start_idx:sample_stop_idx);
 
-    [green_freq, ~, rbd_result] = rbd_decompose( ...
+    [green_freq, ~, rbd_result] = RBD_decompose( ...
         signal_time_seg, fs, theta_vec, tau_matrix, rbd_options{:});
 
     green_freq_full = [green_freq, conj(green_freq(:, end - 1:-1:2))];
@@ -235,7 +235,7 @@ result.normalize_spectrum = normalize_spectrum;
 result.multipath_beam = multipath_beam;
 result.rbd_config = rbd_config;
 
-plot_results_series(result);
+RBD_plot_results_series(result);
 
 %% Save results
 if save_results

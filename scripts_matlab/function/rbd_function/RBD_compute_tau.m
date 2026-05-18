@@ -1,6 +1,6 @@
-function tau_matrix = compute_tau(theta_vec, array_depths_m, sound_speed_ms, ...
+function tau_matrix = RBD_compute_tau(theta_vec, array_depths_m, sound_speed_ms, ...
     sound_speed_depth_m, use_plane_wave)
-%COMPUTE_TAU Compute arrival delays for each array element and steering angle.
+%RBD_COMPUTE_TAU Compute arrival delays for each array element and steering angle.
 %
 % Eq.(3): tau(theta, r_j) = integral sqrt(1 / c(z)^2 - cos(theta)^2 / c0^2) dz
 % Plane-wave approximation: tau(theta, r_j) = (z_j - z0) * sin(theta) / c0

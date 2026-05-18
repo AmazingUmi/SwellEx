@@ -54,7 +54,7 @@ event_dir = fullfile(origindata_dir, 'events', 'S5');
 ctd_data = load(fullfile(event_dir, "CTD_i9605.mat"));
 sound_speed_depth_m = ctd_data.T.depth_m;
 sound_speed_ms = ctd_data.T.sound_speed_ms;
-[sound_speed_depth_m, sound_speed_ms] = extend_sound_speed_profile( ...
+[sound_speed_depth_m, sound_speed_ms] = RBD_extend_sound_speed_profile( ...
     sound_speed_depth_m, sound_speed_ms, max(array_depths_m));
 
 clear position_file position_table ctd_data;
@@ -100,7 +100,7 @@ clear event_dir signal_time_full segment_stop_idx;
 %% RBD decomposition
 fprintf('Running RBD decomposition...\n');
 
-tau_matrix = compute_tau(theta_vec, array_depths_m, ...
+tau_matrix = RBD_compute_tau(theta_vec, array_depths_m, ...
     sound_speed_ms, sound_speed_depth_m, use_plane_wave);
 
 rbd_options = {'NormalizeSpectrum', normalize_spectrum, ...
@@ -113,7 +113,7 @@ if multipath_beam
         'MultipathSidelobeRejectDb', multipath_sidelobe_reject_db}];
 end
 
-[green_freq, freq_hz, rbd_result] = rbd_decompose( ...
+[green_freq, freq_hz, rbd_result] = RBD_decompose( ...
     signal_time_seg, fs, theta_vec, tau_matrix, rbd_options{:});
 
 beam_power = rbd_result.beam_power;
@@ -156,6 +156,6 @@ green_time = real(ifft(green_freq_full, [], 2));
 
 %% Plot
 fprintf('Plotting results...\n');
-plot_results(green_time, num_elements, fs, segment_num_samples, ...
+RBD_plot_results(green_time, num_elements, fs, segment_num_samples, ...
     theta_vec, beam_power, theta_best, use_plane_wave, array_depths_m, ...
     green_freq, freq_hz, theta_plot_arrivals);

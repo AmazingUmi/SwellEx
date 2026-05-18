@@ -1,7 +1,7 @@
-function [rgb_img, spec_data] = pic_generate(signal, fs, varargin)
-%PIC_GENERATE Generate one RGB spectrogram image for a single signal.
+function [rgb_img, spec_data] = RBD_generate_spectrogram_image(signal, fs, varargin)
+%RBD_GENERATE_SPECTROGRAM_IMAGE Generate one RGB spectrogram image for a signal.
 %
-%   [rgb_img, spec_data] = pic_generate(signal, fs)
+%   [rgb_img, spec_data] = RBD_generate_spectrogram_image(signal, fs)
 %   builds one RGB image from a single time-domain signal segment using:
 %     R: mel spectrogram
 %     G: CQT spectrogram

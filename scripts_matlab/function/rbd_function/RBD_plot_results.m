@@ -1,7 +1,7 @@
-function plot_results(green_time, num_elements, fs, segment_num_samples, ...
+function RBD_plot_results(green_time, num_elements, fs, segment_num_samples, ...
     theta_vec, beam_power, theta_best, use_plane_wave, array_depths_m, ...
     green_freq, freq_hz, theta_selected)
-%PLOT_RESULTS Plot Bartlett power and Green's functions.
+%RBD_PLOT_RESULTS Plot Bartlett power and Green's functions.
 %
 % Required inputs:
 %   green_time           N x Nt estimated time-domain Green's function

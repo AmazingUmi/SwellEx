@@ -1,6 +1,6 @@
-function plot_sound_speed_profile(depth_m, sound_speed_ms, ...
+function RBD_plot_sound_speed_profile(depth_m, sound_speed_ms, ...
     sound_channel_depth_m, sound_speed_min_ms)
-%PLOT_SOUND_SPEED_PROFILE Plot the sound-speed profile versus depth.
+%RBD_PLOT_SOUND_SPEED_PROFILE Plot the sound-speed profile versus depth.
 
 figure;
 plot(sound_speed_ms, depth_m, 'b-', 'LineWidth', 1.5);

@@ -1,5 +1,5 @@
-function beam_output = bartlett_beamformer(signal_freq_seg, omega, tau_matrix, num_elements)
-%BARTLETT_BEAMFORMER Compute Bartlett beamformer output.
+function beam_output = RBD_bartlett_beamformer(signal_freq_seg, omega, tau_matrix, num_elements)
+%RBD_BARTLETT_BEAMFORMER Compute Bartlett beamformer output.
 %
 % Eq.(2): B(omega, theta) = (1 / N) * sum_j exp(-i * omega * tau_j) * P_j(omega)
 %
