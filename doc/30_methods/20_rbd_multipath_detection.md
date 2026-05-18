@@ -3,7 +3,8 @@
 ## Purpose
 
 The RBD preprocessing can now use multiple Bartlett beam-power peaks instead of
-only the strongest steering angle. This is controlled by `multipath_beam` in:
+only the strongest steering angle. In the RBD scripts this is controlled by
+`rbd_beam_selection`:
 
 - `scripts_matlab/RBD_method/RBD_main.m`
 - `scripts_matlab/RBD_method/Signals_Analysis.m`
@@ -16,42 +17,44 @@ and beam diagnostics under the `/rbd` HDF5 group.
 ## Configuration
 
 ```matlab
-multipath_beam = true;
-if multipath_beam
-    multipath_peak_threshold_db = -6;
-    multipath_min_separation_deg = 2;
-    multipath_max_num_peaks = Inf;
-    multipath_sidelobe_reject_db = 3;
-end
+rbd_beam_selection = "multipath";   % "best" or "multipath"
+rbd_multipath_options = struct();
+rbd_multipath_options.peak_threshold_db = -6;
+rbd_multipath_options.min_separation_deg = 2;
+rbd_multipath_options.max_num_peaks = Inf;
+rbd_multipath_options.sidelobe_reject_db = 3;
 ```
 
 Parameter meanings:
 
-- `multipath_beam`: use multiple accepted beam-power peaks when `true`; use
-  only the strongest peak when `false`
-- `multipath_peak_threshold_db`: relative beam-power threshold below the
-  strongest peak
-- `multipath_min_separation_deg`: minimum angular separation between accepted
-  peaks
-- `multipath_max_num_peaks`: maximum number of accepted peaks
-- `multipath_sidelobe_reject_db`: margin used when rejecting a candidate that is
-  explainable as sidelobe leakage from already accepted peaks
+- `rbd_beam_selection = "best"`: use only the strongest peak.
+- `rbd_beam_selection = "multipath"`: use multiple accepted beam-power peaks.
+- `rbd_multipath_options.peak_threshold_db`: relative beam-power threshold
+  below the strongest peak.
+- `rbd_multipath_options.min_separation_deg`: minimum angular separation
+  between accepted peaks.
+- `rbd_multipath_options.max_num_peaks`: maximum number of accepted peaks.
+- `rbd_multipath_options.sidelobe_reject_db`: margin used when rejecting a
+  candidate that is explainable as sidelobe leakage from already accepted peaks.
+
+The `rbd_multipath_options` fields are validated and passed to `RBD_decompose`
+only when `rbd_beam_selection = "multipath"`.
 
 ## Algorithm
 
 `RBD_decompose` performs the following steps after Bartlett beamforming:
 
 1. Compute `beam_power` and `beam_power_db` over `theta_vec`.
-2. Find local maxima above `multipath_peak_threshold_db` relative to the
-   strongest peak.
+2. Find local maxima above `rbd_multipath_options.peak_threshold_db` relative
+   to the strongest peak.
 3. Sort candidate peaks by descending beam power.
-4. Accept candidates that satisfy `multipath_min_separation_deg` from already
-   accepted angles.
+4. Accept candidates that satisfy `rbd_multipath_options.min_separation_deg`
+   from already accepted angles.
 5. For non-first candidates, estimate sidelobe leakage from already accepted
    peaks using the steering-vector point-spread response. Reject the candidate
    when its power is not greater than the predicted leakage by
-   `multipath_sidelobe_reject_db`.
-6. Stop after `multipath_max_num_peaks` accepted peaks.
+   `rbd_multipath_options.sidelobe_reject_db`.
+6. Stop after `rbd_multipath_options.max_num_peaks` accepted peaks.
 7. If no candidate survives, fall back to the strongest beam angle.
 
 For each accepted angle, RBD computes a phase-rotated Green's-function
@@ -94,4 +97,4 @@ x: [batch, 2, element, frequency]
 
 Because `/X` already contains the summed multipath Green's function, training
 uses the multipath-aware feature whenever the MATLAB dataset was generated with
-`multipath_beam = true`.
+`rbd_beam_selection = "multipath"`.

@@ -93,13 +93,26 @@ RBD can estimate on either the full one-sided FFT axis or only the selected
 frequency bins:
 
 ```matlab
-rbd_frequency_estimation = "full";      % estimate full axis, then crop /X
-rbd_frequency_estimation = "selected";  % estimate only selected bins
+rbd_frequency_estimation = "full";      % estimate and save the full axis
+rbd_frequency_estimation = "selected";  % estimate and save selected bins
+rbd_selected_frequency_modes = ["deep", "shallow"];
 ```
 
-The shared frequency selector always controls the neural-network `/X` frequency
-axis, so RBD follows the same frequency naming and metadata rules as ELM and
-SCM.
+For RBD, `frequency_selection_modes` is derived from
+`rbd_frequency_estimation`: `"full"` maps to the full frequency axis, while
+`"selected"` uses `rbd_selected_frequency_modes`.
+
+RBD beam selection is also controlled by a master option. Multipath-specific
+parameters are used only in `"multipath"` mode:
+
+```matlab
+rbd_beam_selection = "best";       % strongest beam angle only
+rbd_beam_selection = "multipath";  % use rbd_multipath_options
+rbd_multipath_options.peak_threshold_db = -6;
+rbd_multipath_options.min_separation_deg = 2;
+rbd_multipath_options.max_num_peaks = Inf;
+rbd_multipath_options.sidelobe_reject_db = 3;
+```
 
 ## ELM Least-Squares Ratio Dataset
 
@@ -158,14 +171,21 @@ frequency_selection_modes = "adapt";
 frequency_selection_modes = ["mel", "deep", "adapt"];
 ```
 
+`full` keeps the complete one-sided FFT axis and cannot be combined with other
+frequency-selection modes.
+
+The default named-frequency and bin-count settings are built into
+`DS_select_frequency_bins`. Scripts can usually leave `frequency_selection_config`
+empty and set only `frequency_selection_modes`.
+
 Supported choices:
 
 - `full`: keep all one-sided FFT bins.
-- `mel`: keep nearest FFT bins to Mel-spaced center frequencies.
+- `mel`: keep nearest FFT bins to 64 Mel-spaced center frequencies by default.
 - `deep`: keep `[49 64 79 94 112 130 148 166 201 235 283 338 388]` Hz.
 - `shallow`: keep `[109 127 145 163 198 232 280 335 385]` Hz.
 - `adapt`: estimate dataset-level average spectral power from valid candidate
-  windows and keep the strongest `adapt_num_bins` bins.
+  windows and keep the strongest 16 bins by default.
 
 When several modes are combined, duplicated FFT bins are removed and the final
 frequency axis is sorted by increasing FFT bin. `adapt` is dataset-level, not
@@ -223,7 +243,7 @@ parameters:
 
 ```text
 rbd_green_full_estfull_seg1s_step1s_norm0_pw0_bestbeam
-rbd_green_mel64_estfull_seg1s_step1s_norm0_pw0_bestbeam
+rbd_green_mel64_estsel_seg1s_step1s_norm0_pw0_bestbeam
 rbd_green_deep_shallow_estsel_seg1s_step1s_norm0_pw0_multipath
 elm_pairwise_lsr_upper_mel64_snap1s_ns4_ov3
 elm_pairwise_lsr_upper_deep_shallow_snap1s_ns4_ov3

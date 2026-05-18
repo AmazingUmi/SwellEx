@@ -67,15 +67,6 @@ end
 % SCM feature extraction
 norm_floor = 1.0e-12;
 frequency_selection_modes = ["deep", "shallow"];         % "full", "mel", "deep", "shallow", "adapt"
-mel_num_bins = 64;
-mel_min_freq_hz = 1;
-mel_max_freq_hz = fs / 2;
-deep_target_freq_hz = [49 64 79 94 112 130 148 166 201 235 283 338 388];
-shallow_target_freq_hz = [109 127 145 163 198 232 280 335 385];
-adapt_num_bins = 16;
-adapt_min_freq_hz = 1;
-adapt_max_freq_hz = fs / 2;
-adapt_max_num_segments = [];     % [] uses all valid candidate SCM windows
 
 feature_config = struct();
 feature_config.mode = 'spatial_covariance_matrix';
@@ -89,15 +80,6 @@ feature_config.snapshot_overlap_count = snapshot_overlap_count;
 feature_config.norm_floor = norm_floor;
 feature_config.frequency_selection = 'combined_frequency_selection_modes';
 feature_config.frequency_selection_modes = frequency_selection_modes;
-feature_config.mel_num_bins_requested = mel_num_bins;
-feature_config.mel_min_freq_hz = mel_min_freq_hz;
-feature_config.mel_max_freq_hz = mel_max_freq_hz;
-feature_config.deep_target_freq_hz = deep_target_freq_hz;
-feature_config.shallow_target_freq_hz = shallow_target_freq_hz;
-feature_config.adapt_num_bins = adapt_num_bins;
-feature_config.adapt_min_freq_hz = adapt_min_freq_hz;
-feature_config.adapt_max_freq_hz = adapt_max_freq_hz;
-feature_config.adapt_pooling = 'mean_power_over_elements_snapshots_windows';
 feature_config.h5_x_shape = ...
     'sample x pair x frequency x real_imag';
 feature_config.real_imag_index = ...
@@ -175,17 +157,8 @@ feature_config.actual_num_snapshots = num_snapshots_per_segment;
 %% SCM feature and neural-network HDF5 output
 full_freq_hz = (0:floor(snapshot_num_samples / 2)) * fs / snapshot_num_samples;
 
+% Leave empty for built-in defaults. Add fields here only to override defaults.
 frequency_selection_config = struct();
-frequency_selection_config.mel_num_bins = mel_num_bins;
-frequency_selection_config.mel_min_freq_hz = mel_min_freq_hz;
-frequency_selection_config.mel_max_freq_hz = mel_max_freq_hz;
-frequency_selection_config.deep_target_freq_hz = deep_target_freq_hz;
-frequency_selection_config.shallow_target_freq_hz = shallow_target_freq_hz;
-frequency_selection_config.adapt_num_bins = adapt_num_bins;
-frequency_selection_config.adapt_min_freq_hz = adapt_min_freq_hz;
-frequency_selection_config.adapt_max_freq_hz = adapt_max_freq_hz;
-frequency_selection_config.adapt_max_num_segments = adapt_max_num_segments;
-frequency_selection_config.adapt_pooling = feature_config.adapt_pooling;
 
 dataset_variant_tag = SCM_make_dataset_variant_tag( ...
     frequency_selection_modes, frequency_selection_config, ...

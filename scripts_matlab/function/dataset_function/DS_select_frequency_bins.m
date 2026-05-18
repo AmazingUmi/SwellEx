@@ -28,37 +28,12 @@ frequency_selection_modes = string(frequency_selection_modes(:).');
 if any(strlength(frequency_selection_modes) == 0)
     error('frequency_selection_modes must not contain empty mode names.');
 end
+normalized_modes = lower(strtrim(frequency_selection_modes));
+if any(normalized_modes == "full") && numel(normalized_modes) > 1
+    error('frequency_selection_modes cannot combine "full" with other modes.');
+end
 
-default_deep_freq_hz = [49 64 79 94 112 130 148 166 201 235 283 338 388];
-default_shallow_freq_hz = [109 127 145 163 198 232 280 335 385];
-
-if ~isfield(config, 'mel_num_bins') || isempty(config.mel_num_bins)
-    config.mel_num_bins = 64;
-end
-if ~isfield(config, 'mel_min_freq_hz') || isempty(config.mel_min_freq_hz)
-    config.mel_min_freq_hz = full_freq_hz(1);
-end
-if ~isfield(config, 'mel_max_freq_hz') || isempty(config.mel_max_freq_hz)
-    config.mel_max_freq_hz = full_freq_hz(end);
-end
-if ~isfield(config, 'deep_target_freq_hz') || isempty(config.deep_target_freq_hz)
-    config.deep_target_freq_hz = default_deep_freq_hz;
-end
-if ~isfield(config, 'shallow_target_freq_hz') || isempty(config.shallow_target_freq_hz)
-    config.shallow_target_freq_hz = default_shallow_freq_hz;
-end
-if ~isfield(config, 'adapt_num_bins') || isempty(config.adapt_num_bins)
-    config.adapt_num_bins = 16;
-end
-if ~isfield(config, 'adapt_min_freq_hz') || isempty(config.adapt_min_freq_hz)
-    config.adapt_min_freq_hz = max(1, full_freq_hz(1));
-end
-if ~isfield(config, 'adapt_max_freq_hz') || isempty(config.adapt_max_freq_hz)
-    config.adapt_max_freq_hz = full_freq_hz(end);
-end
-if ~isfield(config, 'adapt_pooling') || isempty(config.adapt_pooling)
-    config.adapt_pooling = 'mean_power_over_elements_snapshots_windows';
-end
+config = fill_default_frequency_config(config, full_freq_hz);
 
 selected_bins = [];
 mode_info = repmat(struct( ...
@@ -126,6 +101,39 @@ selection_info.num_freq_bins = numel(freq_bin_idx);
 selection_info.mode_info = mode_info;
 selection_info.has_duplicate_requested_bins = numel(unique_pos) < numel(selected_bins);
 selection_info.config = remove_adaptive_data_fields(config);
+end
+
+function config = fill_default_frequency_config(config, full_freq_hz)
+
+if ~isfield(config, 'mel_num_bins') || isempty(config.mel_num_bins)
+    config.mel_num_bins = 64;
+end
+if ~isfield(config, 'mel_min_freq_hz') || isempty(config.mel_min_freq_hz)
+    config.mel_min_freq_hz = max(1, full_freq_hz(1));
+end
+if ~isfield(config, 'mel_max_freq_hz') || isempty(config.mel_max_freq_hz)
+    config.mel_max_freq_hz = full_freq_hz(end);
+end
+if ~isfield(config, 'deep_target_freq_hz') || isempty(config.deep_target_freq_hz)
+    config.deep_target_freq_hz = ...
+        [49 64 79 94 112 130 148 166 201 235 283 338 388];
+end
+if ~isfield(config, 'shallow_target_freq_hz') || isempty(config.shallow_target_freq_hz)
+    config.shallow_target_freq_hz = ...
+        [109 127 145 163 198 232 280 335 385];
+end
+if ~isfield(config, 'adapt_num_bins') || isempty(config.adapt_num_bins)
+    config.adapt_num_bins = 16;
+end
+if ~isfield(config, 'adapt_min_freq_hz') || isempty(config.adapt_min_freq_hz)
+    config.adapt_min_freq_hz = max(1, full_freq_hz(1));
+end
+if ~isfield(config, 'adapt_max_freq_hz') || isempty(config.adapt_max_freq_hz)
+    config.adapt_max_freq_hz = full_freq_hz(end);
+end
+if ~isfield(config, 'adapt_pooling') || isempty(config.adapt_pooling)
+    config.adapt_pooling = 'mean_power_over_elements_snapshots_windows';
+end
 end
 
 function [freq_bin_idx, selected_freq_hz, mel_center_freq_hz] = ...

@@ -86,11 +86,10 @@ Built-in ELM models:
 
 ## Documentation Index
 
-- [Local Toolchain and Environment](doc/scripts_environment.md)
-- [HDF5 datasets and MATLAB split strategies](doc/scripts_py_datasets.md)
-- [RBD multipath peak detection](doc/rbd_multipath_detection.md)
-- [Training workflow](doc/scripts_py_training.md)
-- [Prediction workflow](doc/scripts_py_prediction.md)
-- [Shared interfaces and extension guide](doc/scripts_py_extension.md)
-- [Model notes and network architecture](doc/scripts_py_model_architecture.md)
-- [Project progress](doc/project_progress.md)
+- [Documentation index by category](doc/README.md)
+- [Project progress](doc/00_overview/00_project_progress.md)
+- [HDF5 datasets and MATLAB split strategies](doc/10_datasets/00_hdf5_datasets_and_splits.md)
+- [Training workflow](doc/20_python_workflows/00_trainable_training.md)
+- [Prediction workflow](doc/20_python_workflows/10_trainable_prediction.md)
+- [Standalone SCM-GRNN workflow](doc/20_python_workflows/20_standalone_scm_grnn.md)
+- [Local toolchain and environment](doc/00_overview/10_environment.md)

@@ -36,13 +36,12 @@ use_plane_wave = false;
 
 % RBD feature extraction
 normalize_spectrum = true;
-multipath_beam = true;
-if multipath_beam
-    multipath_peak_threshold_db = -6;
-    multipath_min_separation_deg = 2;
-    multipath_max_num_peaks = Inf;
-    multipath_sidelobe_reject_db = 3;
-end
+rbd_beam_selection = "multipath";   % "best" or "multipath"
+rbd_multipath_options = struct();
+rbd_multipath_options.peak_threshold_db = -6;
+rbd_multipath_options.min_separation_deg = 2;
+rbd_multipath_options.max_num_peaks = Inf;
+rbd_multipath_options.sidelobe_reject_db = 3;
 
 %% Array and environment
 position_file = fullfile(origindata_dir, 'positions', 'positions_vla.txt');
@@ -103,14 +102,30 @@ fprintf('Running RBD decomposition...\n');
 tau_matrix = RBD_compute_tau(theta_vec, array_depths_m, ...
     sound_speed_ms, sound_speed_depth_m, use_plane_wave);
 
+rbd_beam_selection = lower(strtrim(convertCharsToStrings(rbd_beam_selection)));
+switch rbd_beam_selection
+    case "best"
+        multipath_beam = false;
+    case "multipath"
+        multipath_beam = true;
+    otherwise
+        error('Unsupported rbd_beam_selection: %s.', rbd_beam_selection);
+end
+
 rbd_options = {'NormalizeSpectrum', normalize_spectrum, ...
     'multipath_beam', multipath_beam};
 if multipath_beam
+    rbd_multipath_options = RBD_validate_multipath_options( ...
+        rbd_multipath_options);
     rbd_options = [rbd_options, { ...
-        'MultipathPeakThresholdDb', multipath_peak_threshold_db, ...
-        'MultipathMinSeparationDeg', multipath_min_separation_deg, ...
-        'MultipathMaxNumPeaks', multipath_max_num_peaks, ...
-        'MultipathSidelobeRejectDb', multipath_sidelobe_reject_db}];
+        'MultipathPeakThresholdDb', ...
+        rbd_multipath_options.peak_threshold_db, ...
+        'MultipathMinSeparationDeg', ...
+        rbd_multipath_options.min_separation_deg, ...
+        'MultipathMaxNumPeaks', ...
+        rbd_multipath_options.max_num_peaks, ...
+        'MultipathSidelobeRejectDb', ...
+        rbd_multipath_options.sidelobe_reject_db}];
 end
 
 [green_freq, freq_hz, rbd_result] = RBD_decompose( ...
@@ -118,7 +133,7 @@ end
 
 beam_power = rbd_result.beam_power;
 theta_best = rbd_result.theta_best;
-theta_plot_arrivals = theta_best; %#ok<NASGU>
+theta_plot_arrivals = theta_best;
 
 fprintf('  Best steering angle: %.2f deg\n', theta_best * 180 / pi);
 if multipath_beam
@@ -136,8 +151,9 @@ if multipath_beam
         sprintf('%.2f ', arrival_power_db));
     fprintf(['  Peak threshold = %.2f dB, min separation = %.2f deg, ', ...
         'sidelobe reject margin = %.2f dB\n'], ...
-        multipath_peak_threshold_db, multipath_min_separation_deg, ...
-        multipath_sidelobe_reject_db);
+        rbd_multipath_options.peak_threshold_db, ...
+        rbd_multipath_options.min_separation_deg, ...
+        rbd_multipath_options.sidelobe_reject_db);
 
     if isempty(rbd_result.theta_sidelobe_rejected)
         fprintf('  Sidelobe-rejected candidate angles: none\n');

@@ -65,26 +65,18 @@ end
 theta_vec = linspace(-90, 90, 181) * pi / 180;   % [rad]
 use_plane_wave = false;
 normalize_spectrum = false;
-multipath_beam = false;
-multipath_peak_threshold_db = -6;
-multipath_min_separation_deg = 2;
-multipath_max_num_peaks = Inf;
-multipath_sidelobe_reject_db = 3;
+rbd_beam_selection = "best";     % "best" or "multipath"
+rbd_multipath_options = struct();
+rbd_multipath_options.peak_threshold_db = -6;
+rbd_multipath_options.min_separation_deg = 2;
+rbd_multipath_options.max_num_peaks = Inf;
+rbd_multipath_options.sidelobe_reject_db = 3;
 
-% Neural-network frequency output selection. rbd_frequency_estimation = "full"
-% runs RBD on all one-sided FFT bins, then crops green_freq before HDF5.
-% rbd_frequency_estimation = "selected" runs RBD directly on selected bins.
-frequency_selection_modes = ["deep", "shallow"];  % "full", "mel", "deep", "shallow", "adapt"
+% RBD frequency estimation and neural-network output selection.
+% "full" saves all one-sided FFT bins.
+% "selected" runs and saves only rbd_selected_frequency_modes.
 rbd_frequency_estimation = "selected";   % "full" or "selected"
-mel_num_bins = 64;
-mel_min_freq_hz = 1;
-mel_max_freq_hz = fs / 2;
-deep_target_freq_hz = [49 64 79 94 112 130 148 166 201 235 283 338 388];
-shallow_target_freq_hz = [109 127 145 163 198 232 280 335 385];
-adapt_num_bins = 16;
-adapt_min_freq_hz = 1;
-adapt_max_freq_hz = fs / 2;
-adapt_max_num_segments = [];     % [] uses all valid candidate RBD windows
+rbd_selected_frequency_modes = ["deep", "shallow"];  % "mel", "deep", "shallow", "adapt"
 
 % Input labels
 event_name = 'S5';
@@ -129,42 +121,67 @@ fprintf('Preparing steering delays...\n');
 tau_matrix = RBD_compute_tau(theta_vec, array_depths_m, ...
     sound_speed_ms, sound_speed_depth_m, use_plane_wave);
 
-rbd_options = {'NormalizeSpectrum', normalize_spectrum, ...
-    'multipath_beam', multipath_beam, ...
-    'MultipathPeakThresholdDb', multipath_peak_threshold_db, ...
-    'MultipathMinSeparationDeg', multipath_min_separation_deg, ...
-    'MultipathMaxNumPeaks', multipath_max_num_peaks, ...
-    'MultipathSidelobeRejectDb', multipath_sidelobe_reject_db};
+rbd_options = {'NormalizeSpectrum', normalize_spectrum};
 rbd_config = struct();
 rbd_config.normalize_spectrum = logical(normalize_spectrum);
 rbd_config.use_plane_wave = logical(use_plane_wave);
+rbd_beam_selection = lower(strtrim(convertCharsToStrings(rbd_beam_selection)));
+switch rbd_beam_selection
+    case "best"
+        multipath_beam = false;
+    case "multipath"
+        multipath_beam = true;
+    otherwise
+        error('Unsupported rbd_beam_selection: %s.', rbd_beam_selection);
+end
+rbd_options = [rbd_options, {'multipath_beam', multipath_beam}];
+rbd_config.rbd_beam_selection = rbd_beam_selection;
 rbd_config.multipath_beam = logical(multipath_beam);
+rbd_frequency_estimation = lower(strtrim(convertCharsToStrings( ...
+    rbd_frequency_estimation)));
+switch rbd_frequency_estimation
+    case "full"
+        frequency_selection_modes = "full";
+    case "selected"
+        frequency_selection_modes = convertCharsToStrings( ...
+            rbd_selected_frequency_modes(:).');
+        if isempty(frequency_selection_modes)
+            error('rbd_selected_frequency_modes must not be empty.');
+        end
+        if any(lower(strtrim(frequency_selection_modes)) == "full")
+            error(['rbd_selected_frequency_modes must not contain "full"; ', ...
+                'set rbd_frequency_estimation to "full" instead.']);
+        end
+    otherwise
+        error('Unsupported rbd_frequency_estimation: %s.', ...
+            rbd_frequency_estimation);
+end
 rbd_config.rbd_frequency_estimation = rbd_frequency_estimation;
+rbd_config.rbd_selected_frequency_modes = frequency_selection_modes;
 if rbd_config.multipath_beam
-    rbd_config.multipath_peak_threshold_db = multipath_peak_threshold_db;
-    rbd_config.multipath_min_separation_deg = multipath_min_separation_deg;
-    rbd_config.multipath_max_num_peaks = multipath_max_num_peaks;
-    rbd_config.multipath_sidelobe_reject_db = multipath_sidelobe_reject_db;
+    rbd_multipath_options = RBD_validate_multipath_options( ...
+        rbd_multipath_options);
+    rbd_options = [rbd_options, { ...
+        'MultipathPeakThresholdDb', ...
+        rbd_multipath_options.peak_threshold_db, ...
+        'MultipathMinSeparationDeg', ...
+        rbd_multipath_options.min_separation_deg, ...
+        'MultipathMaxNumPeaks', ...
+        rbd_multipath_options.max_num_peaks, ...
+        'MultipathSidelobeRejectDb', ...
+        rbd_multipath_options.sidelobe_reject_db}];
+    rbd_config.rbd_multipath_options = rbd_multipath_options;
 end
 
 full_freq_hz = (0:floor(segment_num_samples / 2)) * fs / segment_num_samples;
 
+% Leave empty for built-in defaults. Add fields here only to override defaults.
 frequency_selection_config = struct();
-frequency_selection_config.mel_num_bins = mel_num_bins;
-frequency_selection_config.mel_min_freq_hz = mel_min_freq_hz;
-frequency_selection_config.mel_max_freq_hz = mel_max_freq_hz;
-frequency_selection_config.deep_target_freq_hz = deep_target_freq_hz;
-frequency_selection_config.shallow_target_freq_hz = shallow_target_freq_hz;
-frequency_selection_config.adapt_num_bins = adapt_num_bins;
-frequency_selection_config.adapt_min_freq_hz = adapt_min_freq_hz;
-frequency_selection_config.adapt_max_freq_hz = adapt_max_freq_hz;
-frequency_selection_config.adapt_max_num_segments = adapt_max_num_segments;
-frequency_selection_config.adapt_pooling = 'mean_power_over_elements_snapshots_windows';
 
 dataset_variant_tag = RBD_make_dataset_variant_tag( ...
     frequency_selection_modes, frequency_selection_config, ...
     segment_duration_s, segment_step_s, normalize_spectrum, ...
-    use_plane_wave, multipath_beam, rbd_frequency_estimation);
+    use_plane_wave, rbd_beam_selection, rbd_frequency_estimation);
 manual_dataset_variant_tag = DS_sanitize_dataset_variant_tag(manual_dataset_variant_tag);
 dataset_variant_tag = DS_append_dataset_variant_suffix( ...
     dataset_variant_tag, manual_dataset_variant_tag);
@@ -181,14 +198,11 @@ end
 
 [freq_bin_idx, freq_hz, frequency_selection_info] = DS_select_frequency_bins( ...
     full_freq_hz, frequency_selection_modes, frequency_selection_config);
-switch lower(string(rbd_frequency_estimation))
+switch rbd_frequency_estimation
     case "full"
         rbd_decompose_freq_bin_idx = [];
     case "selected"
         rbd_decompose_freq_bin_idx = freq_bin_idx;
-    otherwise
-        error('Unsupported rbd_frequency_estimation: %s.', ...
-            rbd_frequency_estimation);
 end
 rbd_options = [rbd_options, {'FrequencyBinIdx', rbd_decompose_freq_bin_idx}];
 num_freq_bins = numel(freq_hz);
@@ -281,12 +295,7 @@ if save_results
 
         [green_freq, ~, rbd_result] = RBD_decompose( ...
             signal_time_seg, fs, theta_vec, tau_matrix, rbd_options{:});
-        if lower(string(rbd_frequency_estimation)) == "full"
-            green_freq = green_freq(:, freq_bin_idx);
-            feature_freq_hz = rbd_result.full_freq_hz(freq_bin_idx);
-        else
-            feature_freq_hz = rbd_result.freq_hz;
-        end
+        feature_freq_hz = rbd_result.freq_hz;
         if numel(feature_freq_hz) ~= num_freq_bins || ...
                 any(abs(feature_freq_hz - freq_hz) > 10 * eps(max(freq_hz)))
             error('Feature frequency axis does not match expected frequency axis.');

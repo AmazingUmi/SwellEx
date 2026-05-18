@@ -36,6 +36,17 @@ ELM and SCM share the same tensor rank, but their pair semantics differ:
 ELM uses strict upper-triangle LS ratio pairs `i < j`; SCM uses upper-triangle
 covariance entries with diagonal `i <= j`.
 
+Standalone SCM-GRNN lives outside this trainable-network structure:
+
+```text
+scripts_py/0_GRNN_related/
+```
+
+Do not add GRNN to the RBD/ELM/SCM model registries unless it is intentionally
+being converted into a trainable `nn.Module`. The current GRNN workflow builds a
+reference artifact and predicts by kernel regression; see
+`doc/20_python_workflows/20_standalone_scm_grnn.md`.
+
 ## Add A Model
 
 Each method has its own registry:

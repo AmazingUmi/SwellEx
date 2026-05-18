@@ -32,6 +32,14 @@ python3 scripts_py/SCM_method/Network_main.py predict \
 The RBD, ELM, and SCM MATLAB dataset scripts print the matching prediction command
 after dataset generation, using the automatically generated dataset name.
 
+GRNN prediction is separate from checkpoint-based network prediction. It uses a
+reference artifact built by `scripts_py/0_GRNN_related/GRNN_main.py build`.
+See:
+
+```text
+doc/20_python_workflows/20_standalone_scm_grnn.md
+```
+
 If `--checkpoint` is omitted, prediction first tries:
 
 ```text
@@ -65,6 +73,13 @@ SCM predictions:
 ```text
 outputs/networks_results/SCM_method/<model>/test_outputs/<dataset>_predictions_MMDD_HHMMSS.csv
 outputs/networks_results/SCM_method/<model>/test_outputs/<dataset>_range_prediction_MMDD_HHMMSS.png
+```
+
+Standalone SCM-GRNN predictions:
+
+```text
+outputs/networks_results/0_GRNN_related/scm_grnn_range/test_outputs/<dataset>_predictions_MMDD_HHMMSS.csv
+outputs/networks_results/0_GRNN_related/scm_grnn_range/test_outputs/<dataset>_range_prediction_MMDD_HHMMSS.png
 ```
 
 Prediction CSV fields:

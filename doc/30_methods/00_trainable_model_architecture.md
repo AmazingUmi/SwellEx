@@ -158,6 +158,31 @@ input_pairs
 input_freq_bins
 ```
 
+## Standalone GRNN
+
+SCM-GRNN is intentionally separate from the trainable model registry:
+
+```text
+scripts_py/0_GRNN_related/
+```
+
+It consumes the same SCM HDF5 feature layout:
+
+```text
+x: [batch, 2, pair, frequency]
+```
+
+but flattens each sample to:
+
+```text
+[batch, 2 * pair * frequency]
+```
+
+The GRNN artifact stores the reference feature matrix and range labels, then
+predicts with Gaussian-kernel weighted averaging. It does not use optimizer
+state, scheduler state, epochs, or neural-network checkpoints. See
+`doc/20_python_workflows/20_standalone_scm_grnn.md` for commands and outputs.
+
 ## Target Normalization
 
 For all methods:

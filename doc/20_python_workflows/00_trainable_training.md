@@ -1,6 +1,6 @@
 # Training Workflow
 
-The Python training code is now split by method.
+The Python training code for trainable CNN/ResNet models is split by method.
 
 ```text
 scripts_py/common/
@@ -14,13 +14,22 @@ training utilities, and prediction export/plot utilities. RBD, ELM, and SCM keep
 their own dataset loaders and model registries because their HDF5 layouts differ
 or carry different feature semantics.
 
-Both commands read datasets from `outputs/Datasets/<dataset_name>/` and write
+These commands read datasets from `outputs/Datasets/<dataset_name>/` and write
 results under method-specific output roots:
 
 ```text
 outputs/networks_results/RBD_method/
 outputs/networks_results/ELM_method/
 outputs/networks_results/SCM_method/
+```
+
+GRNN is not part of this training workflow because it does not use
+backpropagation or learned weights. Use the standalone reference-building
+workflow instead:
+
+```text
+doc/20_python_workflows/20_standalone_scm_grnn.md
+scripts_py/0_GRNN_related/GRNN_main.py
 ```
 
 ## RBD Training

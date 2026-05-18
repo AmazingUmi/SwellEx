@@ -1,6 +1,6 @@
 function dataset_variant_tag = RBD_make_dataset_variant_tag( ...
     frequency_selection_modes, frequency_config, segment_duration_s, ...
-    segment_step_s, normalize_spectrum, use_plane_wave, multipath_beam, ...
+    segment_step_s, normalize_spectrum, use_plane_wave, rbd_beam_selection, ...
     rbd_frequency_estimation)
 %RBD_MAKE_DATASET_VARIANT_TAG Build a stable RBD dataset variant tag.
 % Example:
@@ -25,10 +25,14 @@ switch estimation_tag
             rbd_frequency_estimation);
 end
 
-if multipath_beam
-    beam_tag = "multipath";
-else
-    beam_tag = "bestbeam";
+beam_selection = lower(strtrim(convertCharsToStrings(rbd_beam_selection)));
+switch beam_selection
+    case "best"
+        beam_tag = "bestbeam";
+    case "multipath"
+        beam_tag = "multipath";
+    otherwise
+        error('Unsupported RBD beam selection mode: %s.', rbd_beam_selection);
 end
 
 dataset_variant_tag = sprintf( ...

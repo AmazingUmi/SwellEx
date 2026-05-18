@@ -160,15 +160,23 @@ frequency_selection_modes = ["deep", "shallow"];
 frequency_selection_modes = ["mel", "deep", "adapt"];
 ```
 
-其中 `deep` 频率为 `[49 64 79 94 112 130 148 166 201 235 283 338 388]`
-Hz，`shallow` 频率为 `[109 127 145 163 198 232 280 335 385]` Hz。
-`adapt` 根据有效候选窗的平均频谱能量选取最强频点，仍生成固定的
-dataset-level 频率轴，保证 CNN 的 frequency 维语义一致。
+`full` 表示保留完整 one-sided FFT 频率轴，不能和其它选频模式组合。
+默认的命名频率和 bin 数量已经内置到 `DS_select_frequency_bins`，脚本通常只需设置
+`frequency_selection_modes`，并让 `frequency_selection_config` 为空。默认
+`deep` 频率为 `[49 64 79 94 112 130 148 166 201 235 283 338 388]` Hz，
+`shallow` 频率为 `[109 127 145 163 198 232 280 335 385]` Hz，`mel`
+默认 64 个 bin，`adapt` 默认 16 个 bin。`adapt` 根据有效候选窗的平均
+频谱能量选取最强频点，仍生成固定的 dataset-level 频率轴，保证 CNN 的
+frequency 维语义一致。
 
-RBD 可通过 `rbd_frequency_estimation` 选择物理分解使用完整 one-sided FFT
-频率轴，或只使用共享频率选择后的目标频点。无论哪种估计模式，神经网络
-输入 `/X` 的 F 维都由共享频率选择控制，并在 tag 中用 `estfull` 或
+RBD 通过 `rbd_frequency_estimation` 绑定物理分解频率轴与神经网络输出
+频率轴：`"full"` 使用完整 one-sided FFT 频率轴；`"selected"` 使用
+`rbd_selected_frequency_modes` 指定的目标频点。tag 中用 `estfull` 或
 `estsel` 区分。
+
+RBD 波束选择通过 `rbd_beam_selection` 统一控制：`"best"` 只使用最强
+beam angle；`"multipath"` 才启用 `rbd_multipath_options` 中的多径峰值、
+角度间隔、峰数和旁瓣剔除参数。
 
 RBD、ELM 与 SCM 脚本都会自动生成 dataset variant tag。`manual_dataset_variant_tag`
 非空时会追加在自动 tag 后面，而不是替换自动 tag。数据集生成完成后，
