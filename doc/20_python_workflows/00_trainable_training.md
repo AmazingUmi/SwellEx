@@ -160,15 +160,26 @@ Available SCM models:
 --batch-size 16
 --lr 3e-4
 --weight-decay 1e-4
+--base-channels 16
 --dropout 0.15
 --huber-beta 0.5
 --loss-space normalized
 --val-fraction 0.25
+--seed 2026
+--num-workers 0
+--device cuda
+--no-input-norm
 --no-resume
 --resume-checkpoint <path>
+--output-dir outputs/networks_results/<method>
 --train-data "outputs/Datasets/<dataset>/*_train.h5"
 --val-data "outputs/Datasets/<dataset>/*_val.h5"
 ```
+
+`--base-channels` sets the CNN/ResNet base channel width.
+`--no-input-norm` disables per-sample real/imag channel normalization
+(the default real-input models such as `real_cnn_range` already skip it).
+`--device` defaults to `cuda` when available, otherwise `cpu`.
 
 `--loss-space normalized` keeps the original target-normalized SmoothL1 loss.
 `--loss-space km` computes SmoothL1 directly on physical range error in

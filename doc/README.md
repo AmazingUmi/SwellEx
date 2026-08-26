@@ -15,7 +15,7 @@ stable in file browsers and each area has an obvious home.
 - [00 HDF5 datasets and split strategies](10_datasets/00_hdf5_datasets_and_splits.md):
   MATLAB dataset generation routes, split strategies, frequency selection, and
   HDF5 fields.
-- [10 SCM feature note](10_datasets/10_scm_feature_note.txt): concise SCM
+- [10 SCM feature note](10_datasets/10_scm_feature_note.md): concise SCM
   feature-construction sketch.
 
 ## 20 Python Workflows
@@ -26,6 +26,7 @@ stable in file browsers and each area has an obvious home.
   checkpoint-based prediction for trained RBD, ELM, and SCM networks.
 - [20 Standalone SCM-GRNN](20_python_workflows/20_standalone_scm_grnn.md):
   non-iterative GRNN reference building and prediction.
+  Implementation-level README: [scripts_py/0_GRNN_related/README.md](../scripts_py/0_GRNN_related/README.md).
 
 ## 30 Methods
 
@@ -43,5 +44,5 @@ stable in file browsers and each area has an obvious home.
 
 ## 90 References
 
-- [papers.xlsx](90_references/papers.xlsx): paper and reference tracking
+- [papers.xlsx](90_references/00_papers.xlsx): paper and reference tracking
   spreadsheet.

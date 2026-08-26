@@ -61,13 +61,20 @@ outputs/networks_results/0_GRNN_related/scm_grnn_range/reference_outputs/
 The artifact stores:
 
 ```text
-X_reference
-y_reference_km
+x_reference               reference feature matrix
+y_reference_km            reference range labels
+spread                    Gaussian kernel sigma (see sigma_source)
+standardize_input
+eps
+feature_mean / feature_std  standardization stats
 input_shape
 feature_dim
-spread
-optional feature mean/std
-source HDF5 paths
+reference_sample_count
+dataset_name
+source_h5_paths
+per_sample_channel_norm
+sigma_source
+sigma_search_results
 ```
 
 ## Select Sigma

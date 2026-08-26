@@ -5,6 +5,7 @@
 !.gitignore
 !.gitattributes
 !README.md
+!AGENTS.md
 !doc/
 !doc/**
 !scripts_py/
@@ -15,9 +16,9 @@
 !simulation/**
 
 # Python cache and local environments.
-scripts_py/**/__pycache__/
-scripts_py/**/*.py[cod]
-scripts_py/**/$py.class
+__pycache__/
+*.py[cod]
+$py.class
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -38,8 +39,16 @@ env/
 .vscode/
 .idea/
 .DS_Store
+._*
 Thumbs.db
 desktop.ini
+
+# BELLHOP / KRAKEN simulation outputs (keep .env inputs, .flp, kraken_ref/).
+simulation/**/*.arr
+simulation/**/*.ray
+simulation/**/*.shd
+simulation/**/*.mod
+simulation/**/*.prt
 
 # Generated data, model checkpoints, plots, and local project assets.
 outputs/

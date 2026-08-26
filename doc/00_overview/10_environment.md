@@ -157,3 +157,67 @@ above instead of the default `matlab`, for example:
 ```bash
 /usr/local/bin/matlab -batch "checkcode('scripts_matlab/RBD_method/Signals_Segmentation.m'); checkcode('scripts_matlab/ELM_method/Signals_Segmentation.m'); checkcode('scripts_matlab/SCM_method/Signals_Segmentation.m');"
 ```
+
+## HQserver Local Toolchain
+
+On the machine identified as `HQserver` (the current host), use these explicit
+paths for agent-run debugging and smoke tests.
+
+Project root:
+
+```text
+/mnt/SDD/project/SwellEx
+```
+
+Python/PyTorch environment:
+
+```text
+/home/yiyang-lu/miniforge3/envs/pytorch
+```
+
+Python executable:
+
+```text
+/home/yiyang-lu/miniforge3/envs/pytorch/bin/python
+```
+
+Interactive shell setup:
+
+```bash
+conda activate pytorch
+```
+
+MATLAB:
+
+```text
+/usr/local/bin/matlab
+```
+
+Quick Python environment check:
+
+```bash
+conda activate pytorch
+python -c "import sys, torch; print(sys.executable); print(torch.__version__); print(torch.cuda.is_available())"
+```
+
+The activated `pytorch` shell on `HQserver` currently reports Python `3.14.4`,
+PyTorch `2.11.0+cu128`, and `torch.cuda.is_available()` as `True`. Confirmed
+host GPU:
+
+```text
+NVIDIA RTX A5000
+```
+
+Prefer this interpreter instead of the default `python`, for example:
+
+```bash
+conda activate pytorch
+python -m py_compile scripts_py/common/*.py scripts_py/RBD_method/Network_main.py scripts_py/ELM_method/Network_main.py scripts_py/SCM_method/Network_main.py scripts_py/0_GRNN_related/GRNN_main.py
+```
+
+When running MATLAB checks on `HQserver`, prefer the MATLAB executable above,
+for example:
+
+```bash
+/usr/local/bin/matlab -batch "checkcode('scripts_matlab/RBD_method/Signals_Segmentation.m'); checkcode('scripts_matlab/ELM_method/Signals_Segmentation.m'); checkcode('scripts_matlab/SCM_method/Signals_Segmentation.m');"
+```

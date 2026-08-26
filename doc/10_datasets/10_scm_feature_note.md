@@ -1,0 +1,56 @@
+# SCM Feature Note
+
+Input:
+    X ∈ C^(Ns × Q × M)
+    # Ns: snapshot 数
+    # Q : 频点数
+    # M : 阵元数
+
+Output:
+    F ∈ C^(Q × M(M+1)/2)
+    # 复值 SCM 特征
+
+Procedure:
+
+for each frequency q = 1, 2, ..., Q:
+
+    C_q = 0
+
+    for each snapshot s = 1, 2, ..., Ns:
+
+        x = X[s, q, :]                 # M × 1 complex vector
+
+        x_norm = x / ||x||             # 阵列向量归一化
+
+        C_q = C_q + x_norm x_norm^H    # 外积累加
+
+    C_q = C_q / Ns                     # 样本平均，得到 SCM
+
+    u_q = upper_triangle(C_q)          # 取对角线 + 上三角
+
+    F[q, :] = u_q
+
+return F
+
+Repository implementation notes:
+
+    MATLAB:
+        scripts_matlab/SCM_method/Signals_Segmentation.m
+        scripts_matlab/function/scm_function/SCM_extract_feature.m
+
+    HDF5:
+        /X ∈ R^(sample × pair × frequency × real_imag)
+        pair uses upper_triangle(C_q), including diagonal, i <= j
+
+    Python:
+        scripts_py/SCM_method/Network_main.py
+        torch input = [batch, 2, pair, frequency]
+
+    Snapshot controls:
+        segment_duration_s
+        num_snapshots_per_segment
+        snapshot_overlap_count
+
+    Example averaged SCM:
+        num_snapshots_per_segment = 4
+        snapshot_overlap_count = 3

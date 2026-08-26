@@ -58,12 +58,18 @@ only when `rbd_beam_selection = "multipath"`.
 7. If no candidate survives, fall back to the strongest beam angle.
 
 For each accepted angle, RBD computes a phase-rotated Green's-function
-component. The final `green_freq` written to `/X` is the sum of all accepted
-components:
+component. The final `green_freq` written to `/X` is the beam-power weighted
+sum of all accepted components:
 
 ```text
-green_freq = sum(green_freq_components, arrival_axis)
+weight_k = selected_beam_power_k / sum(selected_beam_power)
+green_freq = sum_k weight_k * green_freq_components_k
 ```
+
+The weights are the accepted beams' powers normalized to unit sum (see
+`compute_green_freq_weights` in `RBD_decompose.m`); when the total power is
+zero or non-finite, the weights fall back to a uniform average over the
+accepted angles.
 
 ## HDF5 Outputs
 

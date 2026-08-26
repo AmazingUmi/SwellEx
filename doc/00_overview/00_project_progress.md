@@ -1,9 +1,10 @@
 # SwellEx Project Progress
 
-更新日期：2026-05-13
+更新日期：2026-08-26
 
 本文档记录当前仓库结构、已完成流程和下一步建议。当前项目已经从单一
-RBD 路线扩展为 RBD、ELM least-squares ratio 与 SCM 三条并行路线。
+RBD 路线扩展为 RBD、ELM least-squares ratio 与 SCM 三条并行可训练路线，
+另有一条不参与训练的 standalone SCM-GRNN 参考库回归路线。
 
 ## 1. 数据目录
 
@@ -189,11 +190,26 @@ scripts_py/common/
 scripts_py/RBD_method/
 scripts_py/ELM_method/
 scripts_py/SCM_method/
+scripts_py/0_GRNN_related/
 ```
 
 `scripts_py/common/` 目前承载路径、HDF5 路径解析和 split、训练 epoch、
 checkpoint resume、预测 CSV/plot 等公共逻辑。RBD、ELM 与 SCM 各自保留
 HDF5 layout loader 和 model registry。
+
+`scripts_py/0_GRNN_related/` 是独立的 SCM-GRNN 工作流：不走 epoch /
+optimizer / checkpoint，而是把 SCM 特征与距离标签存成参考库 artifact，
+预测时用高斯核加权平均。入口：
+
+```bash
+python3 scripts_py/0_GRNN_related/GRNN_main.py build \
+  --data <scm_dataset_name>
+
+python3 scripts_py/0_GRNN_related/GRNN_main.py predict \
+  --data <scm_dataset_name>
+```
+
+详见 `doc/20_python_workflows/20_standalone_scm_grnn.md`。
 
 RBD 入口：
 
@@ -225,6 +241,7 @@ python3 scripts_py/SCM_method/Network_main.py train \
 outputs/networks_results/RBD_method/
 outputs/networks_results/ELM_method/
 outputs/networks_results/SCM_method/
+outputs/networks_results/0_GRNN_related/scm_grnn_range/
 ```
 
 RBD PyTorch 输入：
@@ -260,9 +277,11 @@ ELM 当前 PyTorch 输入：
 - SCM：学习归一化阵列向量的空间协方差矩阵。
 - RBD、ELM 与 SCM 共用频率选择：`full`、`mel`、`deep`、`shallow`、`adapt`
   及其组合，用于控制 F 维度和目标频点。
+- SCM 数据集同时可喂给 standalone GRNN（`scripts_py/0_GRNN_related/`），
+  作为不需要训练的非参数 baseline。
 
 这些路线应先保持分离，分别训练和评估，避免 loader、checkpoint 和
-实验记录混淆。
+实验记录混淆。GRNN 不加入 RBD/ELM/SCM 的 model registry。
 
 ## 5. 下一步建议
 
@@ -270,3 +289,5 @@ ELM 当前 PyTorch 输入：
 2. 用同一 split 策略训练 RBD、ELM 与 SCM baseline。
 3. 记录 MAE/RMSE、训练曲线、最大误差样本和对应 `window_center_s`。
 4. 对比 ELM `Ns=4` LS-ratio 与 SCM `Ns=1/4` 设置下的稳健性差异。
+5. 用同一 SCM 数据集构建 GRNN 参考库（`build --cv-folds 5` 选 sigma），
+   与 SCM CNN/ResNet baseline 对比 MAE/RMSE，作为非参数基准。

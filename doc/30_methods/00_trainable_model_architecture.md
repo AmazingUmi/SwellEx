@@ -12,7 +12,7 @@ scripts_py/SCM_method/network/
 The common package contains shared training and prediction infrastructure. The
 method packages keep their own dataset loaders and model registries.
 
-Both methods predict normalized range with shape:
+All three methods (RBD, ELM, SCM) predict normalized range with shape:
 
 ```text
 [batch, 1]
