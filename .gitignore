@@ -56,3 +56,6 @@ environments/
 events/
 positions/
 source/
+
+# Agents configurations and logs (keep .env inputs).
+.agents/
