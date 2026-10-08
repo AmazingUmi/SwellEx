@@ -1,56 +1,41 @@
 # Documentation Index
 
-Start with project progress for verified scope, then select the guide for your
-task. Commands and environment setup belong to workflows; algorithms and
-stored data contracts have separate references.
-
-## Naming Rules
-
-- Use English lowercase topic directories and hyphen-separated filenames
-  (`kebab-case`), with no numeric ordering prefixes. Keep `README.md` for indexes.
-- Name each file for its subject; meaningful numbers such as publication years
-  may remain. The index provides reading order.
-- Keep one authority per topic, link shared details, and update links after
-  merges or moves. Preserve each document's language.
-- These rules apply to `doc/`; code and generated artifacts follow their own
-  naming contracts.
-
-## Overview
-
-- [Project progress](overview/project-progress.md): completed capabilities,
-  latest validation evidence, and remaining scientific work.
-
-## Datasets
-
-- [HDF5 datasets and split strategies](datasets/hdf5-datasets-and-splits.md):
-  generation inputs, stored axes/fields, windows, frequencies, and splits.
+Choose a guide by the task you want to perform. Use
+[project progress](overview/project-progress.md) for verified capabilities
+and remaining scientific work.
 
 ## Workflows
 
-- [Local development and remote validation](workflows/remote-validation.md):
-  shell commands and [effective defaults](workflows/remote-validation.md#command-defaults),
-  haiqin environment, source snapshots, suites, detached runs, and retrieval.
-- [Training and prediction](workflows/training-and-prediction.md):
-  RBD/ELM/SCM commands, loss units, continuation, checkpoints, and exports.
-- [Standalone SCM-GRNN](workflows/standalone-scm-grnn.md):
-  reference building, sigma selection, prediction, and artifacts.
-- [Result visualization](workflows/result-visualization.md):
-  figure definitions, comparison checks, and delivery provenance.
+| Task | Guide |
+|---|---|
+| Run a model, validate, check status, or fetch results | [Shell commands and remote workflow](workflows/remote-validation.md) |
+| Check or change the default settings | [Command defaults](workflows/command-defaults.md) |
+| Enter a frozen remote run or inspect runtime files | [Frozen environment and run files](workflows/remote-environment.md) |
+| Train, resume, or predict with a neural model manually | [Training and prediction](workflows/training-and-prediction.md) |
+| Build a GRNN reference or choose sigma manually | [Standalone SCM-GRNN](workflows/standalone-scm-grnn.md) |
+| Find figures, understand them, or render a model selection | [Result visualization](workflows/result-visualization.md) |
+
+## Datasets and Development
+
+| Task | Guide |
+|---|---|
+| Understand generation, HDF5 fields, windows, frequencies, or splits | [HDF5 datasets and split strategies](datasets/hdf5-datasets-and-splits.md) |
+| Add a model or change a loader | [Python extension guide](development/python-extension-guide.md) |
 
 ## Methods
 
-- [Trainable model architecture](methods/trainable-model-architecture.md):
-  CNN/ResNet families, input processing, and regression output.
-- [SCM features and GRNN](methods/scm-grnn.md): covariance construction,
-  vectorization, kernel regression, numerical behavior, and evaluation limits.
-- [RBD multipath peak detection](methods/rbd-multipath-detection.md):
-  peak selection, sidelobe rejection, Green aggregation, and diagnostics.
+| Topic | Reference |
+|---|---|
+| CNN/ResNet structure and regression output | [Trainable model architecture](methods/trainable-model-architecture.md) |
+| SCM construction, GRNN kernels, and sigma selection | [SCM features and GRNN](methods/scm-grnn.md) |
+| RBD peak selection, aggregation, and diagnostics | [RBD multipath peak detection](methods/rbd-multipath-detection.md) |
+| Papers and reference tracking | [papers.xlsx](references/papers.xlsx) |
 
-## Development
+## Documentation Rules
 
-- [Python extension guide](development/python-extension-guide.md):
-  adding models or loaders without changing shared contracts.
-
-## References
-
-- [papers.xlsx](references/papers.xlsx): paper and reference tracking.
+- Keep one authority per topic; link shared details instead of duplicating them.
+- Preserve each document's language and update links when moving content.
+- Use English lowercase directories and hyphen-separated filenames without
+  numeric ordering prefixes. Keep `README.md` for indexes.
+- Name files for their subject. Meaningful numbers, such as years, may remain.
+- These rules apply to `doc/`; code and generated artifacts have their own contracts.

@@ -1,59 +1,69 @@
 # SwellEx Range Regression
 
-Range regression on SwellEx-96 vertical line array data. Python generates
-HDF5 features; PyTorch CNN/ResNet models predict source range in km. Three
-feature routes have separate loaders and model registries:
+Predict source range in km from SwellEx-96 vertical line array data. Python
+creates HDF5 features; PyTorch CNN/ResNet models or standalone SCM-GRNN perform
+regression.
 
-- **RBD**: beamformer-derived equivalent Green features.
-- **ELM**: element-pair least-squares frequency ratios, excluding the diagonal.
-- **SCM**: normalized spatial covariance entries, including the diagonal.
+| Feature route | Input features |
+|---|---|
+| RBD | Beamformer-derived equivalent Green estimates |
+| ELM | Element-pair least-squares frequency ratios, excluding the diagonal |
+| SCM | Normalized spatial covariance entries, including the diagonal |
 
-Standalone **SCM-GRNN** stores reference samples and predicts by Gaussian
-kernel regression, without epochs or an optimizer.
+## Run a Model
 
-## Local Development, Remote Execution
+Edit code and configuration locally. Generation, numerical tests, training,
+prediction, and plotting run on SSH host `haiqin`. MATLAB source is retained
+only as a static reference.
 
-Edit source and configuration locally. Dataset generation, numerical checks,
-training, prediction, and plotting run on SSH host `haiqin`. Dependencies are
-managed by `pyproject.toml` and `uv.lock`; MATLAB source is retained as a static
-migration reference.
-
-From the local project root:
+From the local project root, with uv, Python 3.11+, Git, SSH, and rsync available:
 
 ```bash
-./scripts/run.sh RBD complex_CNN
+# Run one neural model through generation, training, prediction, and plotting
+./scripts/run.sh ELM complex_CNN
+
+# Run SCM-GRNN through reference building, prediction, and plotting
 ./scripts/run.sh SCM GRNN
+
+# Check the full pipeline with three complex CNNs and SCM-GRNN
 ./scripts/run.sh validate --suite smoke
 ```
 
-The selected-model command validates or reuses the aligned RBD/ELM/SCM datasets,
-then trains (or builds GRNN), predicts, plots, and retrieves only the requested
-model. `METHOD` is `RBD`, `ELM`, or `SCM`; `ARCH` is exactly `complex_CNN`,
-`real_CNN`, `ResNet18`, `ResNet50`, or `GRNN` (SCM only). Optional
-`--config PATH`, `--epochs N`, and `--seed N` override the frozen run settings;
-GRNN rejects `--epochs`. Defaults retain S5 window starts 0–59 s and two neural
-epochs, which establish pipeline execution without an accuracy acceptance
-threshold.
+Choose `RBD`, `ELM`, or `SCM` with `complex_CNN`, `real_CNN`, `ResNet18`, or
+`ResNet50`. `GRNN` is available only for SCM and has no epochs or optimizer.
+A model command prepares all three feature routes and evaluates the chosen model.
 
-The [remote workflow](doc/workflows/remote-validation.md) explains all command
-options, prerequisites, frozen environments, detached runs, and retrieval. Local logs,
-reports, history, and prediction CSVs go to `output/data/<run_id>/`; figures go
-to `output/figure/<run_id>/`. Remote datasets and model artifacts stay on haiqin
-under the run's `outputs/` directory.
+Bundled defaults: S5 window starts 0–59 s, two neural epochs, seed 2026, and
+CUDA. These are pipeline checks without an accuracy acceptance threshold.
+See the [command guide](doc/workflows/remote-validation.md) for options,
+validation suites, background runs, and failure recovery; see
+[command defaults](doc/workflows/command-defaults.md) for all settings.
 
-## Layout and Documentation
+## Find Results
+
+Foreground runs retrieve results automatically when they finish:
+
+| Location | Contents |
+|---|---|
+| `output/data/<run_id>/` | Logs, reports, prediction CSVs, history, and provenance |
+| `output/figure/<run_id>/` | PNG/PDF figures |
+| Remote run's `project/outputs/` | Datasets, model checkpoints, and GRNN references |
+
+For figure meanings and manual plotting, see
+[result visualization](doc/workflows/result-visualization.md).
+
+## Project Layout
 
 | Path | Purpose |
 |---|---|
-| `scripts/data_processing/` | Generation, feature math, configuration, numerical oracles |
-| `scripts/localization_networks/` | Shared helpers, RBD/ELM/SCM models, GRNN, remote workflow |
-| `scripts/visualization/` | Run-based plots and result integrity checks |
-| `Origindata/` | Original experiment inputs; excluded from Git |
+| `scripts/data_processing/` | Generation, feature math, and numerical checks |
+| `scripts/localization_networks/` | RBD/ELM/SCM models, GRNN, shared helpers, and remote workflow |
+| `scripts/visualization/` | Plots and result integrity checks |
+| `Origindata/` | Original inputs; excluded from Git |
 | `simulation/` | Propagation model inputs |
-| `doc/` | Topic-based guides and references |
+| `doc/` | Workflow guides, data contracts, and method references |
+| `pyproject.toml`, `uv.lock` | Dependency specifications and frozen versions |
 
-Start with the [documentation index](doc/README.md) or
-[project progress](doc/overview/project-progress.md). Operation guides cover
-[training and prediction](doc/workflows/training-and-prediction.md),
-[SCM-GRNN](doc/workflows/standalone-scm-grnn.md), and
-[result visualization](doc/workflows/result-visualization.md).
+Use the [documentation index](doc/README.md) to find a guide by task.
+[Project progress](doc/overview/project-progress.md) records verified scope
+and remaining scientific work.
