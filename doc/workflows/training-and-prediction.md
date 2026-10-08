@@ -17,8 +17,8 @@ SCM ResNet18, predicts, plots, and retrieves results. It starts fresh and uses
 that run's best checkpoint. See the [shell guide](remote-validation.md) for
 background runs and retrieval.
 
-Without overrides, the shell uses two epochs, train/predict batch size 8,
-CNN base channels 8, and km-space loss. The complete
+Without overrides, the shell uses 100 epochs, train/predict batch size 64,
+CNN base channels 16, and km-space loss. The complete
 [default reference](command-defaults.md#neural-training-and-prediction) lists
 settings and their sources. Manual Python defaults below are different.
 

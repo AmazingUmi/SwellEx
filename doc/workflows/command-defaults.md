@@ -16,9 +16,9 @@ are saved in `request.json`; see the [command guide](remote-validation.md).
 | `validation.device` | `cuda`; the requested device must be available |
 | `validation.seed` | `2026` |
 | `validation.threads` | `4` |
-| `validation.quick_timeout_s` | `600` s per quick, numerical, dataset-check, or aggregate-render command |
-| `validation.generation_timeout_s` | `900` s |
-| `validation.training_timeout_s` | `900` s for each train/build/predict command |
+| `validation.quick_timeout_s` | `900` s per quick, numerical, dataset-check, or aggregate-render command |
+| `validation.generation_timeout_s` | `1800` s |
+| `validation.training_timeout_s` | `7200` s for each train/build/predict command |
 | Foreground waiting and automatic fetch | On |
 | Dataset cache reuse | On, with hashes and validation checked |
 | Dry run | Off |
@@ -31,15 +31,21 @@ force-kills remaining processes after a five-second grace period.
 
 ## Dataset
 
-The bundled interval is a small pipeline check. The end value is the last
-window's **start time**, not its end time.
+The bundled interval covers the complete 4500 s S5 VLA recording: all 21
+channels contain 6,750,000 samples at 1500 Hz. The end value is the last
+window's **start time**, not its end time. Disjoint 1 s windows produce 4500
+samples per route, with 3600 train and 900 test rows under the periodic 4:1
+split. Neural training reserves 25% of the train rows for validation when no
+validation files exist, leaving 2700 optimizer-training and 900 validation rows.
+This is a within-record baseline; it does not measure independent time/track
+generalization.
 
 | Field in `[dataset]` | Default |
 |---|---|
 | `event_name` | `S5` |
 | `fs` | `1500` Hz |
 | `segment_start_s` | `0` s |
-| `segment_end_s` | `59` s; window starts include both endpoints |
+| `segment_end_s` | `4499` s; window starts include both endpoints |
 | `segment_duration_s` | `1.0` s |
 | `segment_step_s` | `1.0` s |
 | `num_snapshots_per_segment` | `1` |
@@ -70,9 +76,9 @@ Each selected run starts fresh and predicts with its own best checkpoint.
 
 | Field in `[training]` | Default |
 |---|---|
-| `epochs` | `2` |
-| `batch_size` | `8`, for both train and predict |
-| `base_channels` | `8` for CNNs; ResNet uses its architecture's channel layout |
+| `epochs` | `100` |
+| `batch_size` | `64`, for both train and predict |
+| `base_channels` | `16` for CNNs; ResNet uses its architecture's channel layout |
 | `loss_space` | `km` |
 | `huber_beta` | `0.5` km |
 | `val_fraction` | `0.25`, used when no validation files exist |
@@ -88,8 +94,8 @@ The worker also inherits these direct network CLI defaults:
 | Per-sample input channel normalization | On for complex CNN/ResNet; off for real CNN |
 
 Learning rate, weight decay, dropout, workers, and input normalization are not
-workflow TOML fields or `run.sh` options. Manual Python commands have different
-defaults for epochs, batch size, channels, and loss space; see
+workflow TOML fields or `run.sh` options. Manual Python uses train batch size 16,
+prediction batch size 32, and normalized training loss; see
 [training and prediction](training-and-prediction.md#train-options).
 
 ## SCM-GRNN
@@ -99,13 +105,44 @@ no epochs or optimizer and uses `validation.seed` for cross-validation.
 
 | Field in `[grnn]` | Default |
 |---|---|
-| `cv_folds` | `3` |
-| `sigma_candidates` | `[0.01, 0.1, 1.0]` |
-| `batch_size` | `64`, for both build and predict |
+| `cv_folds` | `5` |
+| `sigma_candidates` | `0.01`–`0.10` in steps of `0.01`, then `0.20`–`2.00` in steps of `0.10` (29 candidates) |
+| `batch_size` | `1024`, for both build and predict |
 
 Feature-coordinate standardization and per-sample channel normalization are
-both off. The direct GRNN CLI uses different defaults; see
+both off. The direct GRNN CLI defaults to no CV search and batch size 128; see
 [manual build options](standalone-scm-grnn.md#build-options).
+
+## A5000 Sizing
+
+The defaults target haiqin's RTX A5000 (24 GB), i7-11700K (8 cores/16 threads),
+and 30 GiB RAM. Profile `20261008T163807Z-4786a709` used the frozen environment,
+real S5 HDF5 data, current float32 training, AdamW, and the shared epoch loop.
+Each neural setting had three warm-up batches and two measured 2700-row train
+epochs; the table shows their mean time and peak PyTorch reserved GPU memory.
+
+| Batch size, 4 CPU threads | SCM ResNet50 epoch | SCM ResNet50 reserved memory | ELM complex CNN epoch |
+|---|---|---|---|
+| 16 | 7.608 s | 1.506 GiB | 2.114 s |
+| 32 | 6.689 s | 2.588 GiB | 1.825 s |
+| 64 | 6.448 s | 5.012 GiB | 1.684 s |
+| 128 | 6.293 s | 9.889 GiB | 1.638 s |
+
+Batch 64 retains about 97–98% of the measured batch-128 throughput and gives
+43 optimizer steps per epoch. It leaves room for CUDA/context overhead and
+other applications. Four CPU threads remain the baseline: eight did not give
+a consistent improvement in these measurements. CNN base channels remain 16,
+matching the model defaults; model width and epoch count are study settings.
+
+GRNN prediction used all 3600 reference and 900 test rows, with one warm-up
+and five measured predictions per setting. Mean prediction times for batches
+128/256/512/1024 were 23.17/18.15/15.56/14.58 ms. Batch 1024 peaked at 414.4 MiB
+of allocated GPU memory and covers each 720-row CV fold or the 900-row test set
+in one block. These are prediction timings, not total reference-build timings.
+
+The profile measures runtime and memory; it does not establish an optimal
+batch size for accuracy or convergence. Raw observations and the profiling
+script are in the profile's local `output/data/<run_id>/` directory.
 
 ## Result Delivery
 

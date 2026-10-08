@@ -130,8 +130,8 @@ class SelectedCliTests(unittest.TestCase):
         parser = remote.make_parser()
         self.assertEqual(parser.parse_args(["validate"]).suite, "smoke")
         cfg = valid_config()
-        self.assertEqual(cfg["training"]["epochs"], 2)
-        self.assertEqual((cfg["dataset"]["segment_start_s"], cfg["dataset"]["segment_end_s"]), (0, 59))
+        self.assertEqual(cfg["training"]["epochs"], 100)
+        self.assertEqual((cfg["dataset"]["segment_start_s"], cfg["dataset"]["segment_end_s"]), (0, 4499))
         with mock.patch.object(remote, "dispatch", return_value=0) as dispatch:
             self.assertEqual(remote.validate(cfg, "smoke", False, True, False), 0)
         self.assertEqual(dispatch.call_args.args, (cfg, "smoke", False, True, False))

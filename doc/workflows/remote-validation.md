@@ -14,7 +14,7 @@ uses the frozen dependencies in `pyproject.toml` and `uv.lock`.
 ./scripts/run.sh ELM complex_CNN
 
 # Override the neural epoch count and seed
-./scripts/run.sh SCM ResNet18 --epochs 100 --seed 2026
+./scripts/run.sh SCM ResNet18 --epochs 200 --seed 2027
 
 # SCM-GRNN reference building and prediction
 ./scripts/run.sh SCM GRNN
@@ -42,15 +42,16 @@ it does not apply an accuracy acceptance threshold.
 
 ## Options and Defaults
 
-The bundled configuration uses S5 window starts from 0 through 59 s, two
-neural epochs, batch size 8, seed 2026, and CUDA. These small defaults check
-the pipeline. See [all command defaults](command-defaults.md) before choosing
-a longer experiment.
+The bundled configuration uses the complete 4500 s S5 VLA recording: window
+starts from 0 through 4499 s, 100 neural epochs, batch size 64, seed 2026, and
+CUDA. SCM-GRNN uses five-fold CV over 29 sigma candidates. The periodic 4:1
+split provides a within-record baseline, with no accuracy acceptance threshold.
+See [all command defaults](command-defaults.md) for the complete settings.
 
 | Option | Default | Use |
 |---|---|---|
 | `--config PATH` | Bundled `haiqin.toml` | Load a complete TOML configuration |
-| `--epochs N` | `2` | Set a positive neural epoch count; rejected for GRNN |
+| `--epochs N` | `100` | Set a positive neural epoch count; rejected for GRNN |
 | `--seed N` | `2026` | Set the run seed, from 0 to 4294967295 |
 | `--detach` | Off | Launch and return the run ID immediately |
 | `--dry-run` | Off | Print the merged request without contacting haiqin |
@@ -96,6 +97,12 @@ Selected-model commands omit the global quick/numerical/resume checks.
 Smoke and experiment use the configured interval and epochs. Their errors
 describe those runs; scientific accuracy or model superiority needs separate
 acceptance criteria and repeated seeds.
+
+With the bundled configuration, smoke trains three neural models for 100 epochs
+each; experiment trains all twelve. For a short pipeline check, copy the TOML
+as shown above and set `dataset.segment_end_s = 59` and `training.epochs = 2`,
+then pass that file with `--config`. The bundled configuration remains the
+normal experiment baseline.
 
 ## Detach, Check Status, and Fetch
 
@@ -156,6 +163,7 @@ See [result visualization](result-visualization.md) for figure meanings.
 | Invalid command or configuration | Correct the named argument or TOML field; use `--dry-run` to inspect the request |
 | SSH, raw-data, or uv preflight failure | Run `./scripts/run.sh check`; inspect the configured remote paths |
 | CUDA or dependency failure | Read the logs and `environment.json` if present; follow the [frozen environment guide](remote-environment.md) |
+| CUDA out of memory | Check other GPU workloads; run when enough memory is free, or lower `training.batch_size` in a complete TOML copy passed with `--config` |
 | Dataset cache validation failure | Inspect the failure; use `--no-cache` for a fresh generation |
 | Run failed after launch | Use `status` and `fetch` with its run ID to retrieve the report and available logs |
 | Foreground waiting was interrupted | Use `status` with the printed run ID; fetch after completion |
