@@ -19,11 +19,12 @@ from config import RUN_ID, load_config
 
 PROJECT = Path(__file__).resolve().parents[3]
 DEFAULT_CONFIG = Path(__file__).with_name("haiqin.toml")
-LOCAL_RUNS = PROJECT / "outputs" / "remote_validation"
+LOCAL_RUNS = PROJECT / "output" / "data"
+LOCAL_FIGURES = PROJECT / "output" / "figure"
 SSH_OPTIONS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"]
 SOURCE_ROOTS = {"scripts", "simulation", "doc"}
 SOURCE_FILES = {"README.md", "AGENTS.md", ".gitignore", ".gitattributes", "pyproject.toml", "uv.lock", ".python-version"}
-EXCLUDED = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".DS_Store"}
+EXCLUDED = {"output", "outputs", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".DS_Store"}
 TERMINAL = {"PASS", "FAIL"}
 
 
@@ -107,12 +108,17 @@ write('dispatch.json', {'token':p['dispatch_token']})
 write('report.json', p['report'])
 try:
     for name in ['project','logs','reports','export']: (run/name).mkdir()
+    for name in ['data','figure']: (run/'export'/name).mkdir()
     for name in ['manifest.json','request.json','generation_config.json']: write(name,p[name])
     (run/'project'/'Origindata').symlink_to(raw, target_is_directory=True)
-    for name in ['report.json','manifest.json','request.json','generation_config.json']: shutil.copyfile(run/name,run/'export'/name)
+    for name in ['report.json','manifest.json','request.json','generation_config.json']: shutil.copyfile(run/name,run/'export'/'data'/name)
 except BaseException as error:
     failure={**p['report'],'status':'FAIL','exit_code':1,'error':f'Remote initialization failed: {type(error).__name__}: {error}'}
     write('report.json',failure)
+    (run/'export'/'data').mkdir(parents=True,exist_ok=True)
+    (run/'export'/'figure').mkdir(parents=True,exist_ok=True)
+    for name in ['report.json','manifest.json','request.json','generation_config.json']:
+        if (run/name).is_file(): shutil.copyfile(run/name,run/'export'/'data'/name)
     raise
 print(json.dumps({'run_dir':str(run)}))'''
 
@@ -125,7 +131,8 @@ report=run/'report.json'; current=json.loads(report.read_text()) if report.is_fi
 if (run/'launch.json').exists() or current.get('status')!='STARTING':
     print(json.dumps({'marked':False,'report':current})); sys.exit(0)
 failure=p['report']; temporary=report.with_suffix('.json.tmp'); temporary.write_text(json.dumps(failure)); temporary.replace(report)
-export=run/'export'; export.mkdir(exist_ok=True)
+export=run/'export'/'data'; export.mkdir(parents=True,exist_ok=True)
+(run/'export'/'figure').mkdir(parents=True,exist_ok=True)
 for name in ['report.json','manifest.json','request.json','generation_config.json']:
     if (run/name).is_file(): shutil.copyfile(run/name,export/name)
 print(json.dumps({'marked':True,'report':failure}))'''
@@ -180,18 +187,22 @@ def fetch(config: dict, run_id: str) -> dict:
     report = status(config, run_id)
     local = LOCAL_RUNS / run_id
     local.mkdir(parents=True, exist_ok=True)
+    figures = LOCAL_FIGURES / run_id
+    figures.mkdir(parents=True, exist_ok=True)
     dump(local / "report.json", report)
     # Copy only the worker's explicit small-artifact export; HDF5/PT are excluded there.
-    source = f"{config['remote']['host']}:{run_dir(config, run_id)}/export/"
-    proc = subprocess.run(["rsync", "-rlt", "-e", shlex.join(["ssh", *SSH_OPTIONS]), source, str(local) + "/"], capture_output=True, text=True)
-    if proc.returncode:
-        raise RuntimeError(f"Result retrieval failed: {proc.stderr.strip()}")
+    for kind, destination in (("data", local), ("figure", figures)):
+        source = f"{config['remote']['host']}:{run_dir(config, run_id)}/export/{kind}/"
+        proc = subprocess.run(["rsync", "-rlt", "-e", shlex.join(["ssh", *SSH_OPTIONS]), source, str(destination) + "/"], capture_output=True, text=True)
+        if proc.returncode:
+            raise RuntimeError(f"Result {kind} retrieval failed: {proc.stderr.strip()}")
     # Live/crashed workers may not have exported anything yet; always retain logs.
     proc = subprocess.run(["rsync", "-rlt", "-e", shlex.join(["ssh", *SSH_OPTIONS]), f"{config['remote']['host']}:{run_dir(config, run_id)}/logs/", str(local / "logs") + "/"], capture_output=True, text=True)
     if proc.returncode:
         raise RuntimeError(f"Log retrieval failed: {proc.stderr.strip()}")
     dump(local / "report.json", report)
     print(f"Results: {local}")
+    print(f"Figures: {figures}")
     return report
 
 

@@ -180,6 +180,15 @@ def workflow_tests_check():
     return {"exit_code": proc.returncode, "stdout": proc.stdout, "stderr": proc.stderr}
 
 
+def visualization_tests_check():
+    directory = ROOT / "scripts" / "visualization" / "tests"
+    require(directory.is_dir() and list(directory.glob("test*.py")), "visualization unittest files are missing")
+    proc = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", str(directory), "-p", "test*.py", "-v"],
+                          cwd=ROOT, text=True, capture_output=True, timeout=180)
+    require(proc.returncode == 0, f"visualization unittest exit={proc.returncode}\n{proc.stdout}\n{proc.stderr}")
+    return {"exit_code": proc.returncode, "stdout": proc.stdout, "stderr": proc.stderr}
+
+
 def model_check(method, name, device):
     import torch
     module = model_module(method)
@@ -457,6 +466,7 @@ def quick(report, device):
     usable = report.check("runtime.device", lambda: device_check(device))
     report.check("shared.paths_and_splits", shared_check)
     report.check("workflow.unit_tests", workflow_tests_check)
+    report.check("visualization.unit_tests", visualization_tests_check)
     for method in METHODS:
         report.check(f"loader.{method}", lambda m=method: loader_check(m))
         try:

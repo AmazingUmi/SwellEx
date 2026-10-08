@@ -56,7 +56,7 @@ def verify_snapshot(project: Path, manifest: dict) -> None:
     digest = hashlib.sha256(json.dumps(inventory, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     if digest != manifest["source_sha256"]:
         raise ValueError("Source manifest digest mismatch")
-    actual = {p.relative_to(project).as_posix() for p in project.rglob("*") if p.is_file() and "outputs" not in p.relative_to(project).parts and "Origindata" not in p.relative_to(project).parts and "__pycache__" not in p.relative_to(project).parts}
+    actual = {p.relative_to(project).as_posix() for p in project.rglob("*") if p.is_file() and not {"output", "outputs", "Origindata", "__pycache__"}.intersection(p.relative_to(project).parts)}
     if actual != seen:
         raise ValueError(f"Unexpected source inventory: {sorted(actual ^ seen)}")
 
@@ -352,8 +352,11 @@ class Worker:
             raise ValueError("Resumed epoch/split differs from expected checkpoint")
 
     def export(self) -> None:
-        target = self.run / "export"
-        target.mkdir(exist_ok=True)
+        target = self.run / "export" / "data"
+        figures = self.run / "export" / "figure"
+        target.mkdir(parents=True, exist_ok=True)
+        figures.mkdir(parents=True, exist_ok=True)
+        figure_destinations = set()
         for name in ("report.json", "manifest.json", "request.json", "generation_config.json", "environment.json", "data_identity.json"):
             if (self.run / name).is_file():
                 shutil.copyfile(self.run / name, target / name)
@@ -362,10 +365,50 @@ class Worker:
                 continue
             prefix = directory.relative_to(self.run)
             for path in directory.rglob("*"):
-                if path.is_file() and not path.is_symlink() and path.suffix.lower() in {".json", ".log", ".csv", ".png", ".pdf"}:
+                if path.is_file() and not path.is_symlink() and path.suffix.lower() in {".json", ".log", ".csv"}:
                     dest = target / prefix / path.relative_to(directory)
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(path, dest)
+        networks = self.project / "outputs" / "networks_results"
+        if networks.exists():
+            for path in networks.rglob("*"):
+                if path.is_file() and not path.is_symlink() and path.suffix.lower() in {".png", ".pdf"}:
+                    relative = path.relative_to(networks)
+                    if len(relative.parts) < 3:
+                        raise ValueError(f"Model figure is outside a method/model directory: {path}")
+                    method = "SCM" if relative.parts[0] == "0_GRNN_related" else relative.parts[0].removesuffix("_method")
+                    dest = figures / "models" / method / Path(*relative.parts[1:])
+                    if dest in figure_destinations:
+                        raise ValueError(f"Model figure export conflicts with an existing file: {dest}")
+                    figure_destinations.add(dest)
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(path, dest)
+        generated = self.project / "output" / "figure"
+        if generated.exists():
+            for path in generated.rglob("*"):
+                if not path.is_file() or path.is_symlink():
+                    continue
+                suffix = path.suffix.lower()
+                if suffix in {".png", ".pdf"}:
+                    dest = figures / path.relative_to(generated)
+                    if dest in figure_destinations:
+                        raise ValueError(f"Aggregated figure conflicts with model export: {dest}")
+                    figure_destinations.add(dest)
+                elif suffix in {".json", ".csv", ".log"}:
+                    dest = target / "reports" / "visualization" / path.relative_to(generated)
+                else:
+                    continue
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(path, dest)
+
+    def visualize(self) -> dict:
+        sys.path.insert(0, str(self.project))
+        from scripts.visualization.plot_results import render_run
+        result = render_run(self.run, self.project / "output" / "figure", require_pass=False)
+        if not isinstance(result, dict) or result.get("status") != "PASS":
+            raise ValueError("Visualization did not return a PASS manifest")
+        write_json(self.run / "reports" / "visualization.json", result)
+        return result
 
     def execute(self) -> int:
         self.save()
@@ -402,7 +445,9 @@ class Worker:
                     raise ValueError("Models did not evaluate the same test source windows")
                 self.phase("checkpoint_resume", self.checkpoint_resume)
                 self.report["metrics"] = metrics
+                self.save()
                 write_json(self.run / "reports/metrics.json", {"status": "PASS", "purpose": self.report["purpose"], "metrics": metrics})
+                self.phase("visualization", self.visualize)
             self.phase("source_unchanged_after_validation", lambda: verify_snapshot(self.project, self.manifest))
             self.report.update(status="PASS", exit_code=0)
             code = 0
@@ -413,7 +458,7 @@ class Worker:
             expected_phases = {"snapshot_integrity", "environment", "python_quick", "data_numerical", "source_unchanged_after_validation"}
             suite = self.request_if_available_suite()
             if suite != "quick":
-                expected_phases.update({"original_data_identity", "data_generation", "dataset_contract", "evaluate_grnn", "checkpoint_resume"})
+                expected_phases.update({"original_data_identity", "data_generation", "dataset_contract", "evaluate_grnn", "checkpoint_resume", "visualization"})
                 for method, prefix in (("RBD", ""), ("ELM", "elm_"), ("SCM", "scm_")):
                     names = ("complex_cnn_range", "real_cnn_range", "resnet18_range", "resnet50_range") if suite == "experiment" else ("complex_cnn_range",)
                     expected_phases.update(f"evaluate_{method}_{prefix}{name}" for name in names)
@@ -427,7 +472,7 @@ class Worker:
                 self.export()
                 self.report["status"] = terminal
                 self.save()
-                write_json(self.run / "export/report.json", self.report)
+                write_json(self.run / "export/data/report.json", self.report)
             except Exception as exc:
                 self.report.update(status="FAIL", exit_code=1, error=f"Result export failed: {exc}")
                 self.save()

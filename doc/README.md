@@ -1,50 +1,55 @@
 # Documentation Index
 
-The documentation is organized by numbered subdirectories so the order is
-stable in file browsers and each area has an obvious home.
+Start with project progress for verified scope, then select the guide for your
+task. Commands and environment setup belong to workflows; algorithms and
+stored data contracts have separate references.
 
-## 00 Overview
+## Naming Rules
 
-- [00 Project progress](00_overview/00_project_progress.md): current repository
-  status, completed work, and next steps.
-- [10 Environment](00_overview/10_environment.md): Python, uv, and remote
-  smoke-test commands.
+- Use English lowercase topic directories and hyphen-separated filenames
+  (`kebab-case`), with no numeric ordering prefixes. Keep `README.md` for indexes.
+- Name each file for its subject; meaningful numbers such as publication years
+  may remain. The index provides reading order.
+- Keep one authority per topic, link shared details, and update links after
+  merges or moves. Preserve each document's language.
+- These rules apply to `doc/`; code and generated artifacts follow their own
+  naming contracts.
 
-## 10 Datasets
+## Overview
 
-- [00 HDF5 datasets and split strategies](10_datasets/00_hdf5_datasets_and_splits.md):
-  Python dataset generation routes, split strategies, frequency selection, and
-  HDF5 fields.
-- [10 SCM feature note](10_datasets/10_scm_feature_note.md): concise SCM
-  feature-construction sketch.
+- [Project progress](overview/project-progress.md): completed capabilities,
+  latest validation evidence, and remaining scientific work.
 
-## 20 Python Workflows
+## Datasets
 
-- [00 Trainable training](20_python_workflows/00_trainable_training.md):
-  CNN/ResNet training for RBD, ELM, and SCM.
-- [10 Trainable prediction](20_python_workflows/10_trainable_prediction.md):
-  checkpoint-based prediction for trained RBD, ELM, and SCM networks.
-- [20 Standalone SCM-GRNN](20_python_workflows/20_standalone_scm_grnn.md):
-  non-iterative GRNN reference building and prediction.
-  Implementation-level README: [scripts/localization_networks/0_GRNN_related/README.md](../scripts/localization_networks/0_GRNN_related/README.md).
-- [30 Local development and remote validation](20_python_workflows/30_remote_validation.md):
-  source snapshots, remote Python generation, GPU checks, and result retrieval.
+- [HDF5 datasets and split strategies](datasets/hdf5-datasets-and-splits.md):
+  generation inputs, stored axes/fields, windows, frequencies, and splits.
 
-## 30 Methods
+## Workflows
 
-- [00 Trainable model architecture](30_methods/00_trainable_model_architecture.md):
-  tensor layouts and trainable model families.
-- [10 GRNN Wang and Peng 2018 architecture](30_methods/10_grnn_wang_peng_2018_architecture.md):
-  paper-derived GRNN structure and normalized SCM input design.
-- [20 RBD multipath peak detection](30_methods/20_rbd_multipath_detection.md):
-  multipath Bartlett-peak selection options and behavior.
+- [Local development and remote validation](workflows/remote-validation.md):
+  haiqin environment, source snapshots, suites, detached runs, and retrieval.
+- [Training and prediction](workflows/training-and-prediction.md):
+  RBD/ELM/SCM commands, loss units, continuation, checkpoints, and exports.
+- [Standalone SCM-GRNN](workflows/standalone-scm-grnn.md):
+  reference building, sigma selection, prediction, and artifacts.
+- [Result visualization](workflows/result-visualization.md):
+  figure definitions, comparison checks, and delivery provenance.
 
-## 40 Extension
+## Methods
 
-- [00 Python extension guide](40_extension/00_python_extension_guide.md): how to
-  add trainable models or dataset loaders to the RBD/ELM/SCM network packages.
+- [Trainable model architecture](methods/trainable-model-architecture.md):
+  CNN/ResNet families, input processing, and regression output.
+- [SCM features and GRNN](methods/scm-grnn.md): covariance construction,
+  vectorization, kernel regression, numerical behavior, and evaluation limits.
+- [RBD multipath peak detection](methods/rbd-multipath-detection.md):
+  peak selection, sidelobe rejection, Green aggregation, and diagnostics.
 
-## 90 References
+## Development
 
-- [papers.xlsx](90_references/00_papers.xlsx): paper and reference tracking
-  spreadsheet.
+- [Python extension guide](development/python-extension-guide.md):
+  adding models or loaders without changing shared contracts.
+
+## References
+
+- [papers.xlsx](references/papers.xlsx): paper and reference tracking.

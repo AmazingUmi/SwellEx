@@ -5,13 +5,16 @@
 The canonical Python entry is `scripts/data_processing/generate.py --config
 <JSON>`. Data/feature math is in `generation_core.py` and `feature_math.py`;
 strict configuration is defined in `generation_config.py`. The
-[haiqin workflow](../20_python_workflows/30_remote_validation.md) freezes
+[haiqin workflow](../workflows/remote-validation.md) freezes
 configuration and performs generation remotely with uv.
 
 Inputs are numeric VLA channel MAT files, range/position text files, and raw
 `Origindata/environments/ctds/i9605.prn` CTD depth/sound-speed columns. SciPy
 reads numeric MAT files; h5py reads numeric v7.3 datasets. Object/struct/reference
-channel data are rejected. All outputs live under `outputs/Datasets/`.
+channel data are rejected. Before windowing and splitting, each element's mean
+over the entire loaded recording is subtracted; this preprocessing includes
+held-out times, unlike adaptive frequency fitting on training windows only.
+All outputs live under `outputs/Datasets/`.
 
 `generation_result.json` reports PASS/FAIL and route-to-directory mappings.
 Each dataset has side JSON metadata recording configuration, split, frequency
@@ -22,6 +25,7 @@ are static references under `scripts/data_processing/matlab_reference/`.
 
 Python writes `/X` in its logical axis order and declares `axis_order` plus
 `storage_axis_order`. Loaders also recognize earlier reversed MATLAB storage.
+`/X` is float32; the vector fields below are stored as `[N,1]` columns.
 Shared fields:
 
 ```text
@@ -61,31 +65,37 @@ ELM uses:
 
 ```text
 ratio(i,j,f) = sum_s FFT_i,s(f) * conj(FFT_j,s(f))
-               / (sum_s abs(FFT_j,s(f))^2 + denominator_floor)
+               / (sum_s abs(FFT_j,s(f))^2 + denominator_floor + EPS)
 ```
 
-SCM normalizes each snapshot's array vector before outer-product averaging:
-
-```text
-C_f = mean_s ((x_s / ||x_s||) (x_s / ||x_s||)^H)
-```
-
-Zero-power inputs are handled explicitly. Synthetic tests check known ratios,
-Hermitian/PSD covariance, trace, pair sequence and zero-power behavior.
+The ELM floor is `1e-6` times the median finite FFT power across the current
+combined window; `EPS` is float64 machine epsilon. SCM averages outer products
+after normalizing each snapshot's array vector with a norm floor of `1e-12`;
+its formula, trace qualification, and GRNN vectorization are defined in the
+[SCM/GRNN method note](../methods/scm-grnn.md). Synthetic tests check known
+ratios, covariance properties, pair sequence, and zero-power behavior.
 
 RBD retains variable-sound-speed steering-delay integration, plane-wave
 fallback and Bartlett beamforming. `rbd.beam_selection` is `best` or `multipath`;
 accepted multipath components are phase rotated and beam-power weighted.
-`rbd.frequency_estimation` is `selected` or `full`; full estimation uses shared
-frequency modes `["full"]` for cross-route comparison. The stored feature is
+`rbd.frequency_estimation` is `selected` or `full`. Standalone generation with
+`full` overrides RBD's axis to all one-sided FFT bins while the other routes
+may retain their selected modes. The remote comparison workflow requires
+shared modes `["full"]` in this case so all routes align. The stored feature is
 the actual Green estimate. Earlier segmentation source saved the FFT return
 value under that name; regenerate those RBD datasets before comparisons.
-Best-beam Green vectors have unit norm for active frequencies; zero bins and
-multipath mixtures have separate validation bounds.
+RBD normalizes each spectrum vector by its norm plus float64 machine epsilon;
+norms well above epsilon therefore approach one. With an expected generation
+configuration,
+the validator requires best-beam columns above `1e-8` to be within `2e-6` of
+unit norm, exempting DC in full mode; multipath columns must not exceed
+`1+2e-6`. These checks distinguish Green features from raw FFT amplitudes,
+without certifying the physical estimator.
 
 RBD diagnostics are stored under `/rbd`: theta grid/best/selected angles,
 accepted angle count/powers, full beam powers and spectrum scale. Unused arrival
-slots are NaN; model input `/X` remains finite.
+slots are NaN; model input `/X` remains finite. Shapes and peak-selection
+behavior are defined in [RBD multipath](../methods/rbd-multipath-detection.md).
 
 ## Windows, Frequencies, and Splits
 
@@ -111,5 +121,4 @@ allowed in standalone `dataset.frequency_selection_config`.
 names encode the route, estimator and window/frequency settings;
 `manual_dataset_variant_tag` appends a safe suffix.
 
-For training and prediction, see [training](../20_python_workflows/00_trainable_training.md)
-and [prediction](../20_python_workflows/10_trainable_prediction.md).
+For model operations, see [training and prediction](../workflows/training-and-prediction.md).

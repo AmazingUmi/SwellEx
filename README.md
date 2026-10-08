@@ -1,155 +1,48 @@
 # SwellEx Range Regression
 
-This repository builds range-regression datasets and PyTorch models for the
-SwellEx VLA data. The code currently supports three parallel trainable feature
-routes plus a standalone non-trainable regressor:
+Range regression on SwellEx-96 vertical line array data. Python generates
+HDF5 features; PyTorch CNN/ResNet models predict source range in km. Three
+feature routes have separate loaders and model registries:
 
-- RBD: beamformer/RBD-derived Green-function features.
-- ELM: direct element pairwise frequency-ratio features without RBD.
-- SCM: spatial covariance features (upper-triangle entries including the
-  diagonal).
-- GRNN: standalone Gaussian-kernel regression on SCM features (reference
-  build + kernel prediction, no training).
+- **RBD**: beamformer-derived equivalent Green features.
+- **ELM**: element-pair least-squares frequency ratios, excluding the diagonal.
+- **SCM**: normalized spatial covariance entries, including the diagonal.
 
-## Quick Start
+Standalone **SCM-GRNN** stores reference samples and predicts by Gaussian
+kernel regression, without epochs or an optimizer.
 
-For local development with Python generation and all numerical validation on
-SSH host `haiqin`, use:
+## Local Development, Remote Execution
+
+Edit source and configuration locally. Dataset generation, numerical checks,
+training, prediction, and plotting run on SSH host `haiqin`. Dependencies are
+managed by `pyproject.toml` and `uv.lock`; MATLAB source is retained as a static
+migration reference.
+
+From the local project root:
 
 ```bash
 uv run --no-project --python python3 scripts/localization_networks/workflow/remote.py validate --suite smoke
 ```
 
-See [remote validation](doc/20_python_workflows/30_remote_validation.md) for
-configuration, quick checks, detached runs, and result retrieval.
+The [remote workflow](doc/workflows/remote-validation.md) explains prerequisites,
+configuration, frozen environments, detached runs, and retrieval. Local logs,
+reports, history, and prediction CSVs go to `output/data/<run_id>/`; figures go
+to `output/figure/<run_id>/`. Remote datasets and model artifacts stay on haiqin
+under the run's `outputs/` directory.
 
-Run commands from the project root.
+## Layout and Documentation
 
-RBD training and prediction:
+| Path | Purpose |
+|---|---|
+| `scripts/data_processing/` | Generation, feature math, configuration, numerical oracles |
+| `scripts/localization_networks/` | Shared helpers, RBD/ELM/SCM models, GRNN, remote workflow |
+| `scripts/visualization/` | Run-based plots and result integrity checks |
+| `Origindata/` | Original experiment inputs; excluded from Git |
+| `simulation/` | Propagation model inputs |
+| `doc/` | Topic-based guides and references |
 
-```bash
-uv run --frozen python scripts/localization_networks/RBD_method/Network_main.py train \
-  --model complex_cnn_range \
-  --data <rbd_dataset_name>
-
-uv run --frozen python scripts/localization_networks/RBD_method/Network_main.py predict \
-  --model complex_cnn_range \
-  --data <rbd_dataset_name>
-```
-
-ELM training and prediction:
-
-```bash
-uv run --frozen python scripts/localization_networks/ELM_method/Network_main.py train \
-  --model elm_complex_cnn_range \
-  --data <elm_dataset_name>
-
-uv run --frozen python scripts/localization_networks/ELM_method/Network_main.py predict \
-  --model elm_complex_cnn_range \
-  --data <elm_dataset_name>
-```
-
-SCM training and prediction:
-
-```bash
-uv run --frozen python scripts/localization_networks/SCM_method/Network_main.py train \
-  --model scm_complex_cnn_range \
-  --data <scm_dataset_name>
-
-uv run --frozen python scripts/localization_networks/SCM_method/Network_main.py predict \
-  --model scm_complex_cnn_range \
-  --data <scm_dataset_name>
-```
-
-Standalone GRNN reference build and prediction (SCM datasets):
-
-```bash
-uv run --frozen python scripts/localization_networks/0_GRNN_related/GRNN_main.py build \
-  --data <scm_dataset_name>
-
-uv run --frozen python scripts/localization_networks/0_GRNN_related/GRNN_main.py predict \
-  --data <scm_dataset_name>
-```
-
-RBD, ELM, and SCM training all support target-normalized loss and
-physical-error loss:
-
-```bash
---loss-space normalized
---loss-space km --huber-beta 0.5
-```
-
-Default outputs are written under:
-
-```text
-outputs/networks_results/RBD_method/
-outputs/networks_results/ELM_method/
-outputs/networks_results/SCM_method/
-outputs/networks_results/0_GRNN_related/
-```
-
-## Code Layout
-
-Python data processing:
-
-```text
-scripts/data_processing/generate.py
-scripts/data_processing/generation_config.py
-scripts/data_processing/feature_math.py
-scripts/data_processing/validate.py
-```
-
-Dependencies are managed by `pyproject.toml` and `uv.lock`. Numerical execution
-uses a frozen Linux/CUDA uv environment on haiqin. Original numeric MAT inputs
-are read by SciPy/h5py; MATLAB reference source is retained in
-`scripts/data_processing/matlab_reference/` for migration comparison.
-
-Python training and prediction:
-
-```text
-scripts/localization_networks/common/
-scripts/localization_networks/RBD_method/
-scripts/localization_networks/ELM_method/
-scripts/localization_networks/SCM_method/
-scripts/localization_networks/0_GRNN_related/
-```
-
-`scripts/localization_networks/common/` contains shared path, HDF5 split, training, and prediction
-helpers. RBD, ELM, and SCM keep separate dataset loaders and model registries
-because their HDF5 layouts or pair semantics differ. The standalone GRNN lives
-outside the trainable-network packages.
-
-Built-in RBD models:
-
-- `complex_cnn_range`
-- `real_cnn_range`
-- `resnet18_range`
-- `resnet50_range`
-
-Built-in ELM models:
-
-- `elm_complex_cnn_range`
-- `elm_real_cnn_range`
-- `elm_resnet18_range`
-- `elm_resnet50_range`
-
-Built-in SCM models:
-
-- `scm_complex_cnn_range`
-- `scm_real_cnn_range`
-- `scm_resnet18_range`
-- `scm_resnet50_range`
-
-GRNN is not a registered trainable model; use
-`scripts/localization_networks/0_GRNN_related/GRNN_main.py` with the `build` and `predict`
-subcommands.
-
-## Documentation Index
-
-- [Documentation index by category](doc/README.md)
-- [Project progress](doc/00_overview/00_project_progress.md)
-- [HDF5 datasets and split strategies](doc/10_datasets/00_hdf5_datasets_and_splits.md)
-- [Training workflow](doc/20_python_workflows/00_trainable_training.md)
-- [Prediction workflow](doc/20_python_workflows/10_trainable_prediction.md)
-- [Standalone SCM-GRNN workflow](doc/20_python_workflows/20_standalone_scm_grnn.md)
-- [Local toolchain and environment](doc/00_overview/10_environment.md)
+Start with the [documentation index](doc/README.md) or
+[project progress](doc/overview/project-progress.md). Operation guides cover
+[training and prediction](doc/workflows/training-and-prediction.md),
+[SCM-GRNN](doc/workflows/standalone-scm-grnn.md), and
+[result visualization](doc/workflows/result-visualization.md).

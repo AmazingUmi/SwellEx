@@ -122,6 +122,7 @@ class SnapshotTests(unittest.TestCase):
         self.put("scripts/localization_networks/workflow/worker.py", "# committed worker\n")
         self.put("scripts/data_processing/matlab_reference/deleted.m", "% removed after commit\n")
         self.put("outputs/large.h5", "generated data must stay local\n")
+        self.put("output/data/run/report.json", "new result layout must stay local\n")
         self.git("add", ".")
         self.git("-c", "user.name=Workflow Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture")
         self.put("README.md", "uncommitted current documentation\n")
@@ -154,12 +155,21 @@ class SnapshotTests(unittest.TestCase):
         self.assertTrue({"pyproject.toml", "uv.lock", ".python-version"}.issubset(names))
         self.assertNotIn("scripts/data_processing/matlab_reference/deleted.m", names)
         self.assertNotIn("outputs/large.h5", names)
+        self.assertNotIn("output/data/run/report.json", names)
         self.assertFalse(any("__pycache__" in name or "._" in name or name.endswith((".asv", ".DS_Store")) for name in names))
         self.assertEqual((stage / "README.md").read_text(), "uncommitted current documentation\n")
         worker.verify_snapshot(stage, manifest)
         self.put("README.md", "later source edit\n")
         worker.verify_snapshot(stage, manifest)
         self.assertEqual((stage / "README.md").read_text(), "uncommitted current documentation\n")
+
+    def test_generated_data_and_figure_do_not_change_source_inventory(self):
+        stage, manifest = self.freeze()
+        for relative in ("output/data/run/report.json", "output/figure/comparison.png", "outputs/networks_results/history.json"):
+            path = stage / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("generated result")
+        worker.verify_snapshot(stage, manifest)
 
     def test_changed_source_bytes_and_manifest_digest_rejected(self):
         stage, manifest = self.freeze()
@@ -318,7 +328,8 @@ class LifecycleTests(unittest.TestCase):
             self.assertEqual(report["exit_code"], 1)
             self.assertEqual(report["checks"][0]["status"], "FAIL")
             self.assertIn("damaged snapshot", report["error"])
-            self.assertEqual(json.loads((run / "export/report.json").read_text()), report)
+            self.assertEqual(json.loads((run / "export/data/report.json").read_text()), report)
+            self.assertTrue((run / "export/figure").is_dir())
 
     def test_status_distinguishes_running_worker_from_stale_pid_identity(self):
         # Remote STATUS_CODE is deliberately stdlib-only and can run without
@@ -343,6 +354,109 @@ class LifecycleTests(unittest.TestCase):
             terminal = {"run_id": RUN_ID, "status": "PASS", "exit_code": 0, "checks": []}
             (run / "report.json").write_text(json.dumps(terminal))
             self.assertEqual(query(), terminal)
+
+
+class ResultDeliveryTests(unittest.TestCase):
+    def test_visualization_manifest_is_retained_and_render_failure_is_rejected(self):
+        with tempfile.TemporaryDirectory(prefix="swellex-render-phase-test-") as directory:
+            instance = worker.Worker(Path(directory))
+            manifest = {"status": "PASS", "figures": ["comparison.png"]}
+            render = mock.Mock(return_value=manifest)
+            module = mock.Mock(render_run=render)
+            original_path = sys.path.copy()
+            try:
+                with mock.patch.dict(sys.modules, {"scripts.visualization.plot_results": module}):
+                    self.assertEqual(instance.visualize(), manifest)
+                    render.assert_called_once_with(instance.run, instance.project / "output/figure", require_pass=False)
+                    self.assertEqual(json.loads((instance.run / "reports/visualization.json").read_text()), manifest)
+                    render.return_value = {"status": "FAIL"}
+                    with self.assertRaisesRegex(ValueError, "PASS manifest"):
+                        instance.visualize()
+            finally:
+                sys.path[:] = original_path
+
+    def test_local_result_roots_are_singular_output(self):
+        self.assertEqual(remote.LOCAL_RUNS, remote.PROJECT / "output/data")
+        self.assertEqual(remote.LOCAL_FIGURES, remote.PROJECT / "output/figure")
+
+    def test_export_separates_logs_history_predictions_and_figures(self):
+        with tempfile.TemporaryDirectory(prefix="swellex-export-test-") as directory:
+            run = Path(directory)
+            content = {
+                "report.json": '{"status":"PASS"}',
+                "logs/train.log": "training log",
+                "reports/metrics.json": "{}",
+                "project/outputs/networks_results/RBD/complex_cnn_range/train_outputs/data_history_1008_120000.json": "[]",
+                "project/outputs/networks_results/RBD/complex_cnn_range/test_outputs/data_predictions_1008_120000.csv": "sample,pred_range_km",
+                "project/outputs/networks_results/RBD/complex_cnn_range/test_outputs/data_range_prediction_1008_120000.png": "model PNG",
+                "project/outputs/networks_results/0_GRNN_related/scm_grnn_range/test_outputs/data_range_prediction_1008_120000.png": "GRNN PNG",
+                "project/output/figure/comparison.pdf": "aggregate PDF",
+                "project/output/figure/source-report.json": '{"status":"RUNNING"}',
+                "project/output/figure/metrics.csv": "method,model,mae_km",
+                "project/output/figure/manifest.json": '{"status":"PASS"}',
+                "project/output/figure/nested/render.log": "render log",
+                "project/outputs/networks_results/RBD/complex_cnn_range/train_outputs/checkpoint.pt": "large checkpoint",
+                "project/outputs/Datasets/large.h5": "large data",
+            }
+            for relative, value in content.items():
+                path = run / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(value)
+            outside = run / "private.csv"
+            outside.write_text("external file")
+            (run / "logs/external.csv").symlink_to(outside)
+            instance = worker.Worker(run)
+            instance.export()
+            instance.export()  # Re-export is safe and deterministic.
+            data = run / "export/data"
+            figures = run / "export/figure"
+            self.assertEqual((data / "logs/train.log").read_text(), "training log")
+            self.assertTrue((data / "project/outputs/networks_results/RBD/complex_cnn_range/train_outputs/data_history_1008_120000.json").is_file())
+            self.assertTrue((data / "project/outputs/networks_results/RBD/complex_cnn_range/test_outputs/data_predictions_1008_120000.csv").is_file())
+            self.assertEqual((figures / "models/RBD/complex_cnn_range/test_outputs/data_range_prediction_1008_120000.png").read_text(), "model PNG")
+            self.assertEqual((figures / "models/SCM/scm_grnn_range/test_outputs/data_range_prediction_1008_120000.png").read_text(), "GRNN PNG")
+            self.assertEqual((figures / "comparison.pdf").read_text(), "aggregate PDF")
+            for relative in ("source-report.json", "metrics.csv", "manifest.json", "nested/render.log"):
+                self.assertEqual((data / "reports/visualization" / relative).read_text(),
+                                 content["project/output/figure/" + relative])
+                self.assertFalse((figures / relative).exists())
+            self.assertFalse(list(data.rglob("*.png")) + list(data.rglob("*.pdf")))
+            self.assertFalse(list(figures.rglob("*.json")) + list(figures.rglob("*.csv")))
+            self.assertFalse(list((run / "export").rglob("*.pt")) + list((run / "export").rglob("*.h5")))
+            self.assertFalse((data / "logs/external.csv").exists())
+
+    def test_fetch_uses_distinct_data_figure_and_live_log_transfers(self):
+        with tempfile.TemporaryDirectory(prefix="swellex-fetch-test-") as directory:
+            root = Path(directory)
+            report = {"run_id": RUN_ID, "status": "PASS", "checks": []}
+            completed = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+            with mock.patch.object(remote, "LOCAL_RUNS", root / "data"), mock.patch.object(remote, "LOCAL_FIGURES", root / "figure"), \
+                 mock.patch.object(remote, "status", return_value=report), mock.patch.object(remote.subprocess, "run", return_value=completed) as call, \
+                 mock.patch("builtins.print"):
+                self.assertEqual(remote.fetch(valid_config(), RUN_ID), report)
+            arguments = [entry.args[0] for entry in call.call_args_list]
+            self.assertEqual(len(arguments), 3)
+            self.assertTrue(arguments[0][-2].endswith("/export/data/"))
+            self.assertEqual(arguments[0][-1], str(root / "data" / RUN_ID) + "/")
+            self.assertTrue(arguments[1][-2].endswith("/export/figure/"))
+            self.assertEqual(arguments[1][-1], str(root / "figure" / RUN_ID) + "/")
+            self.assertTrue(arguments[2][-2].endswith("/logs/"))
+            self.assertEqual(arguments[2][-1], str(root / "data" / RUN_ID / "logs") + "/")
+            self.assertEqual(json.loads((root / "data" / RUN_ID / "report.json").read_text()), report)
+
+    def test_initialization_exports_starting_report_to_data_and_creates_figure_directory(self):
+        with tempfile.TemporaryDirectory(prefix="swellex-init-export-test-") as directory:
+            root = Path(directory)
+            (root / "repository/Origindata").mkdir(parents=True)
+            payload = {"workspace": str(root / "workspace"), "repository": str(root / "repository"),
+                       "run_id": RUN_ID, "dispatch_token": "fixture", "report": {"status": "STARTING"},
+                       "manifest.json": {}, "request.json": {}, "generation_config.json": {}}
+            proc = subprocess.run([sys.executable, "-c", remote.INIT_CODE], input=json.dumps(payload),
+                                  text=True, capture_output=True, check=True)
+            run = Path(json.loads(proc.stdout)["run_dir"])
+            self.assertEqual(json.loads((run / "export/data/report.json").read_text())["status"], "STARTING")
+            self.assertTrue((run / "export/figure").is_dir())
+            self.assertFalse((run / "export/report.json").exists())
 
 
 class UvRuntimeTests(unittest.TestCase):
@@ -594,7 +708,7 @@ class DispatchTests(unittest.TestCase):
         (run / "launch.json").unlink()
         self.assertTrue(recover("owner")["marked"])
         self.assertEqual(json.loads(report.read_text())["status"], "FAIL")
-        self.assertEqual(json.loads((run / "export/report.json").read_text())["status"], "FAIL")
+        self.assertEqual(json.loads((run / "export/data/report.json").read_text())["status"], "FAIL")
 
 
 if __name__ == "__main__":
