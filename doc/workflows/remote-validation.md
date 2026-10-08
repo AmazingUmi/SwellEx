@@ -121,10 +121,20 @@ when they finish; detached runs need `fetch`.
 | `PASS` | Completed successfully |
 | `FAIL` | Failed; inspect the report and retained logs |
 
-Status/fetch exit codes are `0` for PASS, `1` for FAIL, and `2` while pending.
+Status exit codes are `0` for PASS, `1` for FAIL, and `2` while pending.
+Fetch uses the final queried status and returns `1` on a transfer or delivery
+verification error.
 A successful detached launch returns `0` before the work completes. Ctrl-C
 stops foreground waiting with exit code `130`; the remote worker continues.
 Workers also continue after an SSH disconnect.
+
+Fetch uses rsync checksums, then queries status again. If a pending run became
+terminal during retrieval, it retrieves the final data/figure export again
+before saving the final `report.json`. Terminal retrieval verifies any
+visualization manifest's listed files and records the result in
+`delivery-verification.json`; see [verification scope](result-visualization.md#input-checks-and-provenance).
+A PASS selected/smoke/experiment run requires that manifest; missing delivery
+evidence makes fetch fail. Quick runs may have no rendering manifest.
 
 ## Find Results and Diagnose Failures
 
@@ -132,9 +142,10 @@ Workers also continue after an SSH disconnect.
 |---|---|
 | `output/data/<run_id>/report.json` | Final status, checks, metrics, and failure details |
 | `output/data/<run_id>/request.json` | Frozen configuration and selected model |
+| `output/data/<run_id>/delivery-verification.json` | Verification of visualization manifest files, when present after terminal retrieval |
 | `output/data/<run_id>/logs/` | Executed commands and their logs |
 | `output/data/<run_id>/` | Reports, provenance, prediction CSVs, and history JSONs |
-| `output/figure/<run_id>/` | Aggregate and per-model PNG/PDF figures |
+| `output/figure/<run_id>/` | Aggregate and per-model PDF figures |
 | Remote run's `project/outputs/` | HDF5 datasets, checkpoints, and GRNN references |
 
 HDF5 and `.pt` files remain on haiqin. Do not commit `output/` or `outputs/`.

@@ -4,12 +4,27 @@ from __future__ import annotations
 SUITES = ("quick", "smoke", "experiment", "selected")
 METHODS = ("RBD", "ELM", "SCM")
 ARCHITECTURES = ("complex_CNN", "real_CNN", "ResNet18", "ResNet50", "GRNN")
+_PACKAGES = {"RBD": "rbd", "ELM": "elm", "SCM": "scm"}
 _MODELS = {
     "complex_CNN": "complex_cnn_range",
     "real_CNN": "real_cnn_range",
     "ResNet18": "resnet18_range",
     "ResNet50": "resnet50_range",
 }
+
+
+def package_name(method: str) -> str:
+    """Return the canonical Python package for a public feature method."""
+    if not isinstance(method, str) or method not in _PACKAGES:
+        raise ValueError(f"METHOD must be one of {', '.join(METHODS)}")
+    return _PACKAGES[method]
+
+
+def entry_script(selection: dict) -> str:
+    """Resolve an already canonical model selection to its sole CLI entry."""
+    selected = validate_selection(selection)
+    package = "grnn" if selected["architecture"] == "GRNN" else package_name(selected["method"])
+    return f"scripts/localization_networks/{package}/main.py"
 
 
 def resolve_selection(method: str, architecture: str) -> dict:

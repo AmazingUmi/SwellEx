@@ -4,6 +4,9 @@ from __future__ import annotations
 import hashlib
 import json
 import platform
+import os
+import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 import h5py
@@ -11,16 +14,12 @@ import numpy as np
 import scipy
 from scipy.io import loadmat
 
-if __package__:
-    from .feature_math import (segments, combine_snapshots, build_split, pair_indices, select_frequency_bins,
-                               extend_profile, steering_delays, sidelobe_psf, rbd_decompose,
-                               elm_feature, scm_feature, round_positive)
-    from .generation_config import ROOT, normalize_config, output_path
-else:
-    from feature_math import (segments, combine_snapshots, build_split, pair_indices, select_frequency_bins,
-                              extend_profile, steering_delays, sidelobe_psf, rbd_decompose,
-                              elm_feature, scm_feature, round_positive)
-    from generation_config import ROOT, normalize_config, output_path
+from scripts.data_processing.feature_math import (
+    segments, combine_snapshots, build_split, pair_indices, select_frequency_bins,
+    extend_profile, steering_delays, sidelobe_psf, rbd_decompose,
+    elm_feature, scm_feature, round_positive,
+)
+from scripts.data_processing.generation_config import ROOT, normalize_config, output_path
 
 GENERATOR_VERSION = "python-features-v1"
 
@@ -130,6 +129,14 @@ def _seconds_tag(value):
     return f"{value:.12g}".replace(".", "p")
 
 
+def generation_identity(config):
+    """Hash normalized computation settings, independent of output/report locations."""
+    payload = {"generator_version": GENERATOR_VERSION, "schema_version": config["schema_version"],
+               "dataset": config["dataset"], "rbd": config["rbd"]}
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:12]
+
+
 def dataset_names(method, config, modes, split, windows):
     d, r = config["dataset"], config["rbd"]
     frequency = "_".join(mode+str(d["frequency_selection_config"].get(mode+"_num_bins", 64 if mode == "mel" else 16))
@@ -157,7 +164,7 @@ def dataset_names(method, config, modes, split, windows):
         high = max(split["left_time_end_s"], split["right_time_end_s"])
         time_tag = (f"selected_s{int(round_positive(low))}_to_s{int(round_positive(high))}"
                     f"_min_s{int(round_positive(split['range_min_time_s']))}_step_s{int(round_positive(windows['step_s']))}")
-    name = split_name+"_"+variant
+    name = split_name+"_"+variant+"_"+generation_identity(config)
     prefix = {"RBD": "RBD_green_freq_nn", "ELM": "ELM_lsr_freq_nn", "SCM": "SCM_freq_nn"}[method]
     return name, variant, f"{prefix}_{d['event_name']}_{time_tag}_{variant}"
 
@@ -166,8 +173,8 @@ def _column(handle, name, value, dtype):
     handle.create_dataset(name, data=np.asarray(value, dtype=dtype).reshape(-1, 1))
 
 
-def create_h5(path, method, indices, windows, inputs, frequencies, feature_size, pair_i=None, pair_j=None, theta=None):
-    handle = h5py.File(path, "w")
+def _create_h5(path, method, indices, windows, inputs, frequencies, feature_size, pair_i=None, pair_j=None, theta=None):
+    handle = h5py.File(path, "x")
     try:
         x = handle.create_dataset("X", shape=(len(indices), feature_size, len(frequencies), 2), dtype="float32",
                                   chunks=(1, feature_size, len(frequencies), 2), compression="gzip", compression_opts=4)
@@ -205,6 +212,23 @@ def create_h5(path, method, indices, windows, inputs, frequencies, feature_size,
         handle.close(); raise
 
 
+@contextmanager
+def create_h5(path, method, indices, windows, inputs, frequencies, feature_size, pair_i=None, pair_j=None, theta=None):
+    """Publish a closed HDF5 file atomically and never replace an existing file."""
+    path = Path(path)
+    if path.exists():
+        raise FileExistsError(f"Dataset already exists: {path}")
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with _create_h5(temporary, method, indices, windows, inputs, frequencies, feature_size, pair_i, pair_j, theta) as handle:
+            yield handle
+        # An exclusive hard link publishes the completed file atomically; unlike
+        # replace(), it also refuses an output created by a concurrent writer.
+        os.link(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def _rbd_diagnostics(handle, local, result, slots):
     handle["rbd/theta_best_rad"][local, 0] = result["theta_best"]
     handle["rbd/num_selected_angles"][local, 0] = result["num_selected_angles"]
@@ -228,7 +252,7 @@ def generate_method(method, config, inputs, base_windows, root=ROOT):
     bins, frequencies, frequency_info = select_frequency_bins(full_frequencies, modes, d["frequency_selection_config"],
                                   signal=inputs["signal"], windows=windows, train_indices=splits["train"])
     name, variant, stem = dataset_names(method, config, modes, split_metadata, windows)
-    directory = Path(root)/"outputs/Datasets"/name; directory.mkdir(parents=True, exist_ok=True)
+    directory = Path(root)/"outputs/Datasets"/name; directory.mkdir(parents=True, exist_ok=False)
     theta = np.deg2rad(np.linspace(-90, 90, 181)) if method == "RBD" else None
     if method == "RBD":
         pair_i = pair_j = None; size = len(inputs["depths"])

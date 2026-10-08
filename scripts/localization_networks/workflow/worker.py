@@ -18,12 +18,12 @@ import subprocess
 import sys
 import time
 
-if __package__:
-    from .config import RUN_ID, validate_config
-    from .tasks import SUITES, expected_phases, model_plan, validate_selection
-else:
-    from config import RUN_ID, validate_config
-    from tasks import SUITES, expected_phases, model_plan, validate_selection
+PROJECT = Path(__file__).resolve().parents[3]
+if str(PROJECT) not in sys.path:
+    sys.path.insert(0, str(PROJECT))
+from scripts.localization_networks.workflow.config import RUN_ID, validate_config
+from scripts.localization_networks.workflow.processes import run_process
+from scripts.localization_networks.workflow.tasks import SUITES, entry_script, expected_phases, model_plan, package_name, resolve_selection, validate_selection
 
 
 def stamp() -> str:
@@ -141,18 +141,9 @@ class Worker:
         log_path = self.run / "logs" / f"{name}.log"
         write_json(self.run / "logs" / f"{name}.command.json", {"argv": argv, "cwd": str(self.project), "timeout_s": timeout})
         with log_path.open("wb") as log:
-            child = subprocess.Popen(argv, cwd=self.project, env=self.env if env is None else env, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-            try:
-                code = child.wait(timeout=timeout)
-            except BaseException:
-                if child.poll() is None:
-                    os.killpg(child.pid, signal.SIGTERM)
-                    try:
-                        child.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        os.killpg(child.pid, signal.SIGKILL)
-                        child.wait()
-                raise
+            result = run_process(argv, cwd=self.project, env=self.env if env is None else env,
+                                 stdout=log, stderr=subprocess.STDOUT, timeout=timeout)
+            code = result.returncode
         if code:
             tail = log_path.read_text(errors="replace")[-2500:]
             raise RuntimeError(f"{name} exited {code}; see {log_path}\n{tail}")
@@ -238,7 +229,12 @@ class Worker:
         relative += [p.relative_to(raw).as_posix() for p in channels]
         inputs = [{"path": name, "size": (raw/name).stat().st_size, "sha256": file_hash(raw/name)} for name in relative]
         generation_sources = [item for item in self.manifest["files"] if item["path"].startswith("scripts/data_processing/") and item["path"].endswith(".py")]
-        validator = [item for item in self.manifest["files"] if item["path"].startswith("scripts/localization_networks/validation/")]
+        shared_validators = {"scripts/localization_networks/common/h5_utils.py",
+                             "scripts/localization_networks/common/input_contract.py"}
+        validator = [item for item in self.manifest["files"]
+                     if item["path"].endswith(".py") and "tests" not in PurePosixPath(item["path"]).parts
+                     and (item["path"].startswith("scripts/localization_networks/validation/")
+                          or item["path"] in shared_validators)]
         cache_identity = {"schema_version": 1, "dataset": self.config["dataset"], "rbd": self.config["rbd"], "inputs": inputs, "generator_sources": generation_sources, "validator_sources": validator, "uv_lock_sha256": self.lock_hash, "numerical_dependencies": {name: importlib.metadata.version(name) for name in ("numpy", "scipy", "h5py")}}
         key = hashlib.sha256(json.dumps(cache_identity, sort_keys=True).encode()).hexdigest()
         write_json(self.run / "data_identity.json", {"cache_key": key, **cache_identity})
@@ -292,7 +288,7 @@ class Worker:
         cfg, v = self.config["training"], self.config["validation"]
         data = self.dataset_dirs[method]
         output = self.project / "outputs/networks_results" / method
-        entry = str(self.project / f"scripts/localization_networks/{method}_method/Network_main.py")
+        entry = str(self.project / f"scripts/localization_networks/{package_name(method)}/main.py")
         name = f"{method}_{model}"
         train_args = [self.python, "-B", entry, "train", "--model", model, "--data", data, "--output-dir", str(output), "--no-resume", "--epochs", str(cfg["epochs"]), "--batch-size", str(cfg["batch_size"]), "--base-channels", str(cfg["base_channels"]), "--loss-space", cfg["loss_space"], "--huber-beta", str(cfg["huber_beta"]), "--val-fraction", str(cfg["val_fraction"]), "--seed", str(v["seed"]), "--device", v["device"], "--num-workers", "0"]
         self.phase(f"train_{name}", lambda: self.command(f"train_{name}", train_args, v["training_timeout_s"]))
@@ -309,28 +305,26 @@ class Worker:
             for key in ("train_loss", "val_loss", "train_mae_km", "val_mae_km", "val_rmse_km"):
                 if not math.isfinite(row[key]):
                     raise ValueError(f"Nonfinite training metric {key} for {name}")
-        self.phase(f"predict_{name}", lambda: self.command(f"predict_{name}", [self.python, "-B", entry, "predict", "--model", model, "--data", data, "--output-dir", str(output), "--checkpoint", str(checkpoints[0]), "--batch-size", str(cfg["batch_size"]), "--device", v["device"], "--print-first", "0"], v["training_timeout_s"]))
+        self.phase(f"predict_{name}", lambda: self.command(f"predict_{name}", [self.python, "-B", entry, "predict", "--model", model, "--data", data, "--output-dir", str(output), "--checkpoint", str(checkpoints[0]), "--batch-size", str(cfg["batch_size"]), "--device", v["device"], "--print-first", "0", "--no-plot"], v["training_timeout_s"]))
         csvs = list((output / model / "test_outputs").glob("*_predictions_*.csv"))
         if len(csvs) != 1:
             raise ValueError(f"Expected one prediction CSV for {name}")
-        self.prediction_plot(output / model / "test_outputs")
         metrics = prediction_metrics(csvs[0], self.test_rows(data))
         return {"method": method, "model": model, "epochs": cfg["epochs"], "checkpoint": str(checkpoints[0]), **metrics}
 
     def grnn(self) -> dict:
         g, v = self.config["grnn"], self.config["validation"]
         data = self.dataset_dirs["SCM"]
-        output = self.project / "outputs/networks_results/0_GRNN_related"
-        entry = str(self.project / "scripts/localization_networks/0_GRNN_related/GRNN_main.py")
+        output = self.project / "outputs/networks_results/SCM"
+        entry = str(self.project / entry_script(resolve_selection("SCM", "GRNN")))
         self.phase("grnn_build", lambda: self.command("grnn_build", [self.python, "-B", entry, "build", "--data", data, "--output-dir", str(output), "--cv-folds", str(g["cv_folds"]), "--sigma-candidates", *map(str, g["sigma_candidates"]), "--seed", str(v["seed"]), "--batch-size", str(g["batch_size"]), "--device", v["device"]], v["training_timeout_s"]))
-        references = list(output.rglob("*_reference_*.pt"))
+        references = list((output / "scm_grnn_range" / "reference_outputs").glob("*_reference_*.pt"))
         if len(references) != 1:
             raise ValueError("Expected one GRNN reference artifact")
-        self.phase("grnn_predict", lambda: self.command("grnn_predict", [self.python, "-B", entry, "predict", "--data", data, "--output-dir", str(output), "--reference", str(references[0]), "--batch-size", str(g["batch_size"]), "--device", v["device"], "--print-first", "0"], v["training_timeout_s"]))
-        csvs = list(output.rglob("*_predictions_*.csv"))
+        self.phase("grnn_predict", lambda: self.command("grnn_predict", [self.python, "-B", entry, "predict", "--data", data, "--output-dir", str(output), "--reference", str(references[0]), "--batch-size", str(g["batch_size"]), "--device", v["device"], "--print-first", "0", "--no-plot"], v["training_timeout_s"]))
+        csvs = list((output / "scm_grnn_range" / "test_outputs").glob("*_predictions_*.csv"))
         if len(csvs) != 1:
             raise ValueError("Expected one GRNN prediction CSV")
-        self.prediction_plot(output)
         return {"method": "SCM", "model": "scm_grnn_range", "reference": str(references[0]), **prediction_metrics(csvs[0], self.test_rows(data))}
 
     def test_rows(self, dataset_dir: str) -> list[tuple[int, float, float]]:
@@ -349,9 +343,12 @@ class Worker:
         return rows
 
     def prediction_plot(self, directory: Path) -> None:
-        plots = list(directory.rglob("*_range_prediction_*.png"))
-        if len(plots) != 1 or plots[0].stat().st_size < 100 or plots[0].read_bytes()[:8] != b"\x89PNG\r\n\x1a\n":
-            raise ValueError(f"Expected a prediction PNG in {directory}")
+        plots = list(directory.glob("*.pdf"))
+        if len(plots) != 1 or plots[0].is_symlink():
+            raise ValueError(f"Expected one prediction PDF in {directory}")
+        content = plots[0].read_bytes()
+        if len(content) < 100 or not content.startswith(b"%PDF-") or not content.rstrip().endswith(b"%%EOF"):
+            raise ValueError(f"Expected a complete prediction PDF in {directory}")
 
     def checkpoint_resume(self) -> None:
         # Isolated second output verifies actual optimizer/scheduler/checkpoint restore.
@@ -361,7 +358,7 @@ class Worker:
         if len(last) != 1:
             raise ValueError("Expected one last checkpoint for resume validation")
         target = self.project / "outputs/resume_validation/RBD"
-        self.command("checkpoint_resume", [self.python, "-B", str(self.project / "scripts/localization_networks/RBD_method/Network_main.py"), "train", "--model", "complex_cnn_range", "--data", self.dataset_dirs["RBD"], "--output-dir", str(target), "--resume-checkpoint", str(last[0]), "--epochs", "1", "--batch-size", str(cfg["batch_size"]), "--seed", str(v["seed"]), "--loss-space", cfg["loss_space"], "--huber-beta", str(cfg["huber_beta"]), "--val-fraction", str(cfg["val_fraction"]), "--device", v["device"]], v["training_timeout_s"])
+        self.command("checkpoint_resume", [self.python, "-B", str(self.project / entry_script(resolve_selection("RBD", "complex_CNN"))), "train", "--model", "complex_cnn_range", "--data", self.dataset_dirs["RBD"], "--output-dir", str(target), "--resume-checkpoint", str(last[0]), "--epochs", "1", "--batch-size", str(cfg["batch_size"]), "--seed", str(v["seed"]), "--loss-space", cfg["loss_space"], "--huber-beta", str(cfg["huber_beta"]), "--val-fraction", str(cfg["val_fraction"]), "--device", v["device"]], v["training_timeout_s"])
         import torch
         resumed_paths = list(target.rglob("*_last_*.pt"))
         if len(resumed_paths) != 1:
@@ -376,7 +373,6 @@ class Worker:
         figures = self.run / "export" / "figure"
         target.mkdir(parents=True, exist_ok=True)
         figures.mkdir(parents=True, exist_ok=True)
-        figure_destinations = set()
         for name in ("report.json", "manifest.json", "request.json", "generation_config.json", "environment.json", "data_identity.json"):
             if (self.run / name).is_file():
                 shutil.copyfile(self.run / name, target / name)
@@ -389,31 +385,16 @@ class Worker:
                     dest = target / prefix / path.relative_to(directory)
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(path, dest)
-        networks = self.project / "outputs" / "networks_results"
-        if networks.exists():
-            for path in networks.rglob("*"):
-                if path.is_file() and not path.is_symlink() and path.suffix.lower() in {".png", ".pdf"}:
-                    relative = path.relative_to(networks)
-                    if len(relative.parts) < 3:
-                        raise ValueError(f"Model figure is outside a method/model directory: {path}")
-                    method = "SCM" if relative.parts[0] == "0_GRNN_related" else relative.parts[0].removesuffix("_method")
-                    dest = figures / "models" / method / Path(*relative.parts[1:])
-                    if dest in figure_destinations:
-                        raise ValueError(f"Model figure export conflicts with an existing file: {dest}")
-                    figure_destinations.add(dest)
-                    dest.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copyfile(path, dest)
+        # Automatic figures have one authority: the renderer's verified CSV/
+        # history tree. Raw manual prediction plots are not duplicated here.
         generated = self.project / "output" / "figure"
         if generated.exists():
             for path in generated.rglob("*"):
                 if not path.is_file() or path.is_symlink():
                     continue
                 suffix = path.suffix.lower()
-                if suffix in {".png", ".pdf"}:
+                if suffix == ".pdf":
                     dest = figures / path.relative_to(generated)
-                    if dest in figure_destinations:
-                        raise ValueError(f"Aggregated figure conflicts with model export: {dest}")
-                    figure_destinations.add(dest)
                 elif suffix in {".json", ".csv", ".log"}:
                     dest = target / "reports" / "visualization" / path.relative_to(generated)
                 else:
@@ -422,11 +403,15 @@ class Worker:
                 shutil.copyfile(path, dest)
 
     def visualize(self) -> dict:
-        sys.path.insert(0, str(self.project))
-        from scripts.visualization.plot_results import render_run
-        result = render_run(self.run, self.project / "output" / "figure", require_pass=False)
+        output = self.project / "output" / "figure"
+        self.command("visualization", [self.python, "-B", str(self.project / "scripts/localization_networks/workflow/render.py"),
+                                      "--run-dir", str(self.run), "--output-dir", str(output)],
+                     self.config["validation"]["quick_timeout_s"])
+        result = json.loads((output / "manifest.json").read_text())
         if not isinstance(result, dict) or result.get("status") != "PASS":
             raise ValueError("Visualization did not return a PASS manifest")
+        for item in model_plan(self.request["suite"], self.request.get("selection")):
+            self.prediction_plot(output / "models" / item["method"] / item["model"] / "test_outputs")
         write_json(self.run / "reports" / "visualization.json", result)
         return result
 

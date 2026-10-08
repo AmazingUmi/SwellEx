@@ -60,7 +60,18 @@ def test_output_dir(output_root: Path, model_name: str) -> Path:
 
 
 def latest_time_suffixed_path(path: Path) -> Path | None:
-    matches = sorted(path.parent.glob(f"{path.stem}_*{path.suffix}"))
+    prefix = path.stem + "_"
+    matches = []
+    for item in path.parent.glob(f"{prefix}*{path.suffix}"):
+        stamp = item.stem[len(prefix):]
+        if not item.is_file() or not re.fullmatch(r"[0-9]{4}_[0-9]{6}", stamp):
+            continue
+        try:
+            # A leap year allows February 29 because the public suffix has no year.
+            datetime.strptime("2000" + stamp, "%Y%m%d_%H%M%S")
+        except ValueError:
+            continue
+        matches.append(item)
     if not matches:
         return None
-    return max(matches, key=lambda item: item.stat().st_mtime)
+    return max(matches, key=lambda item: (item.stat().st_mtime_ns, item.name))

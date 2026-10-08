@@ -17,10 +17,8 @@ from unittest import mock
 
 WORKFLOW = Path(__file__).resolve().parents[1]
 PROJECT = WORKFLOW.parents[2]
-sys.path.insert(0, str(WORKFLOW))
-import config
-import remote
-import tasks
+sys.path.insert(0, str(PROJECT))
+from scripts.localization_networks.workflow import config, remote, tasks
 
 RUN_ID = "20261008T120000Z-01234567"
 
@@ -33,7 +31,7 @@ class PlanTests(unittest.TestCase):
     def test_all_thirteen_mappings_match_current_registries(self):
         selections = []
         for method in tasks.METHODS:
-            tree = ast.parse((PROJECT / "scripts/localization_networks" / f"{method}_method/network/model.py").read_text())
+            tree = ast.parse((PROJECT / "scripts/localization_networks" / f"{method.lower()}/network/model.py").read_text())
             registry = next(node.value for node in tree.body if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "MODEL_REGISTRY" for target in node.targets))
             registered = {ast.literal_eval(key) for key in registry.keys}
             for architecture in tasks.ARCHITECTURES[:-1]:

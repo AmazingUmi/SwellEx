@@ -14,6 +14,7 @@ import io
 import os
 from pathlib import Path
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -21,10 +22,9 @@ import unittest
 from unittest import mock
 
 WORKFLOW = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(WORKFLOW))
-import config
-import remote
-import worker
+PROJECT = WORKFLOW.parents[2]
+sys.path.insert(0, str(PROJECT))
+from scripts.localization_networks.workflow import config, remote, worker
 
 RUN_ID = "20261008T120000Z-01234567"
 FIELDS = ["sample", "source_segment_idx", "window_center_s", "pred_range_km", "true_range_km", "abs_error_km"]
@@ -361,24 +361,57 @@ class ResultDeliveryTests(unittest.TestCase):
     def test_visualization_manifest_is_retained_and_render_failure_is_rejected(self):
         with tempfile.TemporaryDirectory(prefix="swellex-render-phase-test-") as directory:
             instance = worker.Worker(Path(directory))
-            manifest = {"status": "PASS", "figures": ["comparison.png"]}
-            render = mock.Mock(return_value=manifest)
-            module = mock.Mock(render_run=render)
-            original_path = sys.path.copy()
-            try:
-                with mock.patch.dict(sys.modules, {"scripts.visualization.plot_results": module}):
-                    self.assertEqual(instance.visualize(), manifest)
-                    render.assert_called_once_with(instance.run, instance.project / "output/figure", require_pass=False)
-                    self.assertEqual(json.loads((instance.run / "reports/visualization.json").read_text()), manifest)
-                    render.return_value = {"status": "FAIL"}
-                    with self.assertRaisesRegex(ValueError, "PASS manifest"):
-                        instance.visualize()
-            finally:
-                sys.path[:] = original_path
+            manifest = {"status": "PASS", "figures": ["models/RBD/complex_cnn_range/test_outputs/prediction.pdf"]}
+            instance.python = sys.executable
+            instance.config = valid_config()
+            instance.request = {"suite": "selected", "selection": worker.resolve_selection("RBD", "complex_CNN")}
+            output = instance.project / "output/figure"
+            output.mkdir(parents=True)
+            prediction = output / manifest["figures"][0]
+            prediction.parent.mkdir(parents=True)
+            prediction.write_bytes(b"%PDF-1.4\n" + b"fixture" * 20 + b"\n%%EOF\n")
+            worker.write_json(output / "manifest.json", manifest)
+            with mock.patch.object(instance, "command") as command:
+                self.assertEqual(instance.visualize(), manifest)
+                command.assert_called_once_with("visualization", [sys.executable, "-B", str(instance.project / "scripts/localization_networks/workflow/render.py"),
+                                                                 "--run-dir", str(instance.run), "--output-dir", str(output)],
+                                                instance.config["validation"]["quick_timeout_s"])
+                self.assertEqual(json.loads((instance.run / "reports/visualization.json").read_text()), manifest)
+                prediction.unlink()
+                with self.assertRaisesRegex(ValueError, "one prediction PDF"):
+                    instance.visualize()
+                worker.write_json(output / "manifest.json", {"status": "FAIL"})
+                with self.assertRaisesRegex(ValueError, "PASS manifest"):
+                    instance.visualize()
+            with mock.patch.object(instance, "command", side_effect=subprocess.TimeoutExpired("render", 1)):
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    instance.visualize()
 
     def test_local_result_roots_are_singular_output(self):
         self.assertEqual(remote.LOCAL_RUNS, remote.PROJECT / "output/data")
         self.assertEqual(remote.LOCAL_FIGURES, remote.PROJECT / "output/figure")
+
+    def test_prediction_pdf_requires_complete_signature_and_trailer(self):
+        with tempfile.TemporaryDirectory(prefix="swellex-prediction-pdf-") as directory:
+            root = Path(directory)
+            instance = worker.Worker(root)
+            plots = root / "test_outputs"
+            plots.mkdir()
+            (plots / "prediction.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"fixture" * 20)
+            with self.assertRaisesRegex(ValueError, "one prediction PDF"):
+                instance.prediction_plot(plots)
+            pdf = plots / "prediction.pdf"
+            complete = b"%PDF-1.4\n" + b"fixture" * 20 + b"\n%%EOF\n"
+            pdf.write_bytes(complete)
+            instance.prediction_plot(plots)
+            for invalid in (complete.replace(b"%PDF-", b"%PNG-", 1), complete[:-6], b"%PDF-1.4\n%%EOF\n"):
+                pdf.write_bytes(invalid)
+                with self.subTest(content=invalid[:20]), self.assertRaisesRegex(ValueError, "complete prediction PDF"):
+                    instance.prediction_plot(plots)
+            pdf.write_bytes(complete)
+            (plots / "duplicate.pdf").write_bytes(complete)
+            with self.assertRaisesRegex(ValueError, "one prediction PDF"):
+                instance.prediction_plot(plots)
 
     def test_export_separates_logs_history_predictions_and_figures(self):
         with tempfile.TemporaryDirectory(prefix="swellex-export-test-") as directory:
@@ -390,8 +423,14 @@ class ResultDeliveryTests(unittest.TestCase):
                 "project/outputs/networks_results/RBD/complex_cnn_range/train_outputs/data_history_1008_120000.json": "[]",
                 "project/outputs/networks_results/RBD/complex_cnn_range/test_outputs/data_predictions_1008_120000.csv": "sample,pred_range_km",
                 "project/outputs/networks_results/RBD/complex_cnn_range/test_outputs/data_range_prediction_1008_120000.png": "model PNG",
-                "project/outputs/networks_results/0_GRNN_related/scm_grnn_range/test_outputs/data_range_prediction_1008_120000.png": "GRNN PNG",
+                "project/outputs/networks_results/SCM/scm_grnn_range/test_outputs/data_range_prediction_1008_120000.png": "GRNN PNG",
+                "project/outputs/networks_results/RBD/complex_cnn_range/test_outputs/prediction.pdf": "raw prediction PDF",
+                "project/outputs/networks_results/RBD/complex_cnn_range/test_outputs/data_range_prediction_1008_120000.pdf": "raw timestamped prediction PDF",
                 "project/output/figure/comparison.pdf": "aggregate PDF",
+                "project/output/figure/comparison.png": "aggregate PNG",
+                "project/output/figure/models/RBD/complex_cnn_range/test_outputs/prediction.pdf": "rendered model prediction PDF",
+                "project/output/figure/models/SCM/scm_grnn_range/test_outputs/prediction.pdf": "rendered GRNN prediction PDF",
+                "project/output/figure/models/RBD/complex_cnn_range/training/history.pdf": "training history PDF",
                 "project/output/figure/source-report.json": '{"status":"RUNNING"}',
                 "project/output/figure/metrics.csv": "method,model,mae_km",
                 "project/output/figure/manifest.json": '{"status":"PASS"}',
@@ -414,8 +453,12 @@ class ResultDeliveryTests(unittest.TestCase):
             self.assertEqual((data / "logs/train.log").read_text(), "training log")
             self.assertTrue((data / "project/outputs/networks_results/RBD/complex_cnn_range/train_outputs/data_history_1008_120000.json").is_file())
             self.assertTrue((data / "project/outputs/networks_results/RBD/complex_cnn_range/test_outputs/data_predictions_1008_120000.csv").is_file())
-            self.assertEqual((figures / "models/RBD/complex_cnn_range/test_outputs/data_range_prediction_1008_120000.png").read_text(), "model PNG")
-            self.assertEqual((figures / "models/SCM/scm_grnn_range/test_outputs/data_range_prediction_1008_120000.png").read_text(), "GRNN PNG")
+            self.assertEqual((figures / "models/RBD/complex_cnn_range/test_outputs/prediction.pdf").read_text(), "rendered model prediction PDF")
+            self.assertEqual((figures / "models/SCM/scm_grnn_range/test_outputs/prediction.pdf").read_text(), "rendered GRNN prediction PDF")
+            self.assertEqual((figures / "models/RBD/complex_cnn_range/training/history.pdf").read_text(), "training history PDF")
+            self.assertFalse((figures / "models/RBD/complex_cnn_range/test_outputs/data_range_prediction_1008_120000.pdf").exists())
+            self.assertEqual(len(list(figures.rglob("*.pdf"))), 4)
+            self.assertFalse(list(figures.rglob("*.png")))
             self.assertEqual((figures / "comparison.pdf").read_text(), "aggregate PDF")
             for relative in ("source-report.json", "metrics.csv", "manifest.json", "nested/render.log"):
                 self.assertEqual((data / "reports/visualization" / relative).read_text(),
@@ -437,6 +480,7 @@ class ResultDeliveryTests(unittest.TestCase):
                 self.assertEqual(remote.fetch(valid_config(), RUN_ID), report)
             arguments = [entry.args[0] for entry in call.call_args_list]
             self.assertEqual(len(arguments), 3)
+            self.assertTrue(all("--checksum" in args for args in arguments))
             self.assertTrue(arguments[0][-2].endswith("/export/data/"))
             self.assertEqual(arguments[0][-1], str(root / "data" / RUN_ID) + "/")
             self.assertTrue(arguments[1][-2].endswith("/export/figure/"))
@@ -444,6 +488,100 @@ class ResultDeliveryTests(unittest.TestCase):
             self.assertTrue(arguments[2][-2].endswith("/logs/"))
             self.assertEqual(arguments[2][-1], str(root / "data" / RUN_ID / "logs") + "/")
             self.assertEqual(json.loads((root / "data" / RUN_ID / "report.json").read_text()), report)
+
+    def test_fetch_refreshes_pending_to_terminal_and_retrieves_final_export(self):
+        for terminal in ("PASS", "FAIL"):
+            with self.subTest(terminal=terminal), tempfile.TemporaryDirectory(prefix="swellex-fetch-race-") as directory:
+                root = Path(directory)
+                pending = {"run_id": RUN_ID, "status": "EXPORTING", "checks": []}
+                final = {**pending, "status": terminal}
+                completed = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+                with mock.patch.object(remote, "LOCAL_RUNS", root / "data"), mock.patch.object(remote, "LOCAL_FIGURES", root / "figure"), \
+                     mock.patch.object(remote, "status", side_effect=[pending, final]), \
+                     mock.patch.object(remote.subprocess, "run", return_value=completed) as transfers, mock.patch("builtins.print"):
+                    self.assertEqual(remote.fetch(valid_config(), RUN_ID), final)
+                self.assertEqual(transfers.call_count, 5)
+                self.assertEqual(json.loads((root / "data" / RUN_ID / "report.json").read_text()), final)
+
+    def test_pass_model_run_requires_visualization_manifest_but_quick_and_fail_allow_absence(self):
+        for suite, status in (("quick", "PASS"), ("selected", "FAIL"), ("selected", "PASS"), ("smoke", "PASS"), ("experiment", "PASS")):
+            with self.subTest(suite=suite, status=status), tempfile.TemporaryDirectory(prefix="swellex-missing-manifest-") as directory:
+                root = Path(directory)
+                report = {"run_id": RUN_ID, "suite": suite, "status": status, "checks": []}
+                completed = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+                with mock.patch.object(remote, "LOCAL_RUNS", root / "data"), mock.patch.object(remote, "LOCAL_FIGURES", root / "figure"), \
+                     mock.patch.object(remote, "status", return_value=report), mock.patch.object(remote.subprocess, "run", return_value=completed), mock.patch("builtins.print"):
+                    if status == "PASS" and suite != "quick":
+                        with self.assertRaisesRegex(ValueError, "missing.*manifest"):
+                            remote.fetch(valid_config(), RUN_ID)
+                        delivery = json.loads((root / "data" / RUN_ID / "delivery-verification.json").read_text())
+                        self.assertEqual(delivery["status"], "FAIL")
+                        self.assertEqual(delivery["scope"], "visualization_manifest_files")
+                    else:
+                        self.assertEqual(remote.fetch(valid_config(), RUN_ID), report)
+
+    def visualization_export(self, data: Path, figures: Path) -> dict:
+        report_dir = data / "reports/visualization"
+        report_dir.mkdir(parents=True)
+        figures.mkdir(parents=True)
+        (report_dir / "metrics.csv").write_bytes(b"method,model\n")
+        (figures / "range-time.pdf").write_bytes(b"good image")
+        entries = []
+        for group, path in (("data", report_dir / "metrics.csv"), ("figure", figures / "range-time.pdf")):
+            entries.append({"group": group, "path": path.name, "size": path.stat().st_size, "sha256": remote.sha256(path)})
+        manifest = {"schema_version": 1, "status": "PASS", "run_id": RUN_ID, "files": entries}
+        worker.write_json(report_dir / "manifest.json", manifest)
+        return manifest
+
+    def test_visualization_delivery_rejects_hash_mismatch_and_unsafe_paths(self):
+        with tempfile.TemporaryDirectory(prefix="swellex-delivery-hash-") as directory:
+            root = Path(directory)
+            data, figures = root / "data", root / "figure"
+            manifest = self.visualization_export(data, figures)
+            self.assertEqual(remote.verify_visualization_delivery(data, figures, RUN_ID)["files_verified"], 2)
+            (figures / "range-time.pdf").write_bytes(b"bad! image")
+            with self.assertRaisesRegex(ValueError, "hash mismatch"):
+                remote.verify_visualization_delivery(data, figures, RUN_ID)
+            for path in ("../outside.pdf", "/outside.pdf", "nested/../outside.pdf", "./range-time.pdf"):
+                changed = copy.deepcopy(manifest)
+                changed["files"][1]["path"] = path
+                worker.write_json(data / "reports/visualization/manifest.json", changed)
+                with self.subTest(path=path), self.assertRaisesRegex(ValueError, "Unsafe"):
+                    remote.verify_visualization_delivery(data, figures, RUN_ID)
+            changed = copy.deepcopy(manifest)
+            (figures / "range-time.pdf").write_bytes(b"good image")
+            changed["files"].append(changed["files"][0])
+            worker.write_json(data / "reports/visualization/manifest.json", changed)
+            with self.assertRaisesRegex(ValueError, "duplicate"):
+                remote.verify_visualization_delivery(data, figures, RUN_ID)
+
+    @unittest.skipUnless(shutil.which("rsync"), "rsync is needed to exercise transfer checksums")
+    def test_fetch_repairs_same_size_same_mtime_local_corruption(self):
+        with tempfile.TemporaryDirectory(prefix="swellex-fetch-corruption-") as directory:
+            root = Path(directory)
+            export_data, export_figures = root / "export/data", root / "export/figure"
+            self.visualization_export(export_data, export_figures)
+            (root / "export/logs").mkdir()
+            local_data, local_figures = root / "local/data", root / "local/figure"
+            destination = local_figures / RUN_ID / "range-time.pdf"
+            destination.parent.mkdir(parents=True)
+            destination.write_bytes(b"bad! image")
+            original = export_figures / "range-time.pdf"
+            os.utime(destination, ns=(original.stat().st_atime_ns, original.stat().st_mtime_ns))
+            original_run = subprocess.run
+
+            def transfer(argv, **kwargs):
+                source = root / "export" / ("logs" if argv[-2].endswith("/logs/") else ("figure" if argv[-2].endswith("/figure/") else "data"))
+                return original_run([argv[0], argv[1], argv[2], str(source) + "/", argv[-1]], **kwargs)
+
+            report = {"run_id": RUN_ID, "status": "PASS", "checks": []}
+            with mock.patch.object(remote, "LOCAL_RUNS", local_data), mock.patch.object(remote, "LOCAL_FIGURES", local_figures), \
+                 mock.patch.object(remote, "status", return_value=report), mock.patch.object(remote.subprocess, "run", side_effect=transfer), mock.patch("builtins.print"):
+                remote.fetch(valid_config(), RUN_ID)
+            self.assertEqual(destination.read_bytes(), b"good image")
+            verified = json.loads((local_data / RUN_ID / "delivery-verification.json").read_text())
+            self.assertEqual(verified["status"], "PASS")
+            self.assertEqual(verified["scope"], "visualization_manifest_files")
 
     def test_initialization_exports_starting_report_to_data_and_creates_figure_directory(self):
         with tempfile.TemporaryDirectory(prefix="swellex-init-export-test-") as directory:
@@ -523,7 +661,7 @@ class UvRuntimeTests(unittest.TestCase):
                 self.assertEqual(instance.setup()["source_sha256"], manifest["source_sha256"])
             self.assertEqual(instance.lock_hash, lock_hash)
 
-    def test_cache_identity_tracks_lock_raw_inputs_and_generator_sources(self):
+    def test_cache_identity_tracks_lock_inputs_generators_and_validator_implementations(self):
         with tempfile.TemporaryDirectory(prefix="swellex-uv-cache-test-") as directory:
             run = Path(directory)
             instance = worker.Worker(run)
@@ -542,7 +680,11 @@ class UvRuntimeTests(unittest.TestCase):
             instance.config["remote"]["workspace"] = str(run / "workspace")
             instance.lock_hash = "a" * 64
             instance.manifest = {"files": [{"path": "scripts/data_processing/generate.py", "sha256": "b" * 64},
-                                            {"path": "scripts/data_processing/matlab_reference/reference.m", "sha256": "c" * 64}]}
+                                            {"path": "scripts/data_processing/matlab_reference/reference.m", "sha256": "c" * 64},
+                                            {"path": "scripts/localization_networks/validation/quick.py", "sha256": "1" * 64},
+                                            {"path": "scripts/localization_networks/common/input_contract.py", "sha256": "2" * 64},
+                                            {"path": "scripts/localization_networks/common/h5_utils.py", "sha256": "3" * 64},
+                                            {"path": "scripts/localization_networks/validation/tests/test_fixture.py", "sha256": "4" * 64}]}
             with mock.patch.object(worker.importlib.metadata, "version", return_value="pinned-fixture"):
                 first = instance.data_identity()["cache_key"]
                 self.assertEqual(instance.data_identity()["cache_key"], first)
@@ -555,8 +697,15 @@ class UvRuntimeTests(unittest.TestCase):
                 instance.manifest["files"][0]["sha256"] = "f" * 64
                 changed_code = instance.data_identity()["cache_key"]
                 self.assertNotEqual(changed_code, changed_lock)
+                for index in (2, 3, 4):
+                    previous = instance.data_identity()["cache_key"]
+                    instance.manifest["files"][index]["sha256"] = "5" * 64
+                    self.assertNotEqual(instance.data_identity()["cache_key"], previous)
+                previous = instance.data_identity()["cache_key"]
+                instance.manifest["files"][5]["sha256"] = "6" * 64
+                self.assertEqual(instance.data_identity()["cache_key"], previous)
                 (raw / names[2]).write_bytes(b"changed sound speed profile")
-                self.assertNotEqual(instance.data_identity()["cache_key"], changed_code)
+                self.assertNotEqual(instance.data_identity()["cache_key"], previous)
 
 
 class DispatchTests(unittest.TestCase):

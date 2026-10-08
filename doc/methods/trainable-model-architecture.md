@@ -1,7 +1,7 @@
 # Trainable Model Architecture
 
 RBD, ELM, and SCM have independent loaders and `network/model.py` registries
-under `scripts/localization_networks/<METHOD>_method/`. Their model families
+under `scripts/localization_networks/<method>/`. Their model families
 share the structure below. Input is `[batch,2,element|pair,frequency]`, with
 real then imaginary channels; [HDF5 contracts](../datasets/hdf5-datasets-and-splits.md)
 define the feature and pair semantics.

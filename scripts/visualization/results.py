@@ -10,7 +10,7 @@ import math
 from pathlib import Path
 import re
 
-from scripts.localization_networks.workflow.tasks import validate_selection
+from scripts.localization_networks.workflow.tasks import model_plan, validate_selection
 
 PREDICTION_FIELDS = (
     "sample", "source_segment_idx", "window_center_s", "pred_range_km",
@@ -217,6 +217,10 @@ def load_run(run_dir: Path, models: list[str] | None = None, *, require_pass=Tru
         names.append(f"{row['method']}/{row['model']}")
     if len(names) != len(set(names)):
         raise ValueError("Duplicate method/model in run report")
+    planned = model_plan(report["suite"], report.get("selection"))
+    expected_names = {f"{item['method']}/{item['model']}" for item in planned}
+    if set(names) != expected_names:
+        raise ValueError("Run model results differ from its complete canonical suite plan")
     if models is not None and (not models or len(models) != len(set(models)) or set(models)-set(names)):
         raise ValueError(f"Unknown or duplicate model selection; available: {', '.join(names)}")
     checks = report.get("checks", [])
@@ -226,14 +230,12 @@ def load_run(run_dir: Path, models: list[str] | None = None, *, require_pass=Tru
     results = []
     root = run_dir/"project/outputs/networks_results"
     for row, name in zip(metrics, names):
-        if models is not None and name not in models:
-            continue
         method, model = row["method"], row["model"]
         is_grnn = method == "SCM" and model == "scm_grnn_range"
         phase = "evaluate_grnn" if is_grnn else f"evaluate_{method}_{model}"
         if phase not in completed:
             raise ValueError(f"Model evaluation has not passed: {phase}")
-        directory = root/("0_GRNN_related" if is_grnn else method)/model
+        directory = root/method/model
         prediction_path = _unique(directory/"test_outputs", "*_predictions_*.csv")
         predictions = read_predictions(_read(prediction_path, run_dir, sources))
         summary = summarize(predictions)
@@ -258,4 +260,8 @@ def load_run(run_dir: Path, models: list[str] | None = None, *, require_pass=Tru
             or abs(a.true_km-b.true_km) > TIME_TOLERANCE for a, b in zip(base, rows)
         ):
             raise ValueError("Models must use identical test source windows, times and labels")
+    if models is not None:
+        # Filtering only controls rendering, after the whole recorded suite has
+        # been validated. Missing or damaged unselected inputs must still fail.
+        results = [result for result in results if result.name in models]
     return RunResults(run_dir, report, raw_report, results, sources)

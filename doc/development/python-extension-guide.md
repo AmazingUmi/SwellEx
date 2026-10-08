@@ -1,6 +1,7 @@
 # Python Extension Guide
 
-Network packages live under `scripts/localization_networks/<METHOD>_method/`.
+Neural packages are `scripts/localization_networks/rbd/`, `elm/`, and `scm/`;
+standalone SCM-GRNN lives in `grnn/`. Each has one `main.py` entry point.
 Keep shared path, split, training, and prediction logic in `common/`, and
 method-specific tensor layouts in each package. Read the
 [HDF5 contract](../datasets/hdf5-datasets-and-splits.md) before loader changes;
@@ -15,7 +16,7 @@ ELM and SCM have the same tensor rank but different pair semantics.
    `input_pairs` plus `input_freq_bins`. Return normalized predictions shaped
    `[batch,1]`. Shared training handles target statistics and km metrics.
 4. Check checkpoint config serialization/restoration. Update the four-model
-   registry-count expectation in `validation/validate.py` and the public
+   registry-count expectation in `validation/quick.py` and the public
    architecture mapping/plans in `workflow/tasks.py` when adding a family.
    The quick suite checks those mappings against the actual registries;
    cover the new model with a focused remote forward/backward check.
@@ -37,19 +38,28 @@ train_labels
 input_shape
 split_mode
 source_paths
+input_signature
 ```
 
 Preserve real/imag channel order, valid-label filtering, pair order, and sample
-identity/time alignment. A tensor shape alone does not prove compatible
-frequency or pair semantics. Add a small fixture that distinguishes the
-changed behavior, including rejection of malformed inputs when relevant.
-Check training, prediction exports, and continuation against the new loader;
-continuation rebuilds the split from current inputs/options.
+identity/time alignment. Reuse `common/input_contract.py` to compare physical
+frequency, element/depth, and pair axes across files and against artifacts.
+Matching tensor dimensions alone are insufficient. Add a focused malformed-input
+fixture when changing this contract.
+
+Check training, prediction exports, and continuation against the loader.
+Continuation rebuilds the split and requires its indices, mode, and seed to
+match the checkpoint. It starts a new cosine learning-rate phase; see the
+[resume rules](../workflows/training-and-prediction.md#resume-and-checkpoint-lookup).
 
 ## Configuration and Validation
 
-Add common CLI behavior in shared helpers where possible; keep method parsers
-consistent. Generation schema changes belong in
+Use `common/cli.py`, `training.py`, and `prediction.py` for neural command
+behavior. A method's thin wrappers supply `MethodBindings` for its loader,
+model registry, paths, and shape field. Keep method-specific layouts out of
+the shared loop. The [scripts map](scripts-organization.md) lists module ownership.
+
+Generation schema changes belong in
 `scripts/data_processing/generation_config.py`; reject unknown/invalid fields
 and keep cache fingerprints/metadata in step with the new behavior.
 

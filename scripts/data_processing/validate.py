@@ -9,23 +9,20 @@ import tempfile
 import traceback
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import h5py
 import numpy as np
 from scipy.io import savemat
 
-if __package__:
-    from .feature_math import (EPS, pair_indices, scm_feature, elm_feature, rbd_decompose, steering_delays,
-                              extend_profile, select_beam_peaks, sidelobe_psf, segments, combine_snapshots,
-                              build_split, select_frequency_bins)
-    from .generation_config import ROOT, normalize_config, output_path
-    from .generation_core import write_json, source_manifest, load_channel, create_h5, GENERATOR_VERSION
-else:
-    from feature_math import (EPS, pair_indices, scm_feature, elm_feature, rbd_decompose, steering_delays,
-                              extend_profile, select_beam_peaks, sidelobe_psf, segments, combine_snapshots,
-                              build_split, select_frequency_bins)
-    from generation_config import ROOT, normalize_config, output_path
-    from generation_core import write_json, source_manifest, load_channel, create_h5, GENERATOR_VERSION
+from scripts.data_processing.feature_math import (
+    EPS, pair_indices, scm_feature, elm_feature, rbd_decompose, steering_delays,
+    extend_profile, select_beam_peaks, sidelobe_psf, segments, combine_snapshots,
+    build_split, select_frequency_bins,
+)
+from scripts.data_processing.generation_config import ROOT, normalize_config, output_path
+from scripts.data_processing.generation_core import (
+    write_json, source_manifest, load_channel, create_h5, GENERATOR_VERSION,
+)
 
 TOLERANCE = 1e-12
 
@@ -279,7 +276,7 @@ def run_validation(report_path):
 
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__)
+    parser=argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--report",type=Path,default=ROOT/"outputs/validation/data_processing_validation.json")
     args=parser.parse_args()
     report=run_validation(args.report)

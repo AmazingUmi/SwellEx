@@ -16,6 +16,8 @@ from .paths import latest_time_suffixed_path, safe_name, train_output_dir
 
 
 def seed_everything(seed: int) -> None:
+    if isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed <= 2**32 - 1:
+        raise ValueError("seed must be an integer between 0 and 4294967295.")
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -23,6 +25,8 @@ def seed_everything(seed: int) -> None:
 
 
 def target_stats(labels: torch.Tensor) -> tuple[float, float]:
+    if labels.numel() == 0 or not bool(torch.isfinite(labels).all()):
+        raise ValueError("Target statistics require nonempty finite labels.")
     mean = float(labels.mean())
     std = float(labels.std(unbiased=False))
     if not math.isfinite(std) or std < 1.0e-6:
@@ -31,6 +35,8 @@ def target_stats(labels: torch.Tensor) -> tuple[float, float]:
 
 
 def resolve_resume_checkpoint(args: argparse.Namespace) -> Path | None:
+    if args.no_resume and args.resume_checkpoint is not None:
+        raise ValueError("--no-resume and --resume-checkpoint are mutually exclusive.")
     if args.no_resume:
         return None
     if args.resume_checkpoint is not None:
@@ -57,6 +63,10 @@ def run_epoch(
     loss_space: str = "normalized",
     optimizer: torch.optim.Optimizer | None = None,
 ) -> dict[str, float]:
+    if not math.isfinite(y_mean) or not math.isfinite(y_std) or y_std <= 0:
+        raise ValueError("Target normalization must be finite with positive std.")
+    if loss_space not in {"normalized", "km"}:
+        raise ValueError(f"Unsupported loss_space: {loss_space}")
     training = optimizer is not None
     model.train(training)
 
@@ -68,10 +78,14 @@ def run_epoch(
     for x, y_km in loader:
         x = x.to(device, non_blocking=True)
         y_km = y_km.to(device, non_blocking=True)
+        if not bool(torch.isfinite(x).all()) or not bool(torch.isfinite(y_km).all()):
+            raise ValueError("Epoch input features/labels contain nonfinite values.")
         y_norm = (y_km - y_mean) / y_std
 
         with torch.set_grad_enabled(training):
             pred_norm = model(x)
+            if pred_norm.shape != y_km.shape or not bool(torch.isfinite(pred_norm).all()):
+                raise ValueError("Model must return finite normalized predictions shaped [batch,1].")
             pred_km = pred_norm * y_std + y_mean
             if loss_space == "normalized":
                 loss = criterion(pred_norm, y_norm)
@@ -80,6 +94,8 @@ def run_epoch(
             else:
                 raise ValueError(f"Unsupported loss_space: {loss_space}")
 
+            if not bool(torch.isfinite(loss)):
+                raise ValueError("Epoch loss is nonfinite.")
             if training:
                 optimizer.zero_grad(set_to_none=True)
                 loss.backward()
@@ -94,9 +110,11 @@ def run_epoch(
         total_sq_error += float(err.square().sum())
         total_count += batch_size
 
-    rmse = math.sqrt(total_sq_error / max(1, total_count))
+    if total_count == 0:
+        raise ValueError("Cannot compute metrics for an empty epoch.")
+    rmse = math.sqrt(total_sq_error / total_count)
     return {
-        "loss": total_loss / max(1, total_count),
-        "mae_km": total_abs_error / max(1, total_count),
+        "loss": total_loss / total_count,
+        "mae_km": total_abs_error / total_count,
         "rmse_km": rmse,
     }

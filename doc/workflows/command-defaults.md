@@ -16,7 +16,7 @@ are saved in `request.json`; see the [command guide](remote-validation.md).
 | `validation.device` | `cuda`; the requested device must be available |
 | `validation.seed` | `2026` |
 | `validation.threads` | `4` |
-| `validation.quick_timeout_s` | `600` s |
+| `validation.quick_timeout_s` | `600` s per quick, numerical, dataset-check, or aggregate-render command |
 | `validation.generation_timeout_s` | `900` s |
 | `validation.training_timeout_s` | `900` s for each train/build/predict command |
 | Foreground waiting and automatic fetch | On |
@@ -26,6 +26,8 @@ are saved in `request.json`; see the [command guide](remote-validation.md).
 
 The TOML `schema_version` is `1`. Remote paths and the interpreter are listed in
 the [frozen environment guide](remote-environment.md#configured-paths-and-runtime).
+Worker commands use separate process groups; a timeout stops the group and
+force-kills remaining processes after a five-second grace period.
 
 ## Dataset
 
@@ -111,8 +113,8 @@ both off. The direct GRNN CLI uses different defaults; see
 |---|---|
 | Logs, tables, and reports | Local `output/data/<run_id>/` |
 | Figures | Local `output/figure/<run_id>/` |
-| Aggregate figure formats | PNG at 300 dpi and PDF |
-| Original per-model plots | PNG at 200 dpi |
+| Figure format | PDF only; embedded raster content uses 300 dpi |
+| Original per-model plots | PDF only |
 | HDF5 datasets and `.pt` artifacts | Kept on haiqin |
 
 See [result visualization](result-visualization.md) for the directory layout

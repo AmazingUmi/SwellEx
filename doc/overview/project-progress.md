@@ -2,52 +2,67 @@
 
 更新日期：2026-10-08
 
-项目已统一为 Python 数据处理、定位网络与结果可视化，依赖由 uv 管理。
-本地修改源码和配置，数据生成、数值验证、训练、预测及绘图在 haiqin 进行。
-使用方式及环境以 [远端工作流](../workflows/remote-validation.md) 为准。
+本地修改源码和配置；数据生成、数值验证、训练、预测及绘图在 haiqin 的
+冻结 uv 环境中运行。命令见 [远端工作流](../workflows/remote-validation.md)。
 
 ## 已完成
 
-- Python 读取原始数值 MAT、距离轨迹和 CTD，生成 RBD、ELM、SCM HDF5。
-  支持窗口组合、periodic/Range_nearby 划分和 full/mel/deep/shallow/adapt
-  选频；adapt 只拟合有效训练窗口。MATLAB 源码仅保留作迁移参考。
-- RBD 保存实际 Green 特征，支持最强波束和多径聚合。旧分段入口误存 FFT
-  的数据需重新生成。ELM 使用严格上三角 LS 比值，SCM 使用含对角线的
-  归一化协方差；字段和几何约束见 [HDF5 契约](../datasets/hdf5-datasets-and-splits.md)。
-- 每套定位网络有 complex CNN、real CNN、ResNet18、ResNet50，保持独立
-  loader/registry；共享训练、续训、预测与 normalized/km 损失。SCM-GRNN
-  独立构建 reference 并做核回归。
-- 远端工作流固定源码快照、uv 锁环境与输入身份，支持内容校验后的数据缓存、
-  后台运行、失败报告与结果回收；已有远端源码仓库保持不变。
-- `./scripts/run.sh METHOD ARCH` 支持三套方法的四类网络及独立 SCM-GRNN，
-  共 13 个合法组合；按配置生成或复用三路数据，只执行所选模型并绘图回收。
-  支持配置/epochs/seed 覆盖、dry-run、后台运行、status 和 fetch；
-  GRNN 拒绝 epochs，未知参数和非法组合在 SSH 前拒绝。
-- 可视化校验测试窗口身份、重算 CSV 指标并输出距离、残差、误差分布、
-  训练曲线及 sigma 搜索图。日志/报告/history/CSV 回收到
-  `output/data/<run_id>/`，图表回收到 `output/figure/<run_id>/`。
+| 范围 | 当前能力 |
+|---|---|
+| 数据生成 | Python 读取数值 MAT、距离轨迹和 CTD，生成 RBD/ELM/SCM HDF5；支持 periodic/Range_nearby 划分及五类选频 |
+| 特征 | RBD 保存实际 Green 特征并支持最强波束/多径聚合；ELM 使用严格上三角 LS 比值；SCM 使用含对角线的归一化协方差 |
+| 神经网络 | 每个方法支持 complex CNN、real CNN、ResNet18、ResNet50；独立 loader/registry，共享 CLI、训练、续训和预测 |
+| SCM-GRNN | 独立 build/predict、reference 保存、sigma 搜索和核回归，无 epochs 或优化器 |
+| Shell 工作流 | `./scripts/run.sh METHOD ARCH` 支持 13 个组合；支持配置覆盖、dry-run、后台运行、status/fetch 和内容校验缓存 |
+| 结果交付 | 日志/报告/history/CSV 回收到 `output/data/<run_id>/`，PDF 图表回收到 `output/figure/<run_id>/`；训练曲线归入对应模型的 `training/` |
 
-## 验证证据与边界
+数据字段、窗口和选频规则以 [HDF5 契约](../datasets/hdf5-datasets-and-splits.md)
+为准。MATLAB 源码保持静态，仅供迁移参考。
 
-完整模型实验 `20261008T132520Z-23c12726` 的 49 个阶段 PASS：
-12 个神经网络分别完成 1-epoch 训练/预测，SCM-GRNN 构建/预测、
-RBD 断点续训和结果绘图通过，实际使用 RTX A5000/CUDA。
-最终源码快速回归为 `20261008T132746Z-434c901a`。
+## Scripts 整理
 
-- 29 项 Python 快速检查通过，包含 61 个工作流单元测试、22 个可视化测试、
-  13 个公开方法/模型组合与真实 registry 的一致性检查，以及 12 个模型的
-  GPU forward/backward；8 项数据处理数值检查通过。
-- 6 个 HDF5 文件通过 12 项数据契约检查；三类数据各有 48 个训练窗口、
-  12 个测试窗口和 22 个频点，跨方法标签、时间、划分与频率对齐。
-- 单模型 ELM 命令 `20261008T132659Z-3a8f2e2e` 使用 epochs=2、seed=0、
-  no-cache，通过生成、训练、预测、绘图及前台自动回收；报告只有 ELM 结果。
-- 后台 SCM-GRNN 命令 `20261008T132732Z-0d168753` 通过构建、3-fold sigma
-  选择、预测、绘图及 status/fetch；复用完整模型实验的数据缓存，内容哈希
-  与数据契约重新校验通过。两套单模型报告均无未执行的依赖阶段。
-- 完整模型实验的 18 张汇总图导出 PNG/PDF 共 36 个文件；两套单模型各有
-  6 张汇总图、12 个 PNG/PDF 文件。原模型图、日志、表格与 provenance
-  一并回收并核对哈希。图表定义见 [可视化指南](../workflows/result-visualization.md)。
+- 方法包统一为 `rbd/elm/scm/grnn`，入口统一为 `main.py`；公开 Shell 名称保持不变。
+- 共享神经 CLI、训练/预测及方法绑定从重复实现收敛到 `common/`；方法相关布局留在各包。
+- validation 分为命令入口、quick、datasets、fixtures 和 reporting；职责见
+  [脚本组织](../development/scripts-organization.md)。
+- 输入和 artifact 核对频率、阵元/深度、pair 身份；缺合同字段的旧 checkpoint/reference 拒绝使用。
+- 续训验证 split indices/mode/seed，恢复 optimizer 状态后启动新的 cosine 学习率阶段；
+  无改善时保留真实存在的历史 best。数据文件仍需保持不变。
+- 数据目录包含配置指纹，已有目录拒绝覆盖；单个 HDF5 完成并关闭后原子发布。
+- 远端命令与嵌套测试进程传播超时/终止并清理进程组；fetch 使用 checksum，
+  PASS 模型运行必须有可验证的可视化交付清单。
 
-这些是 S5 0–59 s 起始窗的功能检查，不能据此宣称正式定位精度、模型优劣
-或论文精确复现。正式研究仍需独立时间段/航迹划分、扩大样本范围、重复随机
-种子、定义验收指标，并单独设计不同 snapshot 几何的跨方法对齐。
+## 当前验证
+
+重构后的完整实验为 `20261008T145422Z-078313cd`，实际使用 RTX A5000/CUDA。
+49 个阶段全部 PASS，无跳过或未执行阶段。
+
+| 检查 | 结果 |
+|---|---|
+| Python quick | 32 项检查 PASS；最近的 PDF 流程验证包含 70 个工作流、24 个可视化、10 个神经合同、8 个 GRNN、4 个生成身份测试，均无跳过 |
+| 数据数学 | 8 项独立数值检查 PASS |
+| 生成与数据合同 | 6 个 HDF5 文件通过校验；三路各 48 个训练窗口、12 个测试窗口、22 个频点，标签/时间/划分/频率对齐 |
+| 全模型流程 | 12 个神经网络各训练 1 epoch，另完成 SCM-GRNN 构建、3-fold sigma 搜索与预测 |
+| 断点续训 | RBD 续训通过；关键单测另验证恢复零 LR 后确实更新权重，以及无改善时沿用历史 best |
+| 图表交付 | 已从原始 CSV/history 重绘为 31 个 PDF：5 个汇总、13 个模型预测、12 个训练曲线、1 个 sigma 搜索；清单中 33 个文件的 size/SHA256 核对 PASS |
+| 取回复原 | 本地文件被改为同大小、同 mtime 的损坏内容后，校验拒绝；重新 fetch 恢复原始 SHA256 |
+| 源码边界 | 已验证快照与当前 scripts 文件一致；9 个神经模型模块改名前后 AST 一致；MATLAB 参考未修改 |
+
+PDF 流程修订另经 `20261008T152825Z-3ee5007c` 的 CUDA 短流程验证：
+21 个阶段 PASS；数据生成阶段因核验后复用缓存而 SKIP，无未执行阶段。
+指定完整实验的预测 CSV、训练 history 和原始执行记录保留不变，旧 PNG 已清除。
+
+训练曲线位于 `models/<METHOD>/<model>/training/history.pdf`；模型预测图位于
+`models/<METHOD>/<model>/test_outputs/prediction.pdf`。全部模型图均纳入上述清单。
+其他日志的取回使用 rsync checksum。
+报告、命令和逐项证据保存在该 run 的本地交付目录；图表含义见
+[可视化指南](../workflows/result-visualization.md)。
+
+## 科学验证边界
+
+本次使用 S5 0–59 s 起始窗和短训练，只验证工程流程。PASS 不代表正式定位
+精度、模型优劣或论文精确复现。
+
+正式研究仍需独立时间段/航迹划分、扩大样本范围、重复随机种子、定义验收
+指标，并单独设计不同 snapshot 几何的跨方法对齐。adapt 只拟合有效训练窗；
+生成前整段录音去均值仍包含 held-out 时间，评估时需考虑这一预处理边界。

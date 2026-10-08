@@ -29,6 +29,9 @@ inside a sandbox, recheck outside it before changing drivers/packages.
   and `scripts/visualization/`. Use canonical `scripts.localization_networks.*`
   imports. Shared network logic belongs in `common/`; method-specific layouts
   stay in their packages. Reuse `common/h5_utils.py` for paths and splits.
+- Method packages are `rbd/`, `elm/`, `scm/`, and standalone `grnn/`, each with
+  `main.py`. Public shell method names and output directories remain uppercase.
+  Use `MethodBindings` for shared neural CLI/train/predict dependencies.
 - RBD `/X` is `[sample,element,frequency,real_imag]`. ELM/SCM use
   `[sample,pair,frequency,real_imag]`; ELM pairs require `i<j`, SCM `i<=j`.
   Pair indices are stored 1-based in column-major order.
@@ -38,6 +41,8 @@ inside a sandbox, recheck outside it before changing drivers/packages.
   Keep GRNN outside trainable model registries.
 - Preserve `DatasetBundle`: `train_dataset`, `val_dataset`, `train_idx`,
   `val_idx`, `train_labels`, `input_shape`, `split_mode`, `source_paths`.
+  Its `input_signature` compares frequency, element/depth, and pair axes.
+  Current checkpoints/references require this contract; reject missing fields.
 - Generation configuration is defined in `generation_config.py`; reject
   unknown/invalid fields. Adaptive frequencies fit valid training windows only.
 - Timestamped network exports use `MMDD_HHMMSS`. Resolve latest matching

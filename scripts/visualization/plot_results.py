@@ -17,21 +17,19 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from scripts.visualization.results import load_run
+from scripts.localization_networks.common.prediction_utils import save_prediction_plot
 
 COLORS = ("#0072B2", "#9A5300", "#007A5E", "#805080", "#444444", "#A03623")
 MARKERS = ("o", "s", "^", "D", "v", "P")
 
 
-def render_run(run_dir: Path, output_dir: Path, formats=("png", "pdf"), dpi=300,
+def render_run(run_dir: Path, output_dir: Path, dpi=300,
                models: list[str] | None = None, *, require_pass=True) -> dict:
     """Render verified CSV/JSON results; never overwrite an existing destination.
 
-    The remote worker may call require_pass=False after all model evaluations
-    have passed, before finalizing its own report. The public CLI requires PASS.
+    The internal remote render driver uses require_pass=False after all model
+    evaluations have passed. The public CLI requires the final PASS report.
     """
-    formats = tuple(formats)
-    if not formats or len(set(formats)) != len(formats) or set(formats)-{"png", "pdf"}:
-        raise ValueError("Choose unique formats from png and pdf")
     if type(dpi) is not int or not 72 <= dpi <= 1200:
         raise ValueError("dpi must be an integer between 72 and 1200")
     data = load_run(Path(run_dir), models, require_pass=require_pass)
@@ -56,11 +54,10 @@ def render_run(run_dir: Path, output_dir: Path, formats=("png", "pdf"), dpi=300,
         width = max(40, int(fig.get_figwidth()*10))
         lines = [textwrap.fill(line, width=width, break_long_words=False) for line in (title+"\n"+context+"\n"+note).splitlines()]
         fig.suptitle("\n".join(lines), fontsize=11)
-        for fmt in formats:
-            path = output_dir/f"{stem}.{fmt}"
-            path.parent.mkdir(parents=True, exist_ok=True)
-            fig.savefig(path, format=fmt, dpi=dpi, facecolor="white")
-            figures.append(path.relative_to(output_dir).as_posix())
+        path = output_dir/f"{stem}.pdf"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(path, format="pdf", dpi=dpi, facecolor="white")
+        figures.append(path.relative_to(output_dir).as_posix())
         plt.close(fig)
 
     def axes_grid():
@@ -146,6 +143,12 @@ def render_run(run_dir: Path, output_dir: Path, formats=("png", "pdf"), dpi=300,
 
             for model in data.models:
                 stem = model.name.replace("/", "-").replace("_", "-")
+                prediction_path = output_dir/f"models/{model.method}/{model.model}/test_outputs/prediction.pdf"
+                rows = [(row.sample, row.source_index, row.time_s, row.predicted_km,
+                         row.true_km, abs(row.residual_km)) for row in model.predictions]
+                save_prediction_plot(rows, prediction_path,
+                                     title=f"{model.name} source range predictions\n{data.report['run_id']}")
+                figures.append(prediction_path.relative_to(output_dir).as_posix())
                 if model.history:
                     fig, axes = plt.subplots(1, 3, figsize=(12, 4.2), layout="constrained")
                     epochs = [r["epoch"] for r in model.history]
@@ -159,7 +162,7 @@ def render_run(run_dir: Path, output_dir: Path, formats=("png", "pdf"), dpi=300,
                         if len(epochs) <= 12:
                             ax.set_xticks(epochs)
                         ax.legend(fontsize=8)
-                    save(fig, f"training/{stem}", model.name+" training history",
+                    save(fig, f"models/{model.method}/{model.model}/training/history", model.name+" training history",
                          f"{len(epochs)} recorded epochs; original train/validation metrics")
                 if model.sigma_search:
                     records = sorted(model.sigma_search, key=lambda r: r["sigma"])
@@ -189,7 +192,7 @@ def render_run(run_dir: Path, output_dir: Path, formats=("png", "pdf"), dpi=300,
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "suite": data.report["suite"], "purpose": data.report["purpose"],
                 "source_sha256": data.report.get("source_sha256"), "uv_lock_sha256": data.report.get("uv_lock_sha256"),
-                "run_dir": str(data.run_dir), "formats": list(formats), "dpi": dpi,
+                "run_dir": str(data.run_dir), "formats": ["pdf"], "dpi": dpi,
                 "render_output_dir": str(output_dir.resolve()),
                 "dependencies": {name: importlib.metadata.version(name) for name in ("matplotlib", "numpy")},
                 "inputs": data.sources, "captured_report": "source-report.json", "figures": figures,
@@ -201,10 +204,16 @@ def render_run(run_dir: Path, output_dir: Path, formats=("png", "pdf"), dpi=300,
                                     "missing_windows": "CSV contains valid windows only; no interpolation or imputation",
                                     "training": "original epoch metrics; loss space stated separately for each model",
                                     "grnn": "sigma search is separate from epoch training; minimum MAPE selection"}}
+    manifest["renderer_sources"] = [
+        {"path": path.relative_to(ROOT).as_posix(),
+         "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+        for path in (Path(__file__).resolve(), ROOT/"scripts/visualization/results.py",
+                     ROOT/"scripts/localization_networks/common/prediction_utils.py")
+    ]
     manifest["delivery_roots"] = {"figure": f"output/figure/{data.report['run_id']}",
                                   "data": f"output/data/{data.report['run_id']}/reports/visualization"}
     manifest["files"] = [{"path": p.relative_to(output_dir).as_posix(), "size": p.stat().st_size,
-                          "group": "figure" if p.suffix in {".png", ".pdf"} else "data",
+                          "group": "figure" if p.suffix == ".pdf" else "data",
                           "sha256": hashlib.sha256(p.read_bytes()).hexdigest()}
                          for p in sorted(output_dir.rglob("*")) if p.is_file()]
     (output_dir/"manifest.json").write_text(json.dumps(manifest, indent=2, allow_nan=False)+"\n", encoding="utf-8")
@@ -212,16 +221,15 @@ def render_run(run_dir: Path, output_dir: Path, formats=("png", "pdf"), dpi=300,
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--run", required=True, type=Path, help="One run directory containing report.json and model CSV/JSON")
     parser.add_argument("--output-dir", type=Path, help="New directory; default: output/figure/<run_id>")
     parser.add_argument("--model", action="append", help="METHOD/MODEL from the run report; repeat to select models")
-    parser.add_argument("--formats", nargs="+", choices=("png", "pdf"), default=["png", "pdf"])
     parser.add_argument("--dpi", type=int, default=300)
     args = parser.parse_args(argv)
     output = args.output_dir if args.output_dir is not None else ROOT/"output/figure"/args.run.resolve().name
     try:
-        result = render_run(args.run, output, args.formats, args.dpi, args.model)
+        result = render_run(args.run, output, dpi=args.dpi, models=args.model)
     except (ValueError, OSError, KeyError, TypeError) as exc:
         parser.exit(1, f"Visualization failed: {exc}\n")
     print(f"PASS: {len(result['figures'])} figures in {output}")

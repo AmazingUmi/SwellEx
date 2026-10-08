@@ -7,7 +7,8 @@ import copy
 from datetime import datetime, timezone
 import hashlib
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+import re
 import shlex
 import shutil
 import subprocess
@@ -16,14 +17,12 @@ import tempfile
 import time
 import uuid
 
-if __package__:
-    from .config import RUN_ID, load_config, validate_config
-    from .tasks import ARCHITECTURES, METHODS, expected_phases, model_plan, resolve_selection
-else:
-    from config import RUN_ID, load_config, validate_config
-    from tasks import ARCHITECTURES, METHODS, expected_phases, model_plan, resolve_selection
-
 PROJECT = Path(__file__).resolve().parents[3]
+if str(PROJECT) not in sys.path:
+    sys.path.insert(0, str(PROJECT))
+from scripts.localization_networks.workflow.config import RUN_ID, load_config, validate_config
+from scripts.localization_networks.workflow.tasks import ARCHITECTURES, METHODS, expected_phases, model_plan, resolve_selection
+
 DEFAULT_CONFIG = Path(__file__).with_name("haiqin.toml")
 LOCAL_RUNS = PROJECT / "output" / "data"
 LOCAL_FIGURES = PROJECT / "output" / "figure"
@@ -194,24 +193,83 @@ def summarize(report: dict) -> None:
         print(report["error"], file=sys.stderr)
 
 
+def verify_visualization_delivery(local: Path, figures: Path, run_id: str) -> dict | None:
+    """Verify only artifacts covered by the renderer's existing manifest."""
+    manifest_path = local / "reports/visualization/manifest.json"
+    if manifest_path.is_symlink():
+        raise ValueError("External visualization delivery manifest")
+    if not manifest_path.exists():
+        return None
+    if not manifest_path.resolve().is_relative_to(local.resolve()):
+        raise ValueError("External visualization delivery manifest")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if (not isinstance(manifest, dict) or type(manifest.get("schema_version")) is not int
+            or manifest["schema_version"] != 1 or manifest.get("run_id") != run_id
+            or manifest.get("status") != "PASS" or not isinstance(manifest.get("files"), list)
+            or not manifest["files"]):
+        raise ValueError("Invalid visualization delivery manifest")
+    roots = {"data": local / "reports/visualization", "figure": figures}
+    seen = set()
+    for item in manifest["files"]:
+        if not isinstance(item, dict) or item.get("group") not in roots or not isinstance(item.get("path"), str):
+            raise ValueError("Invalid visualization delivery file")
+        rel = PurePosixPath(item["path"])
+        identity = (item["group"], item["path"])
+        if (rel.is_absolute() or ".." in rel.parts or not rel.parts
+                or str(rel) != item["path"] or identity in seen):
+            raise ValueError(f"Unsafe or duplicate visualization delivery path: {item['path']}")
+        seen.add(identity)
+        if (type(item.get("size")) is not int or item["size"] < 0
+                or not isinstance(item.get("sha256"), str)
+                or not re.fullmatch(r"[a-f0-9]{64}", item["sha256"])):
+            raise ValueError("Invalid visualization delivery size/hash")
+        root = roots[item["group"]]
+        path = root / str(rel)
+        if (not path.is_file() or path.is_symlink() or not path.resolve().is_relative_to(root.resolve())
+                or path.stat().st_size != item["size"] or sha256(path) != item["sha256"]):
+            raise ValueError(f"Visualization delivery hash mismatch or external file: {item['group']}/{rel}")
+    return {"schema_version": 1, "status": "PASS", "run_id": run_id,
+            "scope": "visualization_manifest_files", "files_verified": len(seen),
+            "manifest_sha256": sha256(manifest_path)}
+
+
 def fetch(config: dict, run_id: str) -> dict:
-    report = status(config, run_id)
+    initial_report = status(config, run_id)
     local = LOCAL_RUNS / run_id
     local.mkdir(parents=True, exist_ok=True)
     figures = LOCAL_FIGURES / run_id
     figures.mkdir(parents=True, exist_ok=True)
-    dump(local / "report.json", report)
+    dump(local / "report.json", initial_report)
     # Copy only the worker's explicit small-artifact export; HDF5/PT are excluded there.
-    for kind, destination in (("data", local), ("figure", figures)):
-        source = f"{config['remote']['host']}:{run_dir(config, run_id)}/export/{kind}/"
-        proc = subprocess.run(["rsync", "-rlt", "-e", shlex.join(["ssh", *SSH_OPTIONS]), source, str(destination) + "/"], capture_output=True, text=True)
-        if proc.returncode:
-            raise RuntimeError(f"Result {kind} retrieval failed: {proc.stderr.strip()}")
+    def retrieve_export():
+        for kind, destination in (("data", local), ("figure", figures)):
+            source = f"{config['remote']['host']}:{run_dir(config, run_id)}/export/{kind}/"
+            proc = subprocess.run(["rsync", "-rlt", "--checksum", "-e", shlex.join(["ssh", *SSH_OPTIONS]), source, str(destination) + "/"], capture_output=True, text=True)
+            if proc.returncode:
+                raise RuntimeError(f"Result {kind} retrieval failed: {proc.stderr.strip()}")
+    retrieve_export()
     # Live/crashed workers may not have exported anything yet; always retain logs.
-    proc = subprocess.run(["rsync", "-rlt", "-e", shlex.join(["ssh", *SSH_OPTIONS]), f"{config['remote']['host']}:{run_dir(config, run_id)}/logs/", str(local / "logs") + "/"], capture_output=True, text=True)
+    proc = subprocess.run(["rsync", "-rlt", "--checksum", "-e", shlex.join(["ssh", *SSH_OPTIONS]), f"{config['remote']['host']}:{run_dir(config, run_id)}/logs/", str(local / "logs") + "/"], capture_output=True, text=True)
     if proc.returncode:
         raise RuntimeError(f"Log retrieval failed: {proc.stderr.strip()}")
+    report = status(config, run_id)
+    # Once terminal, export is immutable. If completion occurred during the
+    # transfer, retrieve it again before reporting or verifying that completion.
+    if initial_report["status"] not in TERMINAL and report["status"] in TERMINAL:
+        retrieve_export()
     dump(local / "report.json", report)
+    if report["status"] in TERMINAL:
+        try:
+            verification = verify_visualization_delivery(local, figures, run_id)
+            if (verification is None and report["status"] == "PASS"
+                    and report.get("suite") in {"selected", "smoke", "experiment"}):
+                raise ValueError("Completed model run is missing its visualization delivery manifest")
+        except (ValueError, OSError, KeyError, TypeError) as exc:
+            dump(local / "delivery-verification.json", {"schema_version": 1, "status": "FAIL", "run_id": run_id,
+                                                       "scope": "visualization_manifest_files", "error": str(exc)})
+            raise
+        if verification is not None:
+            dump(local / "delivery-verification.json", verification)
     print(f"Results: {local}")
     print(f"Figures: {figures}")
     return report

@@ -24,7 +24,18 @@ frequency fitting instead uses training windows only.
 Outputs go to `outputs/Datasets/`. `generation_result.json` records PASS/FAIL
 and route-to-directory mappings. Each dataset has JSON metadata for its
 configuration, split, frequency selection, time geometry, and source identities.
-MATLAB files under `scripts/data_processing/matlab_reference/` are static references.
+Dataset directory names end with a 12-character configuration fingerprint.
+It hashes the normalized dataset/RBD settings, schema, and generator version;
+project and report locations do not affect it. Different settings use different
+directories. Generation refuses an existing directory, including an incomplete
+one, instead of overwriting or mixing files. Select a new
+`manual_dataset_variant_tag` when a separate regeneration is needed.
+
+Each HDF5 file is written to a temporary file and published only after closing
+successfully. Publication refuses an existing final file; a failed write leaves
+no partial final file. This is a file-level guarantee, not an atomic transaction
+across all three feature routes. MATLAB files under
+`scripts/data_processing/matlab_reference/` are static references.
 
 ## Stored Contracts
 
@@ -43,7 +54,7 @@ Shared fields:
 /time/sample_stop_idx        1-based inclusive sample index
 /frequency/freq_hz
 /array/depth_m
-/array/element_idx           1-based array IDs
+/array/element_idx           ordered array positions 1..E
 /range/range_time_s
 /range/range_km_raw
 /split/source_segment_idx    1-based source-window identity
@@ -52,6 +63,21 @@ Shared fields:
 Labels interpolate the original range/time curve; out-of-coverage windows are
 invalid. Validation checks finite features, sample endpoints/times, raw interval
 split separation, label interpolation, metadata agreement, and route alignment.
+
+Loaders require complete physical-axis metadata, including for reversed MATLAB
+storage. They reject missing fields and compare `input_signature` across files,
+training/validation data, and saved artifacts. Equal tensor shapes with changed
+frequencies, array geometry, or pair order are rejected.
+
+| Required axis fields | Contract |
+|---|---|
+| `/frequency/freq_hz` | Finite, nonnegative, strictly increasing; matches F |
+| `/array/element_idx`, `/array/depth_m` | Ordered positions `1..E`; finite, nonnegative, strictly increasing depths |
+| ELM/SCM `/pair/numerator_element_idx`, `/pair/denominator_element_idx` | Complete 1-based column-major pair sequence for the route |
+
+Loaders filter invalid/nonfinite labels and reject nonfinite loaded features.
+The input signature describes axes; it is not a source-file content hash or
+proof of independent train/test windows.
 
 ## Feature Routes
 
@@ -151,6 +177,7 @@ Standalone generation allows overrides in `dataset.frequency_selection_config`.
 | `Range_nearby` | Split around the minimum-range location, using `half_duration_s`, `gap_s`, `train_side` (`before`/`after`), and optional test-side `test_step_s` |
 
 Dataset names encode the route, estimator, and window/frequency settings.
-`manual_dataset_variant_tag` appends a safe suffix.
+`manual_dataset_variant_tag` adds a safe variant suffix before the configuration
+fingerprint.
 
 For model operations, see [training and prediction](../workflows/training-and-prediction.md).

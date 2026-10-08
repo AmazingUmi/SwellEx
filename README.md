@@ -46,7 +46,7 @@ Foreground runs retrieve results automatically when they finish:
 | Location | Contents |
 |---|---|
 | `output/data/<run_id>/` | Logs, reports, prediction CSVs, history, and provenance |
-| `output/figure/<run_id>/` | PNG/PDF figures |
+| `output/figure/<run_id>/` | PDF figures |
 | Remote run's `project/outputs/` | Datasets, model checkpoints, and GRNN references |
 
 For figure meanings and manual plotting, see

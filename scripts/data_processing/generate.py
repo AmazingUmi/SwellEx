@@ -6,17 +6,13 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-if __package__:
-    from .generation_config import ROOT, read_config
-    from .generation_core import generate_datasets
-else:
-    from generation_config import ROOT, read_config
-    from generation_core import generate_datasets
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from scripts.data_processing.generation_config import ROOT, read_config
+from scripts.data_processing.generation_core import generate_datasets
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--config", type=Path, required=True)
     args = parser.parse_args()
     try:

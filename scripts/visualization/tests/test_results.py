@@ -6,7 +6,6 @@ import io
 import json
 from pathlib import Path
 import shutil
-import struct
 import sys
 import tempfile
 import unittest
@@ -15,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 from scripts.visualization.results import PREDICTION_FIELDS, load_run, read_predictions, summarize
 from scripts.visualization.plot_results import main, render_run
+from scripts.localization_networks.workflow.tasks import model_plan
 
 
 def csv_bytes(rows):
@@ -38,19 +38,22 @@ class ResultsTests(unittest.TestCase):
         self.report = {"schema_version": 1, "run_id": self.run.name, "status": "PASS",
                        "suite": "smoke", "purpose": "engineering_validation", "checks": [], "metrics": []}
         self.csv_paths = []
-        for method, model in (("RBD", "complex_cnn_range"), ("SCM", "scm_grnn_range")):
-            directory = self.run/"project/outputs/networks_results"/("0_GRNN_related" if method == "SCM" else method)/model
+        for item in model_plan("smoke"):
+            method, model = item["method"], item["model"]
+            directory = self.run/"project/outputs/networks_results"/method/model
             prediction = directory/"test_outputs/example_predictions_1008_120000.csv"
             prediction.parent.mkdir(parents=True)
             prediction.write_bytes(csv_bytes(self.rows))
             self.csv_paths.append(prediction)
             metric = {"method": method, "model": model, **summarize(read_predictions(csv_bytes(self.rows)))}
-            if method == "RBD":
+            if item["architecture"] != "GRNN":
                 metric["epochs"] = 1
-                self.history_path = directory/"train_outputs/example_history_1008_120000.json"
-                self.history_path.parent.mkdir()
-                self.history_path.write_text(json.dumps(self.history))
-                phase = "evaluate_RBD_complex_cnn_range"
+                history_path = directory/"train_outputs/example_history_1008_120000.json"
+                history_path.parent.mkdir()
+                history_path.write_text(json.dumps(self.history))
+                if method == "RBD":
+                    self.history_path = history_path
+                phase = f"evaluate_{method}_{model}"
             else:
                 search = directory/"reference_outputs/example_sigma_search_1008_120000.json"
                 search.parent.mkdir()
@@ -77,7 +80,7 @@ class ResultsTests(unittest.TestCase):
                        "architecture": "GRNN" if grnn else "complex_CNN",
                        "model": "scm_grnn_range" if grnn else "complex_cnn_range"},
         )
-        self.report["metrics"] = [self.report["metrics"][1 if grnn else 0]]
+        self.report["metrics"] = [self.report["metrics"][-1 if grnn else 0]]
         self.save_report()
 
     def test_selected_neural_run_acceptance_and_render(self):
@@ -87,9 +90,9 @@ class ResultsTests(unittest.TestCase):
         self.assertEqual(len(data.models[0].history), 1)
         self.assertEqual(data.models[0].sigma_search, [])
         output = self.root/"selected-neural"
-        result = render_run(self.run, output, formats=("png",), dpi=72)
-        self.assertEqual(len(result["figures"]), 6)
-        self.assertTrue((output/"training/RBD-complex-cnn-range.png").is_file())
+        result = render_run(self.run, output, dpi=72)
+        self.assertEqual(len(result["figures"]), 7)
+        self.assertTrue((output/"models/RBD/complex_cnn_range/training/history.pdf").is_file())
         self.assertFalse((output/"grnn").exists())
         manifest = json.loads((output/"manifest.json").read_text())
         self.assertEqual(manifest["suite"], "selected")
@@ -103,9 +106,9 @@ class ResultsTests(unittest.TestCase):
         self.assertEqual(data.models[0].history, [])
         self.assertEqual(len(data.models[0].sigma_search), 2)
         output = self.root/"selected-grnn"
-        result = render_run(self.run, output, formats=("png",), dpi=72)
-        self.assertEqual(len(result["figures"]), 6)
-        self.assertTrue((output/"grnn/SCM-scm-grnn-range-sigma.png").is_file())
+        result = render_run(self.run, output, dpi=72)
+        self.assertEqual(len(result["figures"]), 7)
+        self.assertTrue((output/"grnn/SCM-scm-grnn-range-sigma.pdf").is_file())
         self.assertFalse((output/"training").exists())
         manifest = json.loads((output/"manifest.json").read_text())
         self.assertEqual(len(manifest["models"]), 1)
@@ -149,7 +152,7 @@ class ResultsTests(unittest.TestCase):
         unrelated.parent.mkdir(parents=True)
         unrelated.write_text("invalid")
         data = load_run(self.run)
-        self.assertEqual([m.name for m in data.models], ["RBD/complex_cnn_range", "SCM/scm_grnn_range"])
+        self.assertEqual([m.name for m in data.models], [f"{row['method']}/{row['model']}" for row in model_plan("smoke")])
         self.assertEqual(data.models[0].metrics["samples"], 2)
         self.assertAlmostEqual(data.models[0].metrics["mae_km"], 0.35)
         self.assertAlmostEqual(data.models[0].metrics["bias_km"], -0.15)
@@ -246,6 +249,26 @@ class ResultsTests(unittest.TestCase):
         for models in (["other/model"], [], ["RBD/complex_cnn_range"]*2):
             with self.assertRaises(ValueError): load_run(self.run, models)
 
+    def test_incomplete_or_unknown_suite_models_rejected_before_selection(self):
+        original = list(self.report["metrics"])
+        for metrics in (original[:-1], [{**original[0], "model": "unregistered"}, *original[1:]]):
+            self.report["metrics"] = metrics
+            self.save_report()
+            with self.assertRaisesRegex(ValueError, "canonical suite plan"):
+                load_run(self.run, ["SCM/scm_complex_cnn_range"])
+
+    def test_unselected_inputs_and_evaluation_are_verified(self):
+        selected = ["SCM/scm_grnn_range"]
+        original = self.csv_paths[0].read_bytes()
+        self.csv_paths[0].write_text("invalid CSV")
+        with self.assertRaisesRegex(ValueError, "canonical six columns"):
+            load_run(self.run, selected)
+        self.csv_paths[0].write_bytes(original)
+        self.report["checks"][0]["status"] = "RUNNING"
+        self.save_report()
+        with self.assertRaisesRegex(ValueError, "evaluation has not passed"):
+            load_run(self.run, selected)
+
     def test_external_input_rejected(self):
         outside = self.root/"outside.csv"
         self.csv_paths[0].replace(outside)
@@ -254,23 +277,32 @@ class ResultsTests(unittest.TestCase):
 
     def test_rendered_artifacts_dimensions_and_no_overwrite(self):
         output = self.root/"figure"
-        result = render_run(self.run, output, formats=("png", "pdf"), dpi=100)
+        result = render_run(self.run, output, dpi=100)
         self.assertEqual(result["status"], "PASS")
-        self.assertEqual(len(result["figures"]), 14)
+        self.assertEqual(len(result["figures"]), 13)
         manifest = json.loads((output/"manifest.json").read_text())
         self.assertEqual(manifest["models"][0]["samples"], 2)
         self.assertEqual({item["group"] for item in manifest["files"]}, {"data", "figure"})
         self.assertEqual((output/"source-report.json").read_bytes(), (self.run/"report.json").read_bytes())
-        png = (output/"range-time.png").read_bytes()
-        self.assertEqual(png[:8], b"\x89PNG\r\n\x1a\n")
-        self.assertEqual(struct.unpack(">II", png[16:24]), (900, 440))
-        self.assertTrue((output/"range-time.pdf").read_bytes().startswith(b"%PDF"))
+        self.assertFalse(list(output.rglob("*.png")))
+        self.assertFalse((output/"training").exists())
+        self.assertEqual(manifest["formats"], ["pdf"])
+        for figure in result["figures"]:
+            raw = (output/figure).read_bytes()
+            self.assertTrue(raw.startswith(b"%PDF-"))
+            self.assertTrue(raw.rstrip().endswith(b"%%EOF"))
+        for item in model_plan("smoke"):
+            folder = output/"models"/item["method"]/item["model"]
+            self.assertTrue((folder/"test_outputs/prediction.pdf").is_file())
+            if item["architecture"] != "GRNN":
+                self.assertTrue((folder/"training/history.pdf").is_file())
+        self.assertEqual(len(manifest["renderer_sources"]), 3)
         self.assertTrue((output/"metrics.csv").read_text().startswith("method,model,samples,"))
         with self.assertRaisesRegex(ValueError, "already exists"): render_run(self.run, output)
 
     def test_cli_model_selection(self):
         output = self.root/"cli-figure"
-        self.assertEqual(main(["--run", str(self.run), "--output-dir", str(output), "--model", "SCM/scm_grnn_range", "--formats", "png", "--dpi", "72"]), 0)
+        self.assertEqual(main(["--run", str(self.run), "--output-dir", str(output), "--model", "SCM/scm_grnn_range", "--dpi", "72"]), 0)
         result = json.loads((output/"manifest.json").read_text())
         self.assertEqual(len(result["models"]), 1)
         self.assertFalse((output/"training").exists())

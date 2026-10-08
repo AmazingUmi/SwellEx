@@ -2,7 +2,7 @@
 
 本页描述仓库实际实现：先将阵列频域声压构造成归一化 SCM 特征，再用
 Gaussian-kernel GRNN 回归距离（km）。GRNN 位于
-`scripts/localization_networks/0_GRNN_related/`，通过 `build` 保存参考样本、
+`scripts/localization_networks/grnn/`，通过 `build` 保存参考样本、
 通过 `predict` 加权预测，不使用 epochs、反向传播或优化器。
 
 运行命令与产物路径见 [独立 SCM-GRNN 工作流](../workflows/standalone-scm-grnn.md)；
@@ -32,15 +32,16 @@ SCM 保留含对角线的上三角 `C_f[i,j]`（`i<=j`），共 $P=M(M+1)/2$ 个
 `(1,1), (1,2), (2,2), (1,3), (2,3), (3,3)`。这些是协方差条目，
 与 ELM 的严格上三角比值特征不同。
 
-`grnn_data.py` 将每个样本转为 `[2,pair,frequency]`，再按该顺序展平：
+`data.py` 将每个样本转为 `[2,pair,frequency]`，再按该顺序展平：
 先实部通道，后虚部通道；每个通道内按 pair、frequency 排列。若有 $Q$
 个频点，实值特征维度为 $D=2PQ=M(M+1)Q$。21 阵元时为 `462*Q`。
 对角线虚部也保留，不做独立自由度压缩。
 
-加载器保留 `/valid_sample` 有效且距离标签有限的样本，并要求多文件输入
-具有相同 `[2,P,Q]` 形状。预测输入仍需提供距离标签，供当前 CSV 和误差报告使用。
-特征有限性和正确的 SCM/pair 语义应由数据验证保证，加载器不会因标签有效
-就证明这些条件成立。
+加载器保留 `/valid_sample` 有效且距离标签有限的样本，拒绝非有限特征，
+并要求完整频率、阵元位置/深度与 SCM pair 元数据。多文件输入必须具有
+相同 `[2,P,Q]` 形状和物理轴身份；SCM pair 必须符合完整含对角线的列序上三角。
+预测输入仍需提供距离标签，供当前 CSV 和误差报告使用。轴与有限性检查
+不证明划分独立性或物理估计准确性。
 
 ## 特征尺度
 
@@ -58,7 +59,7 @@ SCM 保留含对角线的上三角 `C_f[i,j]`（`i<=j`），共 $P=M(M+1)/2$ 个
 
 ## GRNN 核回归与数值稳定性
 
-`grnn_model.py:ScmGrnnRegressor` 保存处理后的参考特征 $z_i\in\mathbb R^D$
+`model.py:ScmGrnnRegressor` 保存处理后的参考特征 $z_i\in\mathbb R^D$
 及距离标签 $r_i$。对同样处理后的查询 $z$：
 
 ```math
@@ -77,6 +78,8 @@ CPU tensor，形状 `[query_count,1]`，单位 km。
 权重乘以相同因子，归一化预测不变；至少一个最近邻权重为 1，避免小 sigma、
 高维输入导致所有指数权重下溢为零。分母仍以 `eps` 截断。这一处理不修复
 NaN/Inf 输入，也不保证任意规模的距离计算都没有浮点误差。
+模型拒绝会使 `2*sigma²` 超出 float32 有限正规数范围的极端 sigma；
+`eps` 限定为 `(0,1]`，避免分母下限大于最近邻权重而改变归一化核预测。
 
 预测按查询 batch 计算距离，但每个 batch 仍与全部参考样本比较。
 保存参考样本的空间规模为 `O(N_reference*D)`；每个查询的距离计算规模
@@ -84,7 +87,7 @@ NaN/Inf 输入，也不保证任意规模的距离计算都没有浮点误差。
 
 ## Sigma 选择与评估边界
 
-`grnn_cli.py` 的选择顺序是：有显式验证集时使用验证集；否则 `cv_folds>1`
+`cli.py` 的选择顺序是：有显式验证集时使用验证集；否则 `cv_folds>1`
 时执行交叉验证；否则使用 `spread`（默认 `0.01`）。默认候选为
 `0.01,0.02,...,0.10,0.20,0.30,...,2.00`，也可显式覆盖。
 
@@ -104,12 +107,16 @@ reference `.pt` 是核回归所需参考数据的持久化，不是训练网络�
 也不保存预计算的查询距离。模型数据包括 `x_reference`、`y_reference_km`、
 `spread`、`standardize_input`、`eps`、`feature_mean` 和 `feature_std`。
 CLI 还保存输入形状/维度、参考样本数、数据集名称、源 HDF5 路径、
-`per_sample_channel_norm`、`sigma_source` 和 sigma 搜索结果。
+`input_signature`、`per_sample_channel_norm`、`sigma_source` 和 sigma 搜索结果。
 
-预测沿用 reference 的通道归一化选项和坐标统计量，检查 `[2,P,Q]` 及展平
-维度一致。reference 没有冻结完整的 pair/frequency 轴身份，也没有源文件
-内容校验：相同形状不能证明两个数据集使用同一阵元顺序、频率轴或生成配置。
-重用前应核对这些语义；预处理或输入轴改变后应重新构建。
+`input_signature` 冻结方法、频率轴、阵元位置/深度和 pair 序列。
+显式验证集与参考数据、预测数据与 reference 均须完全匹配这些身份和
+`[2,P,Q]` 形状；相同形状但物理轴不同会被拒绝。预测沿用保存的通道归一化
+选项和坐标统计量，并校验参考张量形状/有限性。缺少当前合同字段的旧
+reference（包括没有 `input_signature` 的文件）须重新构建。
+
+该签名不保存源文件内容哈希，也不代表完整生成配置或样本划分独立性。
+预处理或输入轴改变后应重新构建，并按数据验证流程核对样本来源与划分。
 
 ## 实现范围
 

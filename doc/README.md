@@ -21,6 +21,7 @@ and remaining scientific work.
 |---|---|
 | Understand generation, HDF5 fields, windows, frequencies, or splits | [HDF5 datasets and split strategies](datasets/hdf5-datasets-and-splits.md) |
 | Add a model or change a loader | [Python extension guide](development/python-extension-guide.md) |
+| Locate a script, shared module, or method entry point | [Scripts organization](development/scripts-organization.md) |
 
 ## Methods
 

@@ -34,6 +34,14 @@ The requested CUDA device must be available; the workflow rejects silent CPU
 fallback. If CUDA fails only inside a sandbox, recheck outside it before
 changing drivers or packages.
 
+Worker commands, including aggregate rendering, run in separate process groups.
+Timeouts and interruptions stop the whole group; remaining processes are
+force-killed after five seconds, even if the group leader has exited. Rendering
+uses `validation.quick_timeout_s`; train/build/predict commands use
+`validation.training_timeout_s`.
+Nested validation/test runners propagate termination into their child groups
+and use shorter cleanup grace periods so children stop before the parent.
+
 ## Manual Commands in a Frozen Run
 
 1. Choose a PASS selected/smoke/experiment run; these runs have datasets for manual commands.
@@ -75,7 +83,7 @@ Paths below are relative to `remote.workspace`:
 | `runs/<run_id>/logs/` | Executed commands and logs |
 | `runs/<run_id>/reports/` | Checks, metrics, and failures |
 | `runs/<run_id>/export/data/` | Small JSON/CSV/log files for retrieval |
-| `runs/<run_id>/export/figure/` | PNG/PDF figures for retrieval |
+| `runs/<run_id>/export/figure/` | PDF figures for retrieval |
 | `datasets/<fingerprint>/` | Cached HDF5 and provenance |
 
 The underlying dispatcher can also be invoked directly:
@@ -93,6 +101,9 @@ subcommand. For the shell model command, it can also follow `METHOD ARCH`.
 Reuse requires matching generation/validation code, configuration, uv lock,
 numerical package versions, and raw-input hashes. Cached content is hash-checked
 and validated again; the report retains the producing run ID.
+The validator fingerprint includes all implementation Python files under
+`validation/`, plus `common/h5_utils.py` and `common/input_contract.py`.
+Validation test files are excluded from that fingerprint.
 
 Cross-method validation requires aligned S5/Ns=1 datasets with non-overlapping
 windows and matching splits, labels, frequencies, times, and element depths.

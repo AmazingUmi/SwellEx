@@ -12,10 +12,9 @@ import unittest
 from unittest import mock
 
 WORKFLOW = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(WORKFLOW))
-import config
-import tasks
-import worker
+PROJECT = WORKFLOW.parents[2]
+sys.path.insert(0, str(PROJECT))
+from scripts.localization_networks.workflow import config, tasks, worker
 
 RUN_ID = "20261008T120000Z-01234567"
 
@@ -208,7 +207,6 @@ class SelectedWorkerTests(unittest.TestCase):
     def predictions(self, directory):
         directory.mkdir(parents=True, exist_ok=True)
         (directory / "fixture_predictions_1008_120000.csv").write_text("sample,source_segment_idx,window_center_s,pred_range_km,true_range_km,abs_error_km\n0,5,4.5,2.25,2.0,0.25\n")
-        (directory / "fixture_range_prediction_1008_120000.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"fixture" * 20)
 
     def test_neural_commands_use_fresh_training_and_explicit_best_checkpoint(self):
         instance = self.prepare_operation()
@@ -234,13 +232,15 @@ class SelectedWorkerTests(unittest.TestCase):
         self.assertEqual(train[train.index("--device") + 1], "cuda")
         self.assertEqual(predict[predict.index("--checkpoint") + 1], str(best))
         self.assertEqual(predict[predict.index("--batch-size") + 1], str(self.config["training"]["batch_size"]))
+        self.assertIn("--no-plot", predict)
+        self.assertFalse(list(output.rglob("*.pdf")))
         self.assertEqual(result["checkpoint"], str(best))
         self.assertEqual(result["mae_km"], 0.25)
 
     def test_grnn_commands_only_build_and_predict_explicit_reference(self):
         self.select("SCM", "GRNN")
         instance = self.prepare_operation()
-        output = self.project / "outputs/networks_results/0_GRNN_related/scm_grnn_range"
+        output = self.project / "outputs/networks_results/SCM/scm_grnn_range"
         reference = output / "reference_outputs/fixture_reference_1008_120000.pt"
 
         def command(name, argv, timeout):
@@ -263,6 +263,8 @@ class SelectedWorkerTests(unittest.TestCase):
             self.assertNotIn("--model", argv)
         self.assertEqual(predict[predict.index("--reference") + 1], str(reference))
         self.assertEqual(predict[predict.index("--batch-size") + 1], str(self.config["grnn"]["batch_size"]))
+        self.assertIn("--no-plot", predict)
+        self.assertFalse(list(output.rglob("*.pdf")))
         self.assertEqual(result["reference"], str(reference))
         self.assertEqual(result["mae_km"], 0.25)
 

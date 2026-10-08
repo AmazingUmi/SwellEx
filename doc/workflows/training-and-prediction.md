@@ -35,13 +35,13 @@ run's `project/` directory.
 ```bash
 RBD_DATA='<rbd_dataset_name>'
 NEURAL_OUTPUT='outputs/manual_results/rbd-complex-cnn'
-"$SWELLEX_PYTHON" -B scripts/localization_networks/RBD_method/Network_main.py train \
+"$SWELLEX_PYTHON" -B scripts/localization_networks/rbd/main.py train \
   --model complex_cnn_range --data "$RBD_DATA" --device cuda \
   --output-dir "$NEURAL_OUTPUT" \
   --no-resume --epochs 100 --loss-space km --huber-beta 0.5
 
 CHECKPOINT='<path_to_best_checkpoint>'
-"$SWELLEX_PYTHON" -B scripts/localization_networks/RBD_method/Network_main.py predict \
+"$SWELLEX_PYTHON" -B scripts/localization_networks/rbd/main.py predict \
   --model complex_cnn_range --data "$RBD_DATA" --device cuda \
   --checkpoint "$CHECKPOINT" --output-dir "$NEURAL_OUTPUT"
 ```
@@ -57,9 +57,9 @@ For ELM or SCM, change the entry point, dataset, and registered model together:
 
 | Method | Python entry point | Registered-name prefix |
 |---|---|---|
-| RBD | `scripts/localization_networks/RBD_method/Network_main.py` | None |
-| ELM | `scripts/localization_networks/ELM_method/Network_main.py` | `elm_` |
-| SCM | `scripts/localization_networks/SCM_method/Network_main.py` | `scm_` |
+| RBD | `scripts/localization_networks/rbd/main.py` | None |
+| ELM | `scripts/localization_networks/elm/main.py` | `elm_` |
+| SCM | `scripts/localization_networks/scm/main.py` | `scm_` |
 
 | Shell architecture | Registered base name |
 |---|---|
@@ -75,7 +75,7 @@ and the [dataset contract](../datasets/hdf5-datasets-and-splits.md) for input la
 
 ## Options Used by Both Manual Commands
 
-These tables describe direct `Network_main.py train` and `predict`, not `run.sh`.
+These tables describe direct `main.py train` and `predict`, not `run.sh`.
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -102,7 +102,7 @@ These tables describe direct `Network_main.py train` and `predict`, not `run.sh`
 | `--val-fraction VALUE` | `0.25` | Fraction held out when validation files are absent |
 | `--seed N` | `2026` | Seed for the training/validation split |
 | `--no-input-norm` | Off | Disable per-sample real/imag channel normalization; real CNN already defaults to off |
-| `--no-resume` | Off | Start fresh even when checkpoints exist; takes precedence over an explicit resume path |
+| `--no-resume` | Off | Start fresh; cannot be combined with `--resume-checkpoint` |
 | `--resume-checkpoint PATH` | Automatic lookup | Continue from a specific checkpoint; a missing explicit file fails |
 
 Training chooses validation data in this order:
@@ -115,13 +115,17 @@ Target normalization fits training labels only. Reported MAE/RMSE are always
 in km. Loss uses normalized targets for `normalized`, and physical km errors
 for `km`; Huber beta follows that space. SmoothL1 is not squared range error.
 
+Training requires nonempty training and validation sets. Epochs and batch sizes
+must be positive; `--val-fraction` must be strictly between 0 and 1. Nonfinite
+settings and abbreviated options are rejected. Seeds use `0..4294967295`.
+
 ## Predict Options
 
 | Option | Default | Meaning |
 |---|---|---|
 | `--checkpoint PATH` | Automatic best-checkpoint lookup | Select a checkpoint; see lookup rules below |
 | `--predictions-csv PATH` | Timestamped CSV | Set the prediction CSV path |
-| `--plot-path PATH` | Timestamped PNG | Set the per-model plot path |
+| `--plot-path PATH` | Timestamped PDF | Set the per-model plot path; must end in `.pdf` |
 | `--no-plot` | Off | Omit the per-model plot |
 | `--print-first N` | `10` | Number of prediction rows printed |
 
@@ -132,28 +136,37 @@ for `km`; Huber beta follows that space. SmoothL1 is not squared range error.
 | Train without `--no-resume` | `<dataset>_last.pt`, then the matching timestamped `last` file with latest mtime |
 | Predict | `<dataset>_best.pt`, then the matching timestamped `best` file with latest mtime |
 
-An explicit prediction path that does not exist also triggers matching
-timestamped lookup. Prediction checks that the checkpoint's model and dataset
-names match the request.
+Missing explicit train or prediction checkpoint paths fail immediately.
+Automatic lookup considers only files with a valid `MMDD_HHMMSS` suffix and
+chooses the latest mtime.
 
-Resume restores the saved model configuration, target normalization, input
-normalization, loss space, optimizer/scheduler, and history. Dataset and input
-shape mismatches fail. The data split is rebuilt from current files, seed, and
-validation options; keep these unchanged to continue the same split. Saved
-split metadata alone does not enforce that the rebuilt split is identical.
+Checkpoints require the current version, method/model/dataset names, and physical
+input signature. Frequency, element/depth, or pair changes fail even when shapes
+match. Older artifacts without this contract must be regenerated.
+
+Resume restores weights, model configuration, normalization, loss settings,
+optimizer state, and history. Rebuilt split indices, split mode, and seed must
+match the saved values. Keep the original data files unchanged; the split check
+does not hash their contents.
+
+Each invocation runs a new cosine learning-rate phase from its `--lr` to zero
+over its `--epochs`. Resuming restores optimizer momentum but starts this new
+phase; the old scheduler cycle is not continued. History records the rate used
+for each epoch (`lr`) and the following rate (`next_lr`). If no validation
+improvement occurs, training retains and prints the existing best checkpoint.
 
 ## Remote Artifacts and Local Delivery
 
-Manual default root: `outputs/networks_results/<METHOD>_method/<model>/`.
-Automatic workers use `outputs/networks_results/<METHOD>/<model>/` instead.
+Manual and automatic default root: `outputs/networks_results/<METHOD>/<model>/`,
+where `<METHOD>` is `RBD`, `ELM`, or `SCM`.
 Exported basenames have an `MMDD_HHMMSS` suffix.
 
 | Subdirectory | File | Contents |
 |---|---|---|
-| `train_outputs/` | `<dataset>_best_*.pt`, `<dataset>_last_*.pt` | Model/config, weights, optimizer/scheduler, normalization, split/source metadata, and history |
+| `train_outputs/` | `<dataset>_best_*.pt`, `<dataset>_last_*.pt` | Version, input signature, model/config, weights, optimizer, scheduler plan/state, normalization, split/source metadata, and history |
 | `train_outputs/` | `<dataset>_history_*.json` | Per-epoch train/validation loss, MAE, RMSE, and loss space |
 | `test_outputs/` | `<dataset>_predictions_*.csv` | Valid test-window predictions and errors |
-| `test_outputs/` | `<dataset>_range_prediction_*.png` | Optional label/prediction plot |
+| `test_outputs/` | `<dataset>_range_prediction_*.pdf` | Optional PDF from manual prediction; automatic plotting uses the renderer |
 
 CSV fields are `sample`, `source_segment_idx`, `window_center_s`,
 `pred_range_km`, `true_range_km`, and `abs_error_km`. Time is in seconds;
