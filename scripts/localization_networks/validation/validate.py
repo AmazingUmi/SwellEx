@@ -180,6 +180,23 @@ def workflow_tests_check():
     return {"exit_code": proc.returncode, "stdout": proc.stdout, "stderr": proc.stderr}
 
 
+def workflow_registry_check():
+    from scripts.localization_networks.workflow.tasks import ARCHITECTURES, METHODS as TASK_METHODS, resolve_selection
+
+    require(tuple(TASK_METHODS) == tuple(METHODS), "public workflow methods differ from validated methods")
+    neural = [name for name in ARCHITECTURES if name != "GRNN"]
+    selections = []
+    for method in METHODS:
+        registry = model_module(method).MODEL_REGISTRY
+        mapped = [resolve_selection(method, name) for name in neural]
+        require({row["model"] for row in mapped} == set(registry),
+                f"{method} public architecture mapping differs from its actual model registry")
+        require("scm_grnn_range" not in registry, "GRNN must remain outside trainable registries")
+        selections.extend(mapped)
+    selections.append(resolve_selection("SCM", "GRNN"))
+    return {"selections": selections, "count": len(selections)}
+
+
 def visualization_tests_check():
     directory = ROOT / "scripts" / "visualization" / "tests"
     require(directory.is_dir() and list(directory.glob("test*.py")), "visualization unittest files are missing")
@@ -466,6 +483,7 @@ def quick(report, device):
     usable = report.check("runtime.device", lambda: device_check(device))
     report.check("shared.paths_and_splits", shared_check)
     report.check("workflow.unit_tests", workflow_tests_check)
+    report.check("workflow.model_registry", workflow_registry_check)
     report.check("visualization.unit_tests", visualization_tests_check)
     for method in METHODS:
         report.check(f"loader.{method}", lambda m=method: loader_check(m))

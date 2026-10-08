@@ -18,7 +18,12 @@ import subprocess
 import sys
 import time
 
-from config import RUN_ID, validate_config
+if __package__:
+    from .config import RUN_ID, validate_config
+    from .tasks import SUITES, expected_phases, model_plan, validate_selection
+else:
+    from config import RUN_ID, validate_config
+    from tasks import SUITES, expected_phases, model_plan, validate_selection
 
 
 def stamp() -> str:
@@ -161,10 +166,17 @@ class Worker:
 
     def setup(self) -> dict:
         request = json.loads((self.run / "request.json").read_text())
-        if set(request) != {"schema_version", "run_id", "suite", "config", "use_cache"} or request["schema_version"] != 1:
+        if not isinstance(request, dict):
             raise ValueError("Invalid remote request schema")
-        if request["run_id"] != self.run.name or not RUN_ID.fullmatch(self.run.name) or request["suite"] not in {"quick", "smoke", "experiment"} or not isinstance(request["use_cache"], bool):
+        fields = {"schema_version", "run_id", "suite", "config", "use_cache"}
+        if request.get("suite") == "selected":
+            fields.add("selection")
+        if set(request) != fields or type(request["schema_version"]) is not int or request["schema_version"] != 1:
+            raise ValueError("Invalid remote request schema")
+        if request["run_id"] != self.run.name or not RUN_ID.fullmatch(self.run.name) or request["suite"] not in SUITES or not isinstance(request["use_cache"], bool):
             raise ValueError("Invalid run ID, suite or cache policy")
+        if request["suite"] == "selected":
+            validate_selection(request["selection"])
         self.request = request
         self.config = validate_config(request["config"])
         expected = Path(self.config["remote"]["workspace"]) / "runs" / self.run.name
@@ -173,6 +185,12 @@ class Worker:
         manifest = json.loads((self.run / "manifest.json").read_text())
         if manifest["run_id"] != self.run.name or manifest["suite"] != request["suite"]:
             raise ValueError("Manifest run/suite mismatch")
+        if request["suite"] == "selected":
+            selection = validate_selection(manifest.get("selection"))
+            if selection != request["selection"]:
+                raise ValueError("Manifest selection differs from the frozen request")
+        elif "selection" in manifest:
+            raise ValueError("Validation manifests cannot contain a selection")
         config_hash = hashlib.sha256(json.dumps(self.config, sort_keys=True).encode()).hexdigest()
         if config_hash != manifest["config_sha256"]:
             raise ValueError("Request configuration hash mismatch")
@@ -185,6 +203,8 @@ class Worker:
         self.report.update(suite=request["suite"], source_sha256=manifest["source_sha256"], git_head=manifest["git_head"], config_sha256=config_hash)
         if request["suite"] == "experiment":
             self.report["purpose"] = "configured_experiment_without_accuracy_acceptance_threshold"
+        elif request["suite"] == "selected":
+            self.report.update(selection=dict(request["selection"]), purpose="configured_single_model_without_accuracy_acceptance_threshold")
         threads = str(self.config["validation"]["threads"])
         self.env.update(OMP_NUM_THREADS=threads, MKL_NUM_THREADS=threads, OPENBLAS_NUM_THREADS=threads)
         self.python = sys.executable
@@ -289,7 +309,7 @@ class Worker:
             for key in ("train_loss", "val_loss", "train_mae_km", "val_mae_km", "val_rmse_km"):
                 if not math.isfinite(row[key]):
                     raise ValueError(f"Nonfinite training metric {key} for {name}")
-        self.phase(f"predict_{name}", lambda: self.command(f"predict_{name}", [self.python, "-B", entry, "predict", "--model", model, "--data", data, "--output-dir", str(output), "--checkpoint", str(checkpoints[0]), "--device", v["device"], "--print-first", "0"], v["training_timeout_s"]))
+        self.phase(f"predict_{name}", lambda: self.command(f"predict_{name}", [self.python, "-B", entry, "predict", "--model", model, "--data", data, "--output-dir", str(output), "--checkpoint", str(checkpoints[0]), "--batch-size", str(cfg["batch_size"]), "--device", v["device"], "--print-first", "0"], v["training_timeout_s"]))
         csvs = list((output / model / "test_outputs").glob("*_predictions_*.csv"))
         if len(csvs) != 1:
             raise ValueError(f"Expected one prediction CSV for {name}")
@@ -306,7 +326,7 @@ class Worker:
         references = list(output.rglob("*_reference_*.pt"))
         if len(references) != 1:
             raise ValueError("Expected one GRNN reference artifact")
-        self.phase("grnn_predict", lambda: self.command("grnn_predict", [self.python, "-B", entry, "predict", "--data", data, "--output-dir", str(output), "--reference", str(references[0]), "--device", v["device"], "--print-first", "0"], v["training_timeout_s"]))
+        self.phase("grnn_predict", lambda: self.command("grnn_predict", [self.python, "-B", entry, "predict", "--data", data, "--output-dir", str(output), "--reference", str(references[0]), "--batch-size", str(g["batch_size"]), "--device", v["device"], "--print-first", "0"], v["training_timeout_s"]))
         csvs = list(output.rglob("*_predictions_*.csv"))
         if len(csvs) != 1:
             raise ValueError("Expected one GRNN prediction CSV")
@@ -414,8 +434,12 @@ class Worker:
         self.save()
         lock = None
         code = 1
+        planned_phases = {"snapshot_integrity"}
         try:
             self.phase("snapshot_integrity", self.setup)
+            suite = self.request["suite"]
+            selection = self.request.get("selection")
+            planned_phases = expected_phases(suite, selection)
             workspace = Path(self.config["remote"]["workspace"])
             lock = (workspace / "validation.lock").open("a")
             self.report["status"] = "WAITING_FOR_RESOURCE"
@@ -425,25 +449,26 @@ class Worker:
             self.save()
             self.phase("environment", self.environment)
             v = self.config["validation"]
-            python_report = self.run / "reports/python_quick.json"
-            self.phase("python_quick", lambda: self.json_command("python_quick", [self.python, "-B", str(self.project / "scripts/localization_networks/validation/validate.py"), "quick", "--device", v["device"], "--report", str(python_report)], python_report, v["quick_timeout_s"]))
-            numerical_report = self.project / "outputs/validation/data_numerical.json"
-            self.phase("data_numerical", lambda: self.json_command("data_numerical", [self.python, "-B", str(self.project / "scripts/data_processing/validate.py"), "--report", str(numerical_report)], numerical_report, v["quick_timeout_s"]))
-            if self.request["suite"] != "quick":
+            if suite != "selected":
+                python_report = self.run / "reports/python_quick.json"
+                self.phase("python_quick", lambda: self.json_command("python_quick", [self.python, "-B", str(self.project / "scripts/localization_networks/validation/validate.py"), "quick", "--device", v["device"], "--report", str(python_report)], python_report, v["quick_timeout_s"]))
+                numerical_report = self.project / "outputs/validation/data_numerical.json"
+                self.phase("data_numerical", lambda: self.json_command("data_numerical", [self.python, "-B", str(self.project / "scripts/data_processing/validate.py"), "--report", str(numerical_report)], numerical_report, v["quick_timeout_s"]))
+            if suite != "quick":
                 self.phase("original_data_identity", self.data_identity)
                 self.datasets()
                 metrics = []
-                models = {"RBD": ["complex_cnn_range"], "ELM": ["elm_complex_cnn_range"], "SCM": ["scm_complex_cnn_range"]}
-                if self.request["suite"] == "experiment":
-                    models = {method: [prefix+name for name in ("complex_cnn_range", "real_cnn_range", "resnet18_range", "resnet50_range")] for method,prefix in (("RBD",""),("ELM","elm_"),("SCM","scm_"))}
-                for method, names in models.items():
-                    for model in names:
+                for job in model_plan(suite, selection):
+                    method, model = job["method"], job["model"]
+                    if job["architecture"] == "GRNN":
+                        metrics.append(self.phase("evaluate_grnn", self.grnn))
+                    else:
                         metrics.append(self.phase(f"evaluate_{method}_{model}", lambda m=method,n=model: self.train_predict(m,n)))
-                metrics.append(self.phase("evaluate_grnn", self.grnn))
                 expected_indices = metrics[0]["source_segment_indices"]
                 if any(row["source_segment_indices"] != expected_indices for row in metrics):
                     raise ValueError("Models did not evaluate the same test source windows")
-                self.phase("checkpoint_resume", self.checkpoint_resume)
+                if suite in {"smoke", "experiment"}:
+                    self.phase("checkpoint_resume", self.checkpoint_resume)
                 self.report["metrics"] = metrics
                 self.save()
                 write_json(self.run / "reports/metrics.json", {"status": "PASS", "purpose": self.report["purpose"], "metrics": metrics})
@@ -455,15 +480,8 @@ class Worker:
             self.report.update(status="FAIL", exit_code=1, error=f"{type(exc).__name__}: {exc}")
             print(self.report["error"], flush=True)
         finally:
-            expected_phases = {"snapshot_integrity", "environment", "python_quick", "data_numerical", "source_unchanged_after_validation"}
-            suite = self.request_if_available_suite()
-            if suite != "quick":
-                expected_phases.update({"original_data_identity", "data_generation", "dataset_contract", "evaluate_grnn", "checkpoint_resume", "visualization"})
-                for method, prefix in (("RBD", ""), ("ELM", "elm_"), ("SCM", "scm_")):
-                    names = ("complex_cnn_range", "real_cnn_range", "resnet18_range", "resnet50_range") if suite == "experiment" else ("complex_cnn_range",)
-                    expected_phases.update(f"evaluate_{method}_{prefix}{name}" for name in names)
             completed = {row["name"] for row in self.report["checks"]}
-            self.report["not_run"] = sorted(expected_phases-completed)
+            self.report["not_run"] = sorted(planned_phases-completed)
             self.report["finished_at"] = stamp()
             terminal = self.report["status"]
             self.report["status"] = "EXPORTING"
@@ -480,9 +498,6 @@ class Worker:
             if lock is not None:
                 lock.close()
         return code
-
-    def request_if_available_suite(self) -> str:
-        return getattr(self, "request", {}).get("suite", "unknown")
 
 
 def main() -> int:

@@ -21,11 +21,22 @@ migration reference.
 From the local project root:
 
 ```bash
-uv run --no-project --python python3 scripts/localization_networks/workflow/remote.py validate --suite smoke
+./scripts/run.sh RBD complex_CNN
+./scripts/run.sh SCM GRNN
+./scripts/run.sh validate --suite smoke
 ```
 
-The [remote workflow](doc/workflows/remote-validation.md) explains prerequisites,
-configuration, frozen environments, detached runs, and retrieval. Local logs,
+The selected-model command validates or reuses the aligned RBD/ELM/SCM datasets,
+then trains (or builds GRNN), predicts, plots, and retrieves only the requested
+model. `METHOD` is `RBD`, `ELM`, or `SCM`; `ARCH` is exactly `complex_CNN`,
+`real_CNN`, `ResNet18`, `ResNet50`, or `GRNN` (SCM only). Optional
+`--config PATH`, `--epochs N`, and `--seed N` override the frozen run settings;
+GRNN rejects `--epochs`. Defaults retain S5 window starts 0–59 s and two neural
+epochs, which establish pipeline execution without an accuracy acceptance
+threshold.
+
+The [remote workflow](doc/workflows/remote-validation.md) explains all command
+options, prerequisites, frozen environments, detached runs, and retrieval. Local logs,
 reports, history, and prediction CSVs go to `output/data/<run_id>/`; figures go
 to `output/figure/<run_id>/`. Remote datasets and model artifacts stay on haiqin
 under the run's `outputs/` directory.

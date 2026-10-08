@@ -10,6 +10,8 @@ import math
 from pathlib import Path
 import re
 
+from scripts.localization_networks.workflow.tasks import validate_selection
+
 PREDICTION_FIELDS = (
     "sample", "source_segment_idx", "window_center_s", "pred_range_km",
     "true_range_km", "abs_error_km",
@@ -193,13 +195,21 @@ def load_run(run_dir: Path, models: list[str] | None = None, *, require_pass=Tru
     if not isinstance(report, dict) or type(report.get("schema_version")) is not int or report["schema_version"] != 1:
         raise ValueError("Unsupported run report")
     allowed = {"PASS"} if require_pass else {"PASS", "RUNNING"}
-    if report.get("status") not in allowed or report.get("suite") not in {"smoke", "experiment"}:
-        raise ValueError("Visualization requires a successful smoke/experiment run with model results")
+    if report.get("status") not in allowed or report.get("suite") not in {"selected", "smoke", "experiment"}:
+        raise ValueError("Visualization requires a successful selected/smoke/experiment run with model results")
     if report.get("run_id") != run_dir.name or not isinstance(report.get("purpose"), str):
         raise ValueError("Run identity/purpose differs from result directory")
     metrics = report.get("metrics")
     if not isinstance(metrics, list) or not metrics:
         raise ValueError("Run has no model results")
+    if report["suite"] == "selected":
+        selection = validate_selection(report.get("selection"))
+        if report["purpose"] != "configured_single_model_without_accuracy_acceptance_threshold":
+            raise ValueError("Selected run purpose differs from the configured single-model contract")
+        if (len(metrics) != 1 or not isinstance(metrics[0], dict)
+                or metrics[0].get("method") != selection["method"]
+                or metrics[0].get("model") != selection["model"]):
+            raise ValueError("Selected run requires exactly one metric matching its method/model selection")
     names = []
     for row in metrics:
         if not isinstance(row, dict) or row.get("method") not in {"RBD", "ELM", "SCM"} or not re.fullmatch(r"[a-z][a-z0-9_]*", str(row.get("model", ""))):

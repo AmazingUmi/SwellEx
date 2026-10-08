@@ -15,9 +15,10 @@ ELM and SCM have the same tensor rank but different pair semantics.
    `input_pairs` plus `input_freq_bins`. Return normalized predictions shaped
    `[batch,1]`. Shared training handles target statistics and km metrics.
 4. Check checkpoint config serialization/restoration. Update the four-model
-   registry-count expectation in `validation/validate.py` and the hardcoded
-   experiment model/expected-phase lists in `workflow/worker.py` when adding
-   a family; then cover the new model with a focused remote forward/backward check.
+   registry-count expectation in `validation/validate.py` and the public
+   architecture mapping/plans in `workflow/tasks.py` when adding a family.
+   The quick suite checks those mappings against the actual registries;
+   cover the new model with a focused remote forward/backward check.
 
 Existing families are described in [model architecture](../methods/trainable-model-architecture.md).
 The current SCM-GRNN stores reference samples and is not a trainable

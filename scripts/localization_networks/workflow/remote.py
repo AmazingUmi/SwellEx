@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -15,7 +16,12 @@ import tempfile
 import time
 import uuid
 
-from config import RUN_ID, load_config
+if __package__:
+    from .config import RUN_ID, load_config, validate_config
+    from .tasks import ARCHITECTURES, METHODS, expected_phases, model_plan, resolve_selection
+else:
+    from config import RUN_ID, load_config, validate_config
+    from tasks import ARCHITECTURES, METHODS, expected_phases, model_plan, resolve_selection
 
 PROJECT = Path(__file__).resolve().parents[3]
 DEFAULT_CONFIG = Path(__file__).with_name("haiqin.toml")
@@ -65,17 +71,22 @@ def source_paths(project: Path = PROJECT) -> list[Path]:
     return paths
 
 
-def freeze_source(stage: Path, config: dict, run_id: str, suite: str, project: Path = PROJECT) -> dict:
+def freeze_source(stage: Path, config: dict, run_id: str, suite: str, project: Path = PROJECT, *, selection: dict | None = None) -> dict:
+    plan = model_plan(suite, selection)
     inventory = []
     for rel in source_paths(project):
         dest = stage / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(project / rel, dest)
+        shutil.copymode(project / rel, dest)
         inventory.append({"path": rel.as_posix(), "size": dest.stat().st_size, "sha256": sha256(dest)})
     digest = hashlib.sha256(json.dumps(inventory, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=project, check=True, capture_output=True, text=True).stdout.strip()
     dirty = subprocess.run(["git", "status", "--porcelain=1"], cwd=project, check=True, capture_output=True, text=True).stdout.splitlines()
-    return {"schema_version": 1, "run_id": run_id, "suite": suite, "created_at": datetime.now(timezone.utc).isoformat(), "git_head": head, "git_status": dirty, "source_sha256": digest, "files": inventory, "config_sha256": hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()}
+    manifest = {"schema_version": 1, "run_id": run_id, "suite": suite, "created_at": datetime.now(timezone.utc).isoformat(), "git_head": head, "git_status": dirty, "source_sha256": digest, "files": inventory, "config_sha256": hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()}
+    if suite == "selected":
+        manifest["selection"] = plan[0]
+    return manifest
 
 
 def remote_python(config: dict, code: str, payload: dict | None = None) -> dict:
@@ -206,15 +217,21 @@ def fetch(config: dict, run_id: str) -> dict:
     return report
 
 
-def validate(config: dict, suite: str, detach: bool, dry_run: bool, no_cache: bool) -> int:
+def dispatch(config: dict, suite: str, detach: bool, dry_run: bool, no_cache: bool, *, selection: dict | None = None) -> int:
+    config = validate_config(config)
+    plan = model_plan(suite, selection)
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-") + uuid.uuid4().hex[:8]
     remote = config["remote"]
     remote_dir = run_dir(config, run_id)
     request = {"schema_version": 1, "run_id": run_id, "suite": suite, "config": config, "use_cache": not no_cache}
+    if suite == "selected":
+        request["selection"] = plan[0]
     generation_config = {"schema_version": 1, "dataset": config["dataset"], "rbd": config["rbd"], "result_path": "outputs/validation/generation_result.json"}
     local = LOCAL_RUNS / run_id
     dispatch_token = uuid.uuid4().hex
     starting = {"schema_version": 1, "run_id": run_id, "suite": suite, "status": "STARTING", "started_at": datetime.now(timezone.utc).isoformat(), "checks": [], "remote_run_dir": remote_dir}
+    if suite == "selected":
+        starting["selection"] = plan[0]
     if not dry_run:
         # A collision never overwrites an earlier run or its evidence.
         local.mkdir(parents=True, exist_ok=False)
@@ -227,9 +244,9 @@ def validate(config: dict, suite: str, detach: bool, dry_run: bool, no_cache: bo
         stage = Path(temp)
         init_attempted = False
         try:
-            manifest = freeze_source(stage, config, run_id, suite)
+            manifest = freeze_source(stage, config, run_id, suite, selection=selection) if suite == "selected" else freeze_source(stage, config, run_id, suite)
             if dry_run:
-                print(json.dumps({"run_id": run_id, "remote_run_dir": remote_dir, "files": len(manifest["files"]), "source_sha256": manifest["source_sha256"], "request": request, "generation_config": generation_config}, ensure_ascii=False, indent=2))
+                print(json.dumps({"run_id": run_id, "remote_run_dir": remote_dir, "files": len(manifest["files"]), "source_sha256": manifest["source_sha256"], "model_plan": plan, "expected_phases": sorted(expected_phases(suite, selection)), "request": request, "generation_config": generation_config}, ensure_ascii=False, indent=2))
                 return 0
             dump(local / "manifest.json", manifest)
             dump(stage / "manifest.json", manifest)
@@ -243,7 +260,7 @@ def validate(config: dict, suite: str, detach: bool, dry_run: bool, no_cache: bo
             initialized = remote_python(config, INIT_CODE, {"workspace": remote["workspace"], "repository": remote["repository"], "run_id": run_id, "dispatch_token": dispatch_token, "report": starting, "manifest.json": manifest, "request.json": request, "generation_config.json": generation_config})
             if initialized["run_dir"] != remote_dir:
                 raise RuntimeError("Remote initialization returned an unexpected path")
-            proc = subprocess.run(["rsync", "-rlt", "-e", shlex.join(["ssh", *SSH_OPTIONS]), str(stage) + "/", f"{remote['host']}:{remote_dir}/project/"], capture_output=True, text=True)
+            proc = subprocess.run(["rsync", "-rltp", "-e", shlex.join(["ssh", *SSH_OPTIONS]), str(stage) + "/", f"{remote['host']}:{remote_dir}/project/"], capture_output=True, text=True)
             if proc.returncode:
                 raise RuntimeError(f"Source transfer failed: {proc.stderr.strip()}")
             launched = remote_python(config, START_CODE, {"run_dir": remote_dir, "base_python": remote["base_python"], "uv": remote["uv"], "workspace": remote["workspace"]})
@@ -283,19 +300,56 @@ def validate(config: dict, suite: str, detach: bool, dry_run: bool, no_cache: bo
             return 130
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+def validate(config: dict, suite: str, detach: bool, dry_run: bool, no_cache: bool) -> int:
+    """Keep the existing validation call contract separate from selected runs."""
+    if suite not in {"quick", "smoke", "experiment"}:
+        raise ValueError("Validation suite must be quick, smoke, or experiment")
+    return dispatch(config, suite, detach, dry_run, no_cache)
+
+
+def selected_run(config: dict, method: str, architecture: str, detach: bool, dry_run: bool, no_cache: bool, *, epochs: int | None = None, seed: int | None = None) -> int:
+    selection = resolve_selection(method, architecture)
+    if architecture == "GRNN" and epochs is not None:
+        raise ValueError("GRNN uses build/predict and does not accept --epochs")
+    merged = copy.deepcopy(config)
+    if epochs is not None:
+        merged["training"]["epochs"] = epochs
+    if seed is not None:
+        merged["validation"]["seed"] = seed
+    validate_config(merged)
+    return dispatch(merged, "selected", detach, dry_run, no_cache, selection=selection)
+
+
+def make_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False, epilog="Shell entry: ./scripts/run.sh METHOD ARCH [options]. GRNN supports SCM only and has no epochs.")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("check", help="Check haiqin dependencies and GPU without launching MATLAB")
-    validate_parser = sub.add_parser("validate", help="Freeze source and run validation on haiqin")
+    check_parser = sub.add_parser("check", allow_abbrev=False, help="Check haiqin repository, original inputs, and uv")
+    validate_parser = sub.add_parser("validate", allow_abbrev=False, help="Freeze source and run validation on haiqin")
     validate_parser.add_argument("--suite", choices=["quick", "smoke", "experiment"], default="smoke")
-    validate_parser.add_argument("--detach", action="store_true")
-    validate_parser.add_argument("--dry-run", action="store_true")
-    validate_parser.add_argument("--no-cache", action="store_true")
+    run_parser = sub.add_parser("run", allow_abbrev=False, help="Run one method/architecture on haiqin")
+    run_parser.add_argument("method", metavar="METHOD", choices=METHODS)
+    run_parser.add_argument("architecture", metavar="ARCH", choices=ARCHITECTURES)
+    run_parser.add_argument("--epochs", type=int, help="Override neural training epochs; invalid for GRNN")
+    run_parser.add_argument("--seed", type=int, help="Override the training/GRNN seed")
+    for child in (validate_parser, run_parser):
+        child.add_argument("--detach", action="store_true")
+        child.add_argument("--dry-run", action="store_true")
+        child.add_argument("--no-cache", action="store_true")
+    children = [check_parser, validate_parser, run_parser]
     for name in ("status", "fetch"):
-        sub.add_parser(name).add_argument("--run", required=True)
-    args = parser.parse_args()
+        child = sub.add_parser(name, allow_abbrev=False)
+        child.add_argument("--run", required=True)
+        children.append(child)
+    for child in children:
+        # Suppressing the child default preserves a global --config before the
+        # command while accepting the natural placement after it as well.
+        child.add_argument("--config", type=Path, default=argparse.SUPPRESS)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = make_parser().parse_args(argv)
     try:
         config = load_config(args.config.resolve())
         if args.command == "check":
@@ -304,6 +358,8 @@ def main() -> int:
             return 0 if result["status"] == "PASS" else 1
         if args.command == "validate":
             return validate(config, args.suite, args.detach, args.dry_run, args.no_cache)
+        if args.command == "run":
+            return selected_run(config, args.method, args.architecture, args.detach, args.dry_run, args.no_cache, epochs=args.epochs, seed=args.seed)
         report = status(config, args.run) if args.command == "status" else fetch(config, args.run)
         summarize(report)
         return 0 if report["status"] == "PASS" else (1 if report["status"] == "FAIL" else 2)

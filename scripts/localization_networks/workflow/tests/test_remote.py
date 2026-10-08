@@ -55,6 +55,7 @@ class ConfigurationTests(unittest.TestCase):
             ("schema_version", None, True),
             ("validation", "threads", 0),
             ("validation", "seed", True),
+            ("validation", "seed", 2**32),
             ("validation", "device", "cuda; echo unsafe"),
             ("training", "epochs", 1.5),
             ("training", "huber_beta", float("nan")),

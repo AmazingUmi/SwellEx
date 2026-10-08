@@ -28,6 +28,7 @@ stored data contracts have separate references.
 ## Workflows
 
 - [Local development and remote validation](workflows/remote-validation.md):
+  shell commands and [effective defaults](workflows/remote-validation.md#command-defaults),
   haiqin environment, source snapshots, suites, detached runs, and retrieval.
 - [Training and prediction](workflows/training-and-prediction.md):
   RBD/ELM/SCM commands, loss units, continuation, checkpoints, and exports.

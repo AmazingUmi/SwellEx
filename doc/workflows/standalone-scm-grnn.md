@@ -8,6 +8,13 @@ for SCM input layout.
 
 ## Build and Predict on haiqin
 
+For automatic dataset validation, reference building, prediction, figures, and
+retrieval, run `./scripts/run.sh SCM GRNN` from the local project root.
+`--seed N` and `--config PATH` are supported; `--epochs` is rejected.
+See the [selected-run workflow](remote-validation.md#select-one-model) and
+[command defaults](remote-validation.md#command-defaults) for its configured
+3-fold search, sigma candidates `[0.01, 0.1, 1.0]`, and batch size 64.
+
 Use `SWELLEX_PYTHON` in a frozen run's `project/` directory as described by the
 [remote workflow](remote-validation.md#manual-commands-in-a-frozen-run).
 
@@ -24,6 +31,10 @@ as the SCM network loader. Its flattened real/imag feature dimensions must
 match the saved reference during prediction.
 
 ## Options and Sigma Selection
+
+The table below describes direct `GRNN_main.py` commands. The automatic shell
+workflow supplies the [configured defaults](remote-validation.md#command-defaults)
+to both build and predict.
 
 | Option | Applies to | Behavior |
 |---|---|---|

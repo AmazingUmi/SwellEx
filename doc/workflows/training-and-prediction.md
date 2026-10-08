@@ -7,6 +7,26 @@ training and prediction helpers. For HDF5 layouts and pair ordering, see the
 
 ## Method and Model Selection
 
+For a complete selected-model run, dispatch from the local project root:
+
+```bash
+./scripts/run.sh SCM ResNet18 --epochs 100 --seed 2026
+```
+
+The public architectures are exactly `complex_CNN`, `real_CNN`, `ResNet18`,
+and `ResNet50` for each method, plus `SCM GRNN`. This entry freezes configuration,
+validates or reuses all three aligned feature datasets, executes only the chosen
+model, renders figures, and retrieves results. See the
+[remote workflow](remote-validation.md#select-one-model) for configuration,
+cache policy, detached execution, and engineering validation boundaries.
+Selected neural runs start fresh; continuation remains a manual operation.
+The [command defaults](remote-validation.md#command-defaults) list the effective
+shell settings and their sources, including two epochs, batch size 8 for train
+and predict, and km-space loss.
+
+The shell command maps the public architecture to the method's registered
+model name. Manual Python commands use the registered names below:
+
 | METHOD | Entry point | Model naming |
 |---|---|---|
 | RBD | `scripts/localization_networks/RBD_method/Network_main.py` | Base architecture name, without a method prefix |
@@ -38,10 +58,14 @@ Dataset names identify directories under remote `outputs/Datasets/` or an
 existing dataset path. Prediction reads `*_test.h5`; it does not accept an
 `--input-data` override. The generation report provides the route-to-dataset
 mapping; choose a model from that method's registry and the architecture guide.
-The automatic smoke/experiment suites perform these operations and record
+Selected runs and the automatic smoke/experiment suites perform these operations and record
 commands and results; see the remote workflow for dispatch and retrieval.
 
 ## Shared Options
+
+This table describes direct `Network_main.py` commands. The automatic shell
+workflow supplies its [configured defaults](remote-validation.md#command-defaults)
+for epochs, batch size, channels, loss, validation fraction, seed, and device.
 
 | Option | Applies to | Behavior |
 |---|---|---|

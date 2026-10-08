@@ -49,6 +49,8 @@ def validate_config(config: dict) -> dict:
         raise ValueError("validation.device must be cpu, cuda, or cuda:N")
     for key in ("seed", "threads", "quick_timeout_s", "generation_timeout_s", "training_timeout_s"):
         positive(v[key], f"validation.{key}", integer=True, zero=key == "seed")
+    if v["seed"] > 2**32 - 1:
+        raise ValueError("validation.seed must be between 0 and 4294967295")
     d = config["dataset"]
     if d["event_name"] != "S5":
         raise ValueError("The current dataset generators support event_name=S5 only")

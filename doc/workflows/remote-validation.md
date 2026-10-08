@@ -6,15 +6,119 @@ one authority: `pyproject.toml` and `uv.lock`. The dispatcher imports only the
 standard library; the worker uses the frozen Linux/CUDA environment. No MATLAB
 runtime is needed.
 
-## Dispatch and Retrieve
+## Select One Model
 
 Run from the local project root with local uv and Python 3.11+, Git, SSH, and
 rsync available:
 
 ```bash
-uv run --no-project --python python3 scripts/localization_networks/workflow/remote.py check
-uv run --no-project --python python3 scripts/localization_networks/workflow/remote.py validate --suite quick
-uv run --no-project --python python3 scripts/localization_networks/workflow/remote.py validate --suite smoke
+./scripts/run.sh RBD complex_CNN
+./scripts/run.sh ELM ResNet18 --epochs 100 --seed 2026
+./scripts/run.sh SCM GRNN --config /absolute/path/experiment.toml
+```
+
+The shell entry delegates to the standard-library dispatcher. `METHOD` must be
+`RBD`, `ELM`, or `SCM`; `ARCH` must be exactly `complex_CNN`, `real_CNN`,
+`ResNet18`, `ResNet50`, or `GRNN`. GRNN is supported only for SCM and rejects
+`--epochs`; it builds reference samples and selects sigma instead of training
+with an optimizer. METHOD and ARCH are required and have no defaults.
+Unknown names, options, or invalid configuration fail before launch.
+
+| Selected-run option | Default | Behavior when supplied |
+|---|---|---|
+| `--config PATH` | Bundled `scripts/localization_networks/workflow/haiqin.toml` | Load a strict TOML configuration |
+| `--epochs N` | Configuration's `training.epochs` | Override positive neural epoch count |
+| `--seed N` | Configuration's `validation.seed` | Override the run seed, from 0 to 4294967295 |
+| `--detach` | Off: wait in the foreground and retrieve results automatically | Launch remotely and return the run ID without waiting |
+| `--dry-run` | Off: execute the request | Inspect the merged request without contacting haiqin |
+| `--no-cache` | Off: allow hash-verified dataset reuse | Force regeneration of all three feature routes |
+
+CLI overrides take precedence over TOML. `request.json` freezes the merged
+configuration and canonical method/architecture/model selection; the report
+records the selection and configuration hash. The selected workflow validates
+or reuses aligned RBD/ELM/SCM datasets,
+executes only the chosen model, checks its prediction CSV, renders its figures,
+and retrieves its results. Dataset generation still produces all three routes;
+single-route generation, automatic resume, and training-only runs are outside
+this command's scope. Global quick checks, numerical oracles, and checkpoint
+resume checks belong to the validation suites below.
+
+A PASS selected report means the configured pipeline completed; no accuracy
+acceptance threshold is applied. The effective defaults are listed below.
+
+## Command Defaults
+
+These values apply to `./scripts/run.sh METHOD ARCH` with the bundled
+[haiqin.toml](../../scripts/localization_networks/workflow/haiqin.toml).
+CLI `--epochs` and `--seed` override the selected TOML values; change the other
+TOML settings with `--config PATH`. The merged configuration is frozen in
+`request.json`. The bundled data interval and epoch count are for a small
+pipeline check.
+
+| Execution setting | Default |
+|---|---|
+| SSH host / device | `haiqin` / `cuda`; an unavailable requested GPU fails |
+| Seed (`validation.seed`) | `2026` |
+| CPU threads (`validation.threads`) | `4` |
+| Quick-check timeout (`quick_timeout_s`) | `600` s |
+| Generation timeout (`generation_timeout_s`) | `900` s |
+| Each train/build/predict command timeout (`training_timeout_s`) | `900` s |
+
+Remote paths and the frozen interpreter are defined in
+[Configuration and Frozen Environment](#configuration-and-frozen-environment).
+
+| Dataset setting | Default |
+|---|---|
+| Event (`event_name`) | `S5` |
+| Sampling rate (`fs`) | `1500` Hz |
+| Window start range (`segment_start_s`, `segment_end_s`) | `0`–`59` s, inclusive window starts |
+| Window duration / step (`segment_duration_s`, `segment_step_s`) | `1.0` s / `1.0` s |
+| Snapshots per segment / overlap (`num_snapshots_per_segment`, `snapshot_overlap_count`) | `1` / `0` |
+| Frequency modes (`frequency_selection_modes`) | `["deep", "shallow"]` |
+| Split (`split_strategy`, `train_test_ratio`) | `periodic`, train:test = `4:1` |
+| Range-nearby settings (`train_side`, `half_duration_s`, `gap_s`, `test_step_s`) | `before`, `800` s, `15` s, `1` s; inactive for `periodic` |
+| Variant suffix (`manual_dataset_variant_tag`) | Empty string |
+
+RBD defaults are `beam_selection="best"`, `frequency_estimation="selected"`,
+`use_plane_wave=false`, and `normalize_spectrum=false`. All three feature
+routes are generated or validated; only the requested model is evaluated.
+
+| Neural setting | Effective default |
+|---|---|
+| Epochs (`training.epochs`) | `2` |
+| Train / predict batch size (`training.batch_size`) | `8` / `8` |
+| CNN base channels (`training.base_channels`) | `8`; ResNet uses its architecture's channel layout |
+| Loss space / SmoothL1 beta (`training.loss_space`, `training.huber_beta`) | `km` / `0.5` km |
+| Validation fraction (`training.val_fraction`) | `0.25`, split from training samples when no validation files exist |
+| Learning rate / weight decay | `3e-4` / `1e-4`, inherited from the network CLI |
+| Dropout | `0.15`, inherited from the network CLI |
+| DataLoader workers | `0` |
+
+Learning rate and dropout settings above are network CLI defaults, not fields
+in the workflow TOML or options accepted by `run.sh`. Each selected neural run
+starts fresh and predicts with that run's best checkpoint. Input channel
+normalization is enabled for complex CNN/ResNet and disabled for real CNN.
+
+| SCM-GRNN setting | Default |
+|---|---|
+| Cross-validation folds (`grnn.cv_folds`) | `3` |
+| Sigma candidates (`grnn.sigma_candidates`) | `[0.01, 0.1, 1.0]` |
+| Build / predict batch size (`grnn.batch_size`) | `64` / `64` |
+| Feature-coordinate standardization / per-sample channel normalization | Off / off |
+| Epochs / optimizer | None; use build/predict |
+
+GRNN uses the shared seed above, builds a fresh reference, and predicts with
+that explicit reference. Automatic figures are PNG at 300 dpi and PDF.
+Logs/tables/reports go to local `output/data/<run_id>/`; figures go to
+`output/figure/<run_id>/`. HDF5 and model/reference artifacts remain on haiqin.
+
+## Validate and Retrieve
+
+```bash
+./scripts/run.sh check
+./scripts/run.sh validate --suite quick
+./scripts/run.sh validate --suite smoke
+./scripts/run.sh validate --suite experiment
 ```
 
 | Suite | Scope |
@@ -23,10 +127,10 @@ uv run --no-project --python python3 scripts/localization_networks/workflow/remo
 | `smoke` | Quick checks plus aligned RBD/ELM/SCM generation, HDF5 validation, one complex CNN per method, prediction, GRNN build/predict, checkpoint resume, and result figures |
 | `experiment` | The same workflow with all four registered architectures per method, using configured interval and epochs |
 
-Default smoke uses S5 window starts 0–59 s, 1 s non-overlapping windows,
-periodic 4:1 train/test split, two epochs, and GRNN 3-fold sigma selection.
-Its MAE/RMSE demonstrate pipeline functionality; scientific accuracy or model
-superiority requires independent acceptance criteria and repeated seeds.
+`./scripts/run.sh validate` defaults to `--suite smoke`. Validation suites use
+the same [configured defaults](#command-defaults). Smoke MAE/RMSE demonstrate
+pipeline functionality; scientific accuracy or model superiority requires
+independent acceptance criteria and repeated seeds.
 
 Use `validate --suite experiment` for the configured experiment. Add
 `--dry-run` to inspect a request without contacting haiqin, or `--no-cache` to
@@ -34,21 +138,27 @@ force generation. Foreground completion retrieves results automatically.
 Long runs can detach:
 
 ```bash
-uv run --no-project --python python3 scripts/localization_networks/workflow/remote.py validate --suite smoke --detach
-uv run --no-project --python python3 scripts/localization_networks/workflow/remote.py status --run <run_id>
-uv run --no-project --python python3 scripts/localization_networks/workflow/remote.py fetch --run <run_id>
+./scripts/run.sh RBD ResNet50 --epochs 100 --detach
+./scripts/run.sh status --run <run_id>
+./scripts/run.sh fetch --run <run_id>
 ```
 
 Workers persist after SSH disconnects; numerical runs serialize on a server
 lock. Status/fetch return 0 for PASS, 1 for FAIL, and 2 for pending work.
 Ctrl-C stops foreground waiting and leaves the worker running. Failed launch,
 dependency sync, or a dead worker produces FAIL with retained logs.
+Status exposes launch, resource-waiting, execution, and export states until a
+final PASS/FAIL is available. Fetch a detached run after it completes to populate
+the local delivery roots.
 
 ## Configuration and Frozen Environment
 
 `scripts/localization_networks/workflow/haiqin.toml` defines the complete
-configuration; unknown fields and invalid values are rejected. A global
-`--config /absolute/path/experiment.toml` goes before the subcommand.
+configuration; unknown fields and invalid values are rejected. Pass
+`--config /absolute/path/experiment.toml` to the public shell command. The
+underlying dispatcher remains available as
+`uv run --no-project --python python3 scripts/localization_networks/workflow/remote.py`;
+its global `--config` option goes before the subcommand.
 
 | Setting | Current configured location |
 |---|---|
@@ -99,7 +209,8 @@ an already completed run's automatic report/export.
 
 ## Snapshot, Data, and Delivery
 
-Each validate invocation snapshots eligible tracked and new source files,
+Each selected-run or validate invocation snapshots eligible tracked and new
+source files,
 including uncommitted changes and uv files. Hashes and Git state are stored
 in `manifest.json`; source symlinks are rejected. The remote repository supplies
 raw `Origindata` through a link, and is never overwritten.

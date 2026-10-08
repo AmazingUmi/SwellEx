@@ -69,6 +69,81 @@ class ResultsTests(unittest.TestCase):
     def save_report(self):
         (self.run/"report.json").write_text(json.dumps(self.report))
 
+    def select_report(self, *, grnn=False):
+        self.report.update(
+            suite="selected",
+            purpose="configured_single_model_without_accuracy_acceptance_threshold",
+            selection={"method": "SCM" if grnn else "RBD",
+                       "architecture": "GRNN" if grnn else "complex_CNN",
+                       "model": "scm_grnn_range" if grnn else "complex_cnn_range"},
+        )
+        self.report["metrics"] = [self.report["metrics"][1 if grnn else 0]]
+        self.save_report()
+
+    def test_selected_neural_run_acceptance_and_render(self):
+        self.select_report()
+        data = load_run(self.run)
+        self.assertEqual([model.name for model in data.models], ["RBD/complex_cnn_range"])
+        self.assertEqual(len(data.models[0].history), 1)
+        self.assertEqual(data.models[0].sigma_search, [])
+        output = self.root/"selected-neural"
+        result = render_run(self.run, output, formats=("png",), dpi=72)
+        self.assertEqual(len(result["figures"]), 6)
+        self.assertTrue((output/"training/RBD-complex-cnn-range.png").is_file())
+        self.assertFalse((output/"grnn").exists())
+        manifest = json.loads((output/"manifest.json").read_text())
+        self.assertEqual(manifest["suite"], "selected")
+        self.assertEqual(len(manifest["models"]), 1)
+        self.assertEqual((output/"source-report.json").read_bytes(), (self.run/"report.json").read_bytes())
+
+    def test_selected_grnn_run_acceptance_and_render(self):
+        self.select_report(grnn=True)
+        data = load_run(self.run)
+        self.assertEqual([model.name for model in data.models], ["SCM/scm_grnn_range"])
+        self.assertEqual(data.models[0].history, [])
+        self.assertEqual(len(data.models[0].sigma_search), 2)
+        output = self.root/"selected-grnn"
+        result = render_run(self.run, output, formats=("png",), dpi=72)
+        self.assertEqual(len(result["figures"]), 6)
+        self.assertTrue((output/"grnn/SCM-scm-grnn-range-sigma.png").is_file())
+        self.assertFalse((output/"training").exists())
+        manifest = json.loads((output/"manifest.json").read_text())
+        self.assertEqual(len(manifest["models"]), 1)
+        self.assertEqual(manifest["purpose"], self.report["purpose"])
+
+    def test_selected_missing_or_tampered_selection_rejected(self):
+        self.select_report()
+        canonical = dict(self.report["selection"])
+        invalid = [None, {"method": "RBD", "architecture": "complex_CNN"},
+                   {**canonical, "model": "real_cnn_range"},
+                   {**canonical, "architecture": "complex_cnn"},
+                   {**canonical, "extra": "unexpected"},
+                   {"method": "RBD", "architecture": "GRNN", "model": "scm_grnn_range"},
+                   {"method": "ELM", "architecture": "complex_CNN", "model": "elm_complex_cnn_range"}]
+        for selection in invalid:
+            with self.subTest(selection=selection):
+                self.report["selection"] = selection
+                self.save_report()
+                with self.assertRaises(ValueError): load_run(self.run)
+        del self.report["selection"]
+        self.save_report()
+        with self.assertRaises(ValueError): load_run(self.run)
+
+    def test_selected_extra_metrics_rejected_before_model_filter(self):
+        extra = dict(self.report["metrics"][1])
+        self.select_report()
+        self.report["metrics"].append(extra)
+        self.save_report()
+        for models in (None, ["RBD/complex_cnn_range"]):
+            with self.subTest(models=models), self.assertRaisesRegex(ValueError, "exactly one metric"):
+                load_run(self.run, models)
+
+    def test_selected_tampered_purpose_rejected(self):
+        self.select_report()
+        self.report["purpose"] = "engineering_validation"
+        self.save_report()
+        with self.assertRaisesRegex(ValueError, "purpose"): load_run(self.run)
+
     def test_canonical_run_and_resume_history_exclusion(self):
         unrelated = self.run/"project/outputs/resume_validation/bad_history_1008_130000.json"
         unrelated.parent.mkdir(parents=True)

@@ -1,7 +1,7 @@
 # Result visualization
 
 `scripts/visualization/plot_results.py` renders a single recorded run. Automatic
-smoke/experiment runs create figures after successful model evaluation. Use the
+selected/smoke/experiment runs create figures after successful model evaluation. Use the
 [remote workflow](remote-validation.md) for dispatch, environment setup, and
 retrieval.
 
@@ -62,6 +62,17 @@ Smoke figures carry the `engineering_validation` purpose. They demonstrate a
 working pipeline; the short data interval and two epochs do not establish
 scientific accuracy or model superiority.
 
+Selected runs carry `suite: selected`, exactly one model metric, and the purpose
+`configured_single_model_without_accuracy_acceptance_threshold`. Their report
+selection must contain exactly `method`, `architecture`, and the matching
+canonical `model`; missing or mismatched selections and additional model metrics
+are rejected before rendering. They show the same five prediction/error figures
+for the chosen model, plus its neural training history or GRNN sigma-search
+figure when a search was performed. GRNN has no epoch history. Dispatch with
+`./scripts/run.sh METHOD ARCH`; foreground completion renders and retrieves
+automatically. These figures report configured pipeline results without a
+scientific accuracy acceptance threshold.
+
 ## Render or select models manually
 
 Use `SWELLEX_PYTHON` from the
@@ -84,7 +95,7 @@ not automatically fetched by the already completed run. Standalone rendering
 writes figures and their CSV/JSON provenance together to the selected directory;
 the automatic workflow separates them into the two local delivery roots above.
 
-The public CLI requires a PASS smoke/experiment report. It locates exactly one
+The public CLI requires a PASS selected/smoke/experiment report. It locates exactly one
 prediction CSV and, for CNNs, one history file per model. Ambiguous result
 files, malformed/nonfinite values, changed loss space, and inconsistent
 reported errors or metrics are rejected. Multiple models must match every
