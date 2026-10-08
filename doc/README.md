@@ -7,13 +7,13 @@ stable in file browsers and each area has an obvious home.
 
 - [00 Project progress](00_overview/00_project_progress.md): current repository
   status, completed work, and next steps.
-- [10 Environment](00_overview/10_environment.md): Python, MATLAB, and local
+- [10 Environment](00_overview/10_environment.md): Python, uv, and remote
   smoke-test commands.
 
 ## 10 Datasets
 
 - [00 HDF5 datasets and split strategies](10_datasets/00_hdf5_datasets_and_splits.md):
-  MATLAB dataset generation routes, split strategies, frequency selection, and
+  Python dataset generation routes, split strategies, frequency selection, and
   HDF5 fields.
 - [10 SCM feature note](10_datasets/10_scm_feature_note.md): concise SCM
   feature-construction sketch.
@@ -26,7 +26,9 @@ stable in file browsers and each area has an obvious home.
   checkpoint-based prediction for trained RBD, ELM, and SCM networks.
 - [20 Standalone SCM-GRNN](20_python_workflows/20_standalone_scm_grnn.md):
   non-iterative GRNN reference building and prediction.
-  Implementation-level README: [scripts_py/0_GRNN_related/README.md](../scripts_py/0_GRNN_related/README.md).
+  Implementation-level README: [scripts/localization_networks/0_GRNN_related/README.md](../scripts/localization_networks/0_GRNN_related/README.md).
+- [30 Local development and remote validation](20_python_workflows/30_remote_validation.md):
+  source snapshots, remote Python generation, GPU checks, and result retrieval.
 
 ## 30 Methods
 

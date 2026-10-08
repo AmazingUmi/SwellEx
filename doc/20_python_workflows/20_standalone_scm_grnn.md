@@ -8,7 +8,7 @@ with Gaussian-kernel weighted averaging.
 Implementation:
 
 ```text
-scripts_py/0_GRNN_related/
+scripts/localization_networks/0_GRNN_related/
   GRNN_main.py
   grnn_cli.py
   grnn_data.py
@@ -46,7 +46,7 @@ feature_dim = 462 * Q
 Use `build` instead of `train`:
 
 ```bash
-python3 scripts_py/0_GRNN_related/GRNN_main.py build \
+uv run --frozen python scripts/localization_networks/0_GRNN_related/GRNN_main.py build \
   --data <scm_dataset_name> \
   --spread 0.01
 ```
@@ -82,7 +82,7 @@ sigma_search_results
 Use k-fold cross-validation on the reference set:
 
 ```bash
-python3 scripts_py/0_GRNN_related/GRNN_main.py build \
+uv run --frozen python scripts/localization_networks/0_GRNN_related/GRNN_main.py build \
   --data <scm_dataset_name> \
   --cv-folds 5
 ```
@@ -90,7 +90,7 @@ python3 scripts_py/0_GRNN_related/GRNN_main.py build \
 Or use an explicit validation HDF5 file:
 
 ```bash
-python3 scripts_py/0_GRNN_related/GRNN_main.py build \
+uv run --frozen python scripts/localization_networks/0_GRNN_related/GRNN_main.py build \
   --data <scm_dataset_name> \
   --val-data "outputs/Datasets/<dataset>/*_val.h5"
 ```
@@ -112,14 +112,14 @@ Override them with:
 Use the newest reference artifact for the dataset:
 
 ```bash
-python3 scripts_py/0_GRNN_related/GRNN_main.py predict \
+uv run --frozen python scripts/localization_networks/0_GRNN_related/GRNN_main.py predict \
   --data <scm_dataset_name>
 ```
 
 Or pass a specific artifact:
 
 ```bash
-python3 scripts_py/0_GRNN_related/GRNN_main.py predict \
+uv run --frozen python scripts/localization_networks/0_GRNN_related/GRNN_main.py predict \
   --data <scm_dataset_name> \
   --reference outputs/networks_results/0_GRNN_related/scm_grnn_range/reference_outputs/<file>.pt
 ```

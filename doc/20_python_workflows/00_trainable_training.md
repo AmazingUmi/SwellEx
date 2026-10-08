@@ -3,13 +3,13 @@
 The Python training code for trainable CNN/ResNet models is split by method.
 
 ```text
-scripts_py/common/
-scripts_py/RBD_method/Network_main.py
-scripts_py/ELM_method/Network_main.py
-scripts_py/SCM_method/Network_main.py
+scripts/localization_networks/common/
+scripts/localization_networks/RBD_method/Network_main.py
+scripts/localization_networks/ELM_method/Network_main.py
+scripts/localization_networks/SCM_method/Network_main.py
 ```
 
-`scripts_py/common/` contains shared path helpers, HDF5 path/split helpers,
+`scripts/localization_networks/common/` contains shared path helpers, HDF5 path/split helpers,
 training utilities, and prediction export/plot utilities. RBD, ELM, and SCM keep
 their own dataset loaders and model registries because their HDF5 layouts differ
 or carry different feature semantics.
@@ -29,7 +29,7 @@ workflow instead:
 
 ```text
 doc/20_python_workflows/20_standalone_scm_grnn.md
-scripts_py/0_GRNN_related/GRNN_main.py
+scripts/localization_networks/0_GRNN_related/GRNN_main.py
 ```
 
 ## RBD Training
@@ -44,7 +44,7 @@ torch: [batch, 2, element, frequency]
 Example:
 
 ```bash
-python3 scripts_py/RBD_method/Network_main.py train \
+uv run --frozen python scripts/localization_networks/RBD_method/Network_main.py train \
   --model complex_cnn_range \
   --data <rbd_dataset_name>
 ```
@@ -52,13 +52,13 @@ python3 scripts_py/RBD_method/Network_main.py train \
 Physical-error loss example:
 
 ```bash
-python3 scripts_py/RBD_method/Network_main.py train \
+uv run --frozen python scripts/localization_networks/RBD_method/Network_main.py train \
   --model complex_cnn_range \
   --data <rbd_dataset_name> \
   --loss-space km --huber-beta 0.5
 ```
 
-The RBD MATLAB script automatically builds a dataset variant tag from the
+The Python RBD generator automatically builds a dataset variant tag from the
 frequency selection, RBD frequency-estimation mode (`estfull` or `estsel`),
 segment length/step, spectrum normalization, plane-wave setting, and beam mode.
 It prints the exact train/predict commands after dataset generation.
@@ -93,15 +93,15 @@ snapshots:
 sum_s FFT_i,s(f) * conj(FFT_j,s(f)) / (sum_s abs(FFT_j,s(f))^2 + floor)
 ```
 
-The MATLAB script controls snapshot duration, `Ns`, overlap, and frequency
+The Python generator controls snapshot duration, `Ns`, overlap, and frequency
 selection. RBD, ELM, and SCM share the same frequency modes: `full`, `mel`,
 `deep`, `shallow`, and `adapt`. Dataset generation prints the exact dataset
-name and recommended train/predict commands to the MATLAB Command Window.
+name and recommended train/predict commands to the generation log.
 
 Example:
 
 ```bash
-python3 scripts_py/ELM_method/Network_main.py train \
+uv run --frozen python scripts/localization_networks/ELM_method/Network_main.py train \
   --model elm_complex_cnn_range \
   --data <elm_dataset_name>
 ```
@@ -109,7 +109,7 @@ python3 scripts_py/ELM_method/Network_main.py train \
 Physical-error loss example:
 
 ```bash
-python3 scripts_py/ELM_method/Network_main.py train \
+uv run --frozen python scripts/localization_networks/ELM_method/Network_main.py train \
   --model elm_complex_cnn_range \
   --data <elm_dataset_name> \
   --loss-space km --huber-beta 0.5
@@ -141,7 +141,7 @@ pair_count = element_count * (element_count + 1) / 2
 Example:
 
 ```bash
-python3 scripts_py/SCM_method/Network_main.py train \
+uv run --frozen python scripts/localization_networks/SCM_method/Network_main.py train \
   --model scm_complex_cnn_range \
   --data <scm_dataset_name>
 ```

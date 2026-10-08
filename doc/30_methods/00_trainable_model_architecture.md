@@ -3,10 +3,10 @@
 The repository currently keeps RBD, ELM, and SCM networks separate:
 
 ```text
-scripts_py/common/
-scripts_py/RBD_method/network/
-scripts_py/ELM_method/network/
-scripts_py/SCM_method/network/
+scripts/localization_networks/common/
+scripts/localization_networks/RBD_method/network/
+scripts/localization_networks/ELM_method/network/
+scripts/localization_networks/SCM_method/network/
 ```
 
 The common package contains shared training and prediction infrastructure. The
@@ -42,7 +42,7 @@ Built-in RBD model names:
 Implementations live in:
 
 ```text
-scripts_py/RBD_method/network/models/
+scripts/localization_networks/RBD_method/network/models/
 ```
 
 `complex_cnn_range` uses explicit complex convolutions:
@@ -86,7 +86,7 @@ x: [batch, 2, pair, frequency]
 pair = strict upper-triangle element ratio with i < j
 ```
 
-The current ELM MATLAB dataset computes the pair vector with a least-squares
+The current ELM Python dataset computes the pair vector with a least-squares
 ratio estimator across snapshots, but the Python tensor layout is unchanged:
 
 ```text
@@ -105,7 +105,7 @@ Built-in ELM model names:
 Implementations live in:
 
 ```text
-scripts_py/ELM_method/network/models/
+scripts/localization_networks/ELM_method/network/models/
 ```
 
 The ELM complex, real-magnitude, and ResNet models mirror the RBD model family,
@@ -148,7 +148,7 @@ Built-in SCM model names:
 Implementations live in:
 
 ```text
-scripts_py/SCM_method/network/models/
+scripts/localization_networks/SCM_method/network/models/
 ```
 
 The SCM model configs also use:
@@ -163,7 +163,7 @@ input_freq_bins
 SCM-GRNN is intentionally separate from the trainable model registry:
 
 ```text
-scripts_py/0_GRNN_related/
+scripts/localization_networks/0_GRNN_related/
 ```
 
 It consumes the same SCM HDF5 feature layout:

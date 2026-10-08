@@ -8,10 +8,11 @@
 !AGENTS.md
 !doc/
 !doc/**
-!scripts_py/
-!scripts_py/**
-!scripts_matlab/
-!scripts_matlab/**
+!scripts/
+!scripts/**
+!pyproject.toml
+!uv.lock
+!.python-version
 !simulation/
 !simulation/**
 

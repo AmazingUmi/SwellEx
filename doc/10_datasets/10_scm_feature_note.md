@@ -34,16 +34,16 @@ return F
 
 Repository implementation notes:
 
-    MATLAB:
-        scripts_matlab/SCM_method/Signals_Segmentation.m
-        scripts_matlab/function/scm_function/SCM_extract_feature.m
+    Data processing:
+        scripts/data_processing/generate.py
+        scripts/data_processing/feature_math.py:scm_feature
 
     HDF5:
         /X ∈ R^(sample × pair × frequency × real_imag)
         pair uses upper_triangle(C_q), including diagonal, i <= j
 
     Python:
-        scripts_py/SCM_method/Network_main.py
+        scripts/localization_networks/SCM_method/Network_main.py
         torch input = [batch, 2, pair, frequency]
 
     Snapshot controls:

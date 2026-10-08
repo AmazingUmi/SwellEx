@@ -3,13 +3,13 @@
 The Python code is intentionally split by feature family:
 
 ```text
-scripts_py/common/
-scripts_py/RBD_method/network/
-scripts_py/ELM_method/network/
-scripts_py/SCM_method/network/
+scripts/localization_networks/common/
+scripts/localization_networks/RBD_method/network/
+scripts/localization_networks/ELM_method/network/
+scripts/localization_networks/SCM_method/network/
 ```
 
-`scripts_py/common/` contains shared path helpers, HDF5 path resolution and
+`scripts/localization_networks/common/` contains shared path helpers, HDF5 path resolution and
 split helpers, range-regression training utilities, and prediction CSV/plot
 helpers. Keep method-specific tensor layout logic in the RBD, ELM, or SCM
 method package.
@@ -39,7 +39,7 @@ covariance entries with diagonal `i <= j`.
 Standalone SCM-GRNN lives outside this trainable-network structure:
 
 ```text
-scripts_py/0_GRNN_related/
+scripts/localization_networks/0_GRNN_related/
 ```
 
 Do not add GRNN to the RBD/ELM/SCM model registries unless it is intentionally
@@ -52,9 +52,9 @@ reference artifact and predicts by kernel regression; see
 Each method has its own registry:
 
 ```text
-scripts_py/RBD_method/network/model.py
-scripts_py/ELM_method/network/model.py
-scripts_py/SCM_method/network/model.py
+scripts/localization_networks/RBD_method/network/model.py
+scripts/localization_networks/ELM_method/network/model.py
+scripts/localization_networks/SCM_method/network/model.py
 ```
 
 Add the implementation under the matching `models/` directory, then register
@@ -89,19 +89,19 @@ directly in physical kilometers via `--loss-space`.
 For RBD, extend:
 
 ```text
-scripts_py/RBD_method/network/data.py
+scripts/localization_networks/RBD_method/network/data.py
 ```
 
 For ELM, extend:
 
 ```text
-scripts_py/ELM_method/network/data.py
+scripts/localization_networks/ELM_method/network/data.py
 ```
 
 For SCM, extend:
 
 ```text
-scripts_py/SCM_method/network/data.py
+scripts/localization_networks/SCM_method/network/data.py
 ```
 
 Keep the `DatasetBundle` fields stable:
@@ -123,7 +123,7 @@ unchanged.
 Shared HDF5 helper functions live in:
 
 ```text
-scripts_py/common/h5_utils.py
+scripts/localization_networks/common/h5_utils.py
 ```
 
 Use them for path resolution, random train/validation split indices, and label

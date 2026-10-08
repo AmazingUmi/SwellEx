@@ -13,16 +13,26 @@ routes plus a standalone non-trainable regressor:
 
 ## Quick Start
 
+For local development with Python generation and all numerical validation on
+SSH host `haiqin`, use:
+
+```bash
+uv run --no-project --python python3 scripts/localization_networks/workflow/remote.py validate --suite smoke
+```
+
+See [remote validation](doc/20_python_workflows/30_remote_validation.md) for
+configuration, quick checks, detached runs, and result retrieval.
+
 Run commands from the project root.
 
 RBD training and prediction:
 
 ```bash
-python3 scripts_py/RBD_method/Network_main.py train \
+uv run --frozen python scripts/localization_networks/RBD_method/Network_main.py train \
   --model complex_cnn_range \
   --data <rbd_dataset_name>
 
-python3 scripts_py/RBD_method/Network_main.py predict \
+uv run --frozen python scripts/localization_networks/RBD_method/Network_main.py predict \
   --model complex_cnn_range \
   --data <rbd_dataset_name>
 ```
@@ -30,11 +40,11 @@ python3 scripts_py/RBD_method/Network_main.py predict \
 ELM training and prediction:
 
 ```bash
-python3 scripts_py/ELM_method/Network_main.py train \
+uv run --frozen python scripts/localization_networks/ELM_method/Network_main.py train \
   --model elm_complex_cnn_range \
   --data <elm_dataset_name>
 
-python3 scripts_py/ELM_method/Network_main.py predict \
+uv run --frozen python scripts/localization_networks/ELM_method/Network_main.py predict \
   --model elm_complex_cnn_range \
   --data <elm_dataset_name>
 ```
@@ -42,11 +52,11 @@ python3 scripts_py/ELM_method/Network_main.py predict \
 SCM training and prediction:
 
 ```bash
-python3 scripts_py/SCM_method/Network_main.py train \
+uv run --frozen python scripts/localization_networks/SCM_method/Network_main.py train \
   --model scm_complex_cnn_range \
   --data <scm_dataset_name>
 
-python3 scripts_py/SCM_method/Network_main.py predict \
+uv run --frozen python scripts/localization_networks/SCM_method/Network_main.py predict \
   --model scm_complex_cnn_range \
   --data <scm_dataset_name>
 ```
@@ -54,10 +64,10 @@ python3 scripts_py/SCM_method/Network_main.py predict \
 Standalone GRNN reference build and prediction (SCM datasets):
 
 ```bash
-python3 scripts_py/0_GRNN_related/GRNN_main.py build \
+uv run --frozen python scripts/localization_networks/0_GRNN_related/GRNN_main.py build \
   --data <scm_dataset_name>
 
-python3 scripts_py/0_GRNN_related/GRNN_main.py predict \
+uv run --frozen python scripts/localization_networks/0_GRNN_related/GRNN_main.py predict \
   --data <scm_dataset_name>
 ```
 
@@ -80,26 +90,31 @@ outputs/networks_results/0_GRNN_related/
 
 ## Code Layout
 
-MATLAB dataset generation:
+Python data processing:
 
 ```text
-scripts_matlab/RBD_method/
-scripts_matlab/ELM_method/
-scripts_matlab/SCM_method/
-scripts_matlab/function/
+scripts/data_processing/generate.py
+scripts/data_processing/generation_config.py
+scripts/data_processing/feature_math.py
+scripts/data_processing/validate.py
 ```
+
+Dependencies are managed by `pyproject.toml` and `uv.lock`. Numerical execution
+uses a frozen Linux/CUDA uv environment on haiqin. Original numeric MAT inputs
+are read by SciPy/h5py; MATLAB reference source is retained in
+`scripts/data_processing/matlab_reference/` for migration comparison.
 
 Python training and prediction:
 
 ```text
-scripts_py/common/
-scripts_py/RBD_method/
-scripts_py/ELM_method/
-scripts_py/SCM_method/
-scripts_py/0_GRNN_related/
+scripts/localization_networks/common/
+scripts/localization_networks/RBD_method/
+scripts/localization_networks/ELM_method/
+scripts/localization_networks/SCM_method/
+scripts/localization_networks/0_GRNN_related/
 ```
 
-`scripts_py/common/` contains shared path, HDF5 split, training, and prediction
+`scripts/localization_networks/common/` contains shared path, HDF5 split, training, and prediction
 helpers. RBD, ELM, and SCM keep separate dataset loaders and model registries
 because their HDF5 layouts or pair semantics differ. The standalone GRNN lives
 outside the trainable-network packages.
@@ -126,14 +141,14 @@ Built-in SCM models:
 - `scm_resnet50_range`
 
 GRNN is not a registered trainable model; use
-`scripts_py/0_GRNN_related/GRNN_main.py` with the `build` and `predict`
+`scripts/localization_networks/0_GRNN_related/GRNN_main.py` with the `build` and `predict`
 subcommands.
 
 ## Documentation Index
 
 - [Documentation index by category](doc/README.md)
 - [Project progress](doc/00_overview/00_project_progress.md)
-- [HDF5 datasets and MATLAB split strategies](doc/10_datasets/00_hdf5_datasets_and_splits.md)
+- [HDF5 datasets and split strategies](doc/10_datasets/00_hdf5_datasets_and_splits.md)
 - [Training workflow](doc/20_python_workflows/00_trainable_training.md)
 - [Prediction workflow](doc/20_python_workflows/10_trainable_prediction.md)
 - [Standalone SCM-GRNN workflow](doc/20_python_workflows/20_standalone_scm_grnn.md)

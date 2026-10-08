@@ -1,14 +1,14 @@
 # Prediction Workflow
 
 Prediction also uses method-specific entry points.
-Shared CSV writing and plotting helpers live in `scripts_py/common/`, while
+Shared CSV writing and plotting helpers live in `scripts/localization_networks/common/`, while
 method-specific prediction modules still choose the dataset loader and model
 registry.
 
 ## RBD Prediction
 
 ```bash
-python3 scripts_py/RBD_method/Network_main.py predict \
+uv run --frozen python scripts/localization_networks/RBD_method/Network_main.py predict \
   --model complex_cnn_range \
   --data <rbd_dataset_name>
 ```
@@ -16,7 +16,7 @@ python3 scripts_py/RBD_method/Network_main.py predict \
 ## ELM Prediction
 
 ```bash
-python3 scripts_py/ELM_method/Network_main.py predict \
+uv run --frozen python scripts/localization_networks/ELM_method/Network_main.py predict \
   --model elm_complex_cnn_range \
   --data <elm_dataset_name>
 ```
@@ -24,16 +24,16 @@ python3 scripts_py/ELM_method/Network_main.py predict \
 ## SCM Prediction
 
 ```bash
-python3 scripts_py/SCM_method/Network_main.py predict \
+uv run --frozen python scripts/localization_networks/SCM_method/Network_main.py predict \
   --model scm_complex_cnn_range \
   --data <scm_dataset_name>
 ```
 
-The RBD, ELM, and SCM MATLAB dataset scripts print the matching prediction command
+The RBD, ELM, and SCM Python generators print the matching prediction command
 after dataset generation, using the automatically generated dataset name.
 
 GRNN prediction is separate from checkpoint-based network prediction. It uses a
-reference artifact built by `scripts_py/0_GRNN_related/GRNN_main.py build`.
+reference artifact built by `scripts/localization_networks/0_GRNN_related/GRNN_main.py build`.
 See:
 
 ```text
