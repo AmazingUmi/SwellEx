@@ -31,7 +31,7 @@ FIELDS = ["sample", "source_segment_idx", "window_center_s", "pred_range_km", "t
 
 
 def valid_config():
-    return copy.deepcopy(config.load_config(WORKFLOW / "haiqin.toml"))
+    return copy.deepcopy(config.load_config(WORKFLOW / "haiqin_full_interleaved.toml"))
 
 
 class ConfigurationTests(unittest.TestCase):
@@ -63,6 +63,8 @@ class ConfigurationTests(unittest.TestCase):
             ("dataset", "frequency_selection_modes", ["deep", "deep"]),
             ("dataset", "frequency_selection_modes", ["full", "deep"]),
             ("dataset", "manual_dataset_variant_tag", "../escape"),
+            ("dataset", "split_strategy", "periodic"),
+            ("dataset", "split_strategy", "Range_nearby"),
             ("dataset", "snapshot_overlap_count", 1),
             ("grnn", "cv_folds", 1),
             ("grnn", "sigma_candidates", [0.0]),

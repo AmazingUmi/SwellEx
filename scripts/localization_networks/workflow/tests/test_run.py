@@ -24,7 +24,7 @@ RUN_ID = "20261008T120000Z-01234567"
 
 
 def valid_config():
-    return copy.deepcopy(config.load_config(WORKFLOW / "haiqin.toml"))
+    return copy.deepcopy(config.load_config(WORKFLOW / "haiqin_full_interleaved.toml"))
 
 
 class PlanTests(unittest.TestCase):

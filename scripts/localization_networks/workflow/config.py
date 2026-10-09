@@ -73,7 +73,7 @@ def validate_config(config: dict) -> dict:
         raise ValueError("Invalid dataset.frequency_selection_modes")
     if len(set(modes)) != len(modes) or ("full" in modes and len(modes) != 1):
         raise ValueError("Frequency modes must be unique; full must be used alone")
-    if d["split_strategy"] not in {"periodic", "Range_nearby"} or d["train_side"] not in {"before", "after"}:
+    if d["split_strategy"] not in {"full_interleaved", "range_overlap"} or d["train_side"] not in {"before", "after"}:
         raise ValueError("Invalid split_strategy or train_side")
     ratio = d["train_test_ratio"]
     if not isinstance(ratio, list) or len(ratio) != 2:

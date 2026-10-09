@@ -181,17 +181,35 @@ def test_segments_and_splits():
     close(base["sample_start"], np.arange(0, 640, 64), "Segment sample starts must align to exact grid")
     close(base["sample_stop"], np.arange(64, 641, 64), "Segment stop samples must be exclusive Python indices")
     splits, _ = build_split(base, config)
-    check(splits["train"].tolist() == [0,1,2,3,5,6,7,8] and splits["test"].tolist() == [4,9], "Periodic split must be deterministic 4:1")
+    check(splits["train"].tolist() == [0,1,2,3,5,6,7,8] and splits["test"].tolist() == [4,9], "Full interleaved split must be deterministic 4:1")
     combined = combine_snapshots(base, 4, 3, np.asarray([0,10]), np.asarray([1,3]))
     close(combined["start"], np.arange(7), "Ns4 overlap3 must advance by one snapshot")
     close(combined["stop"], np.arange(4,11), "Combined windows must span four snapshots")
     check(combined["duration_s"] == 4 and combined["step_s"] == 1, "Combined window metadata must match Ns/overlap")
     near = base | {"start": np.arange(11), "center": np.arange(11)+0.5,
                    "labels": np.abs(np.arange(11)-5), "valid": np.ones(11, dtype=bool)}
-    options = config | {"split_strategy": "Range_nearby", "half_duration_s": 4, "gap_s": 1, "train_side": "before"}
+    options = config | {"split_strategy": "range_overlap", "half_duration_s": 4, "gap_s": 1, "train_side": "before"}
     before, meta = build_split(near, options); after, _ = build_split(near, options | {"train_side": "after"})
-    check(before["train"].tolist() == after["test"].tolist() and before["test"].tolist() == after["train"].tolist(), "Range-nearby train-side reversal must swap symmetric windows")
-    check(np.all(before["train"] < meta["range_min_segment_idx"]-1) and np.all(before["test"] > meta["range_min_segment_idx"]-1), "Range-nearby windows must be on opposite sides of closest approach")
+    check(before["train"].tolist() == after["test"].tolist() and before["test"].tolist() == after["train"].tolist(), "Range-overlap train-side reversal must swap the selected sides")
+    check(np.all(before["train"] < meta["range_min_segment_idx"]-1) and np.all(before["test"] > meta["range_min_segment_idx"]-1), "Range-overlap windows must be on opposite sides of closest approach")
+    asymmetric = near | {"labels": np.asarray([10,8,6,4,2,0,1,2,3,4,5], dtype=float)}
+    options = options | {"gap_s": 0}
+    selected, metadata = build_split(asymmetric, options)
+    check(selected["train"].tolist() == [3,4] and selected["test"].tolist() == [7,8,9], "Overlap [2,4] must exclude out-of-range windows and allow unequal side counts")
+    check(metadata["range_overlap_min_km"] == 2 and metadata["range_overlap_max_km"] == 4, "Metadata must describe the candidate-side range intersection")
+    reversed_split, _ = build_split(asymmetric, options | {"train_side": "after", "test_step_s": 2})
+    check(reversed_split["train"].tolist() == [7,8,9] and reversed_split["test"].tolist() == [3], "Test stride must apply after range filtering and train-side selection")
+    invalid = asymmetric | {"valid": np.arange(11) != 3}
+    filtered, _ = build_split(invalid, options)
+    check(filtered["train"].tolist() == [4] and filtered["test"].tolist() == [7,8,9], "An invalid window must not remove an unrelated window on the other side")
+    truncated = near | {"start": np.arange(7), "center": np.arange(7)+0.5,
+                        "labels": np.asarray([4,2,0,1,2,3,4]), "valid": np.ones(7, dtype=bool)}
+    boundary_split, _ = build_split(truncated, options)
+    check(boundary_split["train"].tolist() == [0,1] and boundary_split["test"].tolist() == [4,5,6], "Recording boundaries must clip each candidate side independently")
+    raises(lambda: build_split(near | {"labels": np.asarray([10,9,8,7,6,0,1,2,3,4,5])}, options))
+    raises(lambda: build_split(near | {"labels": np.asarray([20,18,16,2,1,0,2,3,17,19,21])}, options | {"half_duration_s": 2}))
+    raises(lambda: build_split(near | {"labels": np.asarray([20,18,16,1,4,0,2,3,17,19,21])}, options | {"half_duration_s": 2}))
+    raises(lambda: build_split(near, options | {"split_strategy": "Range_nearby"}))
 
 
 def test_frequency_training_only():
@@ -223,6 +241,8 @@ def test_configuration():
                     {"dataset": {"num_snapshots_per_segment": 4.0}},
                     {"dataset": {"snapshot_overlap_count": 0.0}},
                     {"dataset": {"train_test_ratio": [4.0,1]}},
+                    {"dataset": {"split_strategy": "periodic"}},
+                    {"dataset": {"split_strategy": "Range_nearby"}},
                     {"dataset": {"frequency_selection_config": {"adapt_max_num_segments": 2.0}}},
                     {"dataset": {"frequency_selection_config": {"mel_num_bins": 64.0}}},
                     {"rbd": {"multipath_options": {"max_num_peaks": 2.0}}}):

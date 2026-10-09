@@ -1,3 +1,4 @@
+# range_overlap: Train after closest approach; test before it.
 schema_version = 1
 
 [remote]
@@ -28,9 +29,11 @@ segment_step_s = 1.0
 num_snapshots_per_segment = 1
 snapshot_overlap_count = 0
 frequency_selection_modes = ["deep", "shallow"]
-split_strategy = "periodic"
+split_strategy = "range_overlap"
+# Required by the schema and unused for range_overlap.
 train_test_ratio = [4, 1]
-train_side = "before"
+# Limit each side to half_duration_s, exclude the central gap, then keep the shared range interval.
+train_side = "after"
 half_duration_s = 800
 gap_s = 15
 test_step_s = 1
@@ -59,5 +62,5 @@ sigma_candidates = [
     0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 1.00, 1.10,
     1.20, 1.30, 1.40, 1.50, 1.60, 1.70, 1.80, 1.90, 2.00,
 ]
-# Covers each 720-row CV fold and the 900-row test set in one prediction block.
+# Prediction block size; reference/test row counts depend on the split.
 batch_size = 1024

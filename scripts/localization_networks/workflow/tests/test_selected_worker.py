@@ -27,7 +27,7 @@ class SelectedWorkerTests(unittest.TestCase):
         self.run = self.workspace / "runs" / RUN_ID
         self.project = self.run / "project"
         self.project.mkdir(parents=True)
-        self.config = copy.deepcopy(config.load_config(WORKFLOW / "haiqin.toml"))
+        self.config = copy.deepcopy(config.load_config(WORKFLOW / "haiqin_full_interleaved.toml"))
         self.config["remote"].update(workspace=str(self.workspace), repository=str(Path(self.temporary.name) / "source"))
         lock = self.project / "uv.lock"
         lock.write_text("frozen dependency fixture\n")

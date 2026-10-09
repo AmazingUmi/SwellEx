@@ -7,7 +7,7 @@ and run integrity.
 
 ## Configured Paths and Runtime
 
-The bundled [haiqin.toml](../../scripts/localization_networks/workflow/haiqin.toml)
+The bundled [haiqin_full_interleaved.toml](../../scripts/localization_networks/workflow/haiqin_full_interleaved.toml)
 defines these locations:
 
 | Setting | Configured value |

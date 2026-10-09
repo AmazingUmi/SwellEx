@@ -21,7 +21,7 @@ from scripts.data_processing.feature_math import (
 )
 from scripts.data_processing.generation_config import ROOT, normalize_config, output_path
 
-GENERATOR_VERSION = "python-features-v1"
+GENERATOR_VERSION = "python-features-v2"
 
 
 def json_value(value):
@@ -152,12 +152,12 @@ def dataset_names(method, config, modes, split, windows):
                    f"_ns{d['num_snapshots_per_segment']}_ov{d['snapshot_overlap_count']}")
     if d["manual_dataset_variant_tag"]:
         variant += "_"+d["manual_dataset_variant_tag"]
-    if d["split_strategy"] == "periodic":
-        split_name = f"periodic_{d['train_test_ratio'][0]}_{d['train_test_ratio'][1]}"
+    if d["split_strategy"] == "full_interleaved":
+        split_name = f"full_interleaved_{d['train_test_ratio'][0]}_{d['train_test_ratio'][1]}"
         time_tag = (f"s{int(round_positive(windows['candidate_start_s']))}_to_s{int(round_positive(windows['candidate_end_s']))}"
                     f"_step_s{int(round_positive(windows['step_s']))}")
     else:
-        split_name = f"Range_nearby_{d['train_side']}_{int(round_positive(d['half_duration_s']))}s_gap{int(round_positive(d['gap_s']))}s"
+        split_name = f"range_overlap_train_{d['train_side']}_{int(round_positive(d['half_duration_s']))}s_gap{int(round_positive(d['gap_s']))}s"
         if d["test_step_s"] is not None:
             split_name += f"_teststep{int(round_positive(d['test_step_s']))}s"
         low = min(split["left_time_start_s"], split["right_time_start_s"])

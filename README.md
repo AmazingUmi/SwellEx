@@ -35,7 +35,7 @@ A model command prepares all three feature routes and evaluates the chosen model
 
 Bundled defaults: the complete 4500 s S5 VLA recording (window starts 0–4499 s),
 100 neural epochs, A5000-tuned batch size 64, seed 2026, and CUDA. SCM-GRNN uses
-five-fold sigma search. The periodic 4:1 split is a within-record baseline; independent
+five-fold sigma search. The full_interleaved 4:1 split is a within-record baseline; independent
 time/track generalization and accuracy acceptance require separate experiments.
 See the [command guide](doc/workflows/remote-validation.md) for options,
 validation suites, background runs, and failure recovery; see

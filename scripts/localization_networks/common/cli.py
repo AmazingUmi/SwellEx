@@ -102,7 +102,7 @@ def build_parser(bindings: MethodBindings) -> argparse.ArgumentParser:
     train_parser.add_argument(
         "--data",
         required=True,
-        help="Dataset code under outputs/Datasets, for example periodic_4_1.",
+        help="Dataset code under outputs/Datasets, for example full_interleaved_4_1.",
     )
     train_parser.add_argument(
         "--train-data",
@@ -207,7 +207,7 @@ def build_parser(bindings: MethodBindings) -> argparse.ArgumentParser:
     predict_parser.add_argument(
         "--data",
         required=True,
-        help="Dataset code under outputs/Datasets, for example periodic_4_1.",
+        help="Dataset code under outputs/Datasets, for example full_interleaved_4_1.",
     )
     predict_parser.add_argument(
         "--checkpoint",

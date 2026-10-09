@@ -173,8 +173,28 @@ Standalone generation allows overrides in `dataset.frequency_selection_config`.
 
 | Strategy | Rule |
 |---|---|
-| `periodic` | Deterministic interleaving by `train_test_ratio`, default 4:1 |
-| `Range_nearby` | Split around the minimum-range location, using `half_duration_s`, `gap_s`, `train_side` (`before`/`after`), and optional test-side `test_step_s` |
+| `full_interleaved` | Use the complete configured candidate interval, with deterministic interleaving by `train_test_ratio`, default 4:1 |
+| `range_overlap` | Keep the shared range interval of candidate windows before/after closest approach; `train_side` selects the training side |
+
+`range_overlap` locates the minimum valid window-center range, excludes that
+window and `floor(gap_s/window_step_s)` neighboring windows on each side,
+and takes up to `half_duration_s` of candidate windows per side. Each side is
+clipped independently by the recording boundaries; invalid/nonfinite windows
+are excluded independently. For candidate-side ranges `[Lmin,Lmax]` and
+`[Rmin,Rmax]`, the shared interval is
+`[max(Lmin,Rmin), min(Lmax,Rmax)]`. Only samples whose center-range labels fall
+inside that inclusive interval enter the split. An empty side, an interval of
+zero/negative width, or a side with no sampled labels inside the intersection
+is rejected.
+
+Side counts may differ. This is interval overlap, without one-to-one distance
+matching or equal label distributions. `train_test_ratio` is unused;
+`train_side=before` trains before closest approach and tests after it, while
+`after` reverses the sides. Optional `test_step_s` subsamples the selected test
+side chronologically after range filtering. Metadata records
+`range_overlap_min_km`, `range_overlap_max_km`, candidate/selected side counts,
+and the selected time bounds. The earlier Python names `periodic` and
+`Range_nearby` are rejected; static MATLAB references retain their original names.
 
 Dataset names encode the route, estimator, and window/frequency settings.
 `manual_dataset_variant_tag` adds a safe variant suffix before the configuration

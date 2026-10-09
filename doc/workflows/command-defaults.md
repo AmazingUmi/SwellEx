@@ -1,12 +1,14 @@
 # Shell Command Defaults
 
 These values apply to `./scripts/run.sh METHOD ARCH` with the bundled
-[haiqin.toml](../../scripts/localization_networks/workflow/haiqin.toml).
+[haiqin_full_interleaved.toml](../../scripts/localization_networks/workflow/haiqin_full_interleaved.toml).
 `METHOD` and `ARCH` are required and have no defaults.
 
 Use `--epochs` or `--seed` to override those two values. For other TOML
 settings, copy the complete file and pass `--config PATH`. The merged settings
 are saved in `request.json`; see the [command guide](remote-validation.md).
+The two independent `range_overlap` configurations are listed under
+[split configurations](remote-validation.md#split-configurations).
 
 ## Execution
 
@@ -34,7 +36,7 @@ force-kills remaining processes after a five-second grace period.
 The bundled interval covers the complete 4500 s S5 VLA recording: all 21
 channels contain 6,750,000 samples at 1500 Hz. The end value is the last
 window's **start time**, not its end time. Disjoint 1 s windows produce 4500
-samples per route, with 3600 train and 900 test rows under the periodic 4:1
+samples per route, with 3600 train and 900 test rows under the full_interleaved 4:1
 split. Neural training reserves 25% of the train rows for validation when no
 validation files exist, leaving 2700 optimizer-training and 900 validation rows.
 This is a within-record baseline; it does not measure independent time/track
@@ -51,12 +53,12 @@ generalization.
 | `num_snapshots_per_segment` | `1` |
 | `snapshot_overlap_count` | `0` |
 | `frequency_selection_modes` | `["deep", "shallow"]` |
-| `split_strategy` | `periodic` |
+| `split_strategy` | `full_interleaved` |
 | `train_test_ratio` | `[4, 1]`, train:test |
-| `train_side` | `before`; used only by `Range_nearby` |
-| `half_duration_s` | `800` s; used only by `Range_nearby` |
-| `gap_s` | `15` s; used only by `Range_nearby` |
-| `test_step_s` | `1` s; used only by `Range_nearby` |
+| `train_side` | `before`; used only by `range_overlap` |
+| `half_duration_s` | `800` s per candidate side; used only by `range_overlap` |
+| `gap_s` | `15` s; used only by `range_overlap` |
+| `test_step_s` | `1` s; used only by `range_overlap` |
 | `manual_dataset_variant_tag` | Empty string |
 
 All three feature routes are generated or validated even when one model is

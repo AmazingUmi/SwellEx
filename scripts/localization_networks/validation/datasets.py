@@ -139,7 +139,8 @@ def configured_split_check(records, expected):
     grid = np.arange(1, count + 1)
     step = hop * d["segment_step_s"]
     duration = d["segment_duration_s"] + (snapshots - 1) * d["segment_step_s"]
-    if d["split_strategy"] == "periodic":
+    overlap = {}
+    if d["split_strategy"] == "full_interleaved":
         ratio = d["train_test_ratio"]
         train = grid[((grid - 1) % sum(ratio)) < ratio[0]]
         test = grid[((grid - 1) % sum(ratio)) >= ratio[0]]
@@ -153,19 +154,29 @@ def configured_split_check(records, expected):
         require(valid.any(), "no finite range labels on configured grid")
         pivot = int(grid[np.nanargmin(candidate_labels)])
         gap = math.floor(d["gap_s"] / step)
-        width = min(max(1, math.floor(d["half_duration_s"] / step)), pivot - gap - 1, count - pivot - gap)
-        require(width > 0, "Range_nearby has no symmetric configured windows")
-        before = np.arange(pivot - gap - width, pivot - gap)
-        after = np.arange(pivot + gap + 1, pivot + gap + width + 1)
-        pair_valid = valid[before - 1] & valid[after - 1]
-        before, after = before[pair_valid], after[pair_valid]
+        width = max(1, math.floor(d["half_duration_s"] / step))
+        before = grid[valid & (grid >= pivot-gap-width) & (grid < pivot-gap)]
+        after = grid[valid & (grid > pivot+gap) & (grid <= pivot+gap+width)]
+        require(len(before) > 0 and len(after) > 0, "range_overlap requires valid windows on both sides")
+        low = max(candidate_labels[before-1].min(), candidate_labels[after-1].min())
+        high = min(candidate_labels[before-1].max(), candidate_labels[after-1].max())
+        require(low < high, "range_overlap has no shared range interval of positive width")
+        before = before[(candidate_labels[before-1] >= low) & (candidate_labels[before-1] <= high)]
+        after = after[(candidate_labels[after-1] >= low) & (candidate_labels[after-1] <= high)]
+        require(len(before) > 0 and len(after) > 0, "range_overlap has no sampled windows in the shared interval")
+        overlap = {"range_overlap_min_km": float(low), "range_overlap_max_km": float(high),
+                   "range_overlap_num_segments_before": len(before), "range_overlap_num_segments_after": len(after)}
+        if metadata:
+            saved = metadata.get("split", {})
+            for key, value in overlap.items():
+                require(key in saved and math.isclose(saved[key], value, rel_tol=0, abs_tol=1e-10), f"metadata {key} differs from the raw-track overlap")
         train, test = (before, after) if d["train_side"] == "before" else (after, before)
         stride = max(1, math.floor((d["test_step_s"] or step) / step + 0.5))
         test = test[::stride]
     for split, wanted in (("train", train), ("test", test)):
         actual = sorted(int(source) for r in records if r["split"] == split for source in r["sources"])
         require(actual == wanted.tolist(), f"{split} source membership/coverage differs from configured {d['split_strategy']} split; expected={wanted[:20].tolist()}, actual={actual[:20]}")
-    return {"strategy": d["split_strategy"], "candidate_windows": count, "expected_train": len(train), "expected_test": len(test)}
+    return {"strategy": d["split_strategy"], "candidate_windows": count, "expected_train": len(train), "expected_test": len(test), **overlap}
 
 
 def inspect_h5(path, method, expected):

@@ -13,7 +13,7 @@ DATASET_DEFAULTS = {
     "segment_duration_s": 1.0, "segment_step_s": 1.0,
     "num_snapshots_per_segment": 1, "snapshot_overlap_count": 0,
     "frequency_selection_modes": ["deep", "shallow"], "frequency_selection_config": {},
-    "split_strategy": "periodic", "train_test_ratio": [4, 1], "train_side": "before",
+    "split_strategy": "full_interleaved", "train_test_ratio": [4, 1], "train_side": "before",
     "half_duration_s": 800.0, "gap_s": 15.0, "test_step_s": None,
     "manual_dataset_variant_tag": "",
 }
@@ -110,8 +110,8 @@ def normalize_config(raw, root=ROOT):
         lo, hi = f.get(prefix + "_min_freq_hz"), f.get(prefix + "_max_freq_hz")
         if lo is not None and hi is not None and lo >= hi:
             raise ValueError(f"{prefix} minimum frequency must be below maximum")
-    if d["split_strategy"] not in {"periodic", "Range_nearby"}:
-        raise ValueError("split_strategy must be periodic or Range_nearby")
+    if d["split_strategy"] not in {"full_interleaved", "range_overlap"}:
+        raise ValueError("split_strategy must be full_interleaved or range_overlap")
     if d["train_side"] not in {"before", "after"}:
         raise ValueError("train_side must be before or after")
     ratio = d["train_test_ratio"]

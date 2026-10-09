@@ -68,42 +68,50 @@ def combine_snapshots(base, ns, overlap, range_times, ranges):
 def build_split(windows, config):
     n = len(windows["start"])
     meta = {"split_strategy": config["split_strategy"]}
-    if config["split_strategy"] == "periodic":
+    if config["split_strategy"] == "full_interleaved":
         ratio = config["train_test_ratio"]
         test_mask = np.arange(n) % sum(ratio) >= ratio[0]
         if not np.any(test_mask) and n > 1:
             test_mask[-1] = True
         train, test = np.flatnonzero(~test_mask), np.flatnonzero(test_mask)
         meta.update(train_test_ratio=ratio, split_period=sum(ratio))
-    else:
+    elif config["split_strategy"] == "range_overlap":
         valid = np.flatnonzero(windows["valid"] & np.isfinite(windows["labels"]))
         if not len(valid):
-            raise ValueError("Range_nearby requires finite labels")
+            raise ValueError("range_overlap requires finite labels")
         minimum = int(valid[np.argmin(windows["labels"][valid])])
         step = windows["step_s"]
         half = max(1, int(np.floor(config["half_duration_s"]/step)))
         gap = int(np.floor(config["gap_s"]/step))
-        usable = min(half, minimum-gap, n-minimum-gap-1)
-        if usable < 1:
-            raise ValueError("Range_nearby cannot build symmetric windows; widen interval or reduce gap")
-        left = np.arange(minimum-gap-usable, minimum-gap)
-        right = np.arange(minimum+gap+1, minimum+gap+usable+1)
-        keep = windows["valid"][left] & windows["valid"][right]
-        left, right = left[keep], right[keep]
-        if not len(left):
-            raise ValueError("Range_nearby has no valid symmetric window pairs")
+        left = valid[(valid >= max(0, minimum-gap-half)) & (valid < minimum-gap)]
+        right = valid[(valid > minimum+gap) & (valid <= min(n-1, minimum+gap+half))]
+        if not len(left) or not len(right):
+            raise ValueError("range_overlap requires valid windows on both sides of closest approach")
+        candidate_left, candidate_right = len(left), len(right)
+        labels = windows["labels"]
+        lower = max(float(np.min(labels[left])), float(np.min(labels[right])))
+        upper = min(float(np.max(labels[left])), float(np.max(labels[right])))
+        if lower >= upper:
+            raise ValueError("range_overlap requires a shared range interval of positive width")
+        left = left[(labels[left] >= lower) & (labels[left] <= upper)]
+        right = right[(labels[right] >= lower) & (labels[right] <= upper)]
+        if not len(left) or not len(right):
+            raise ValueError("range_overlap has no sampled windows inside the shared range interval")
         train, test_full = (left, right) if config["train_side"] == "before" else (right, left)
         test_step = step if config["test_step_s"] is None else config["test_step_s"]
         if test_step < step:
             raise ValueError("test_step_s must not be smaller than window step")
         stride = max(1, int(round_positive(test_step/step)))
         test = test_full[::stride]
-        meta.update(range_nearby_train_side=config["train_side"],
-                    range_nearby_half_duration_s=config["half_duration_s"], range_nearby_gap_s=config["gap_s"],
-                    range_nearby_test_step_s=test_step, range_nearby_has_custom_test_step=config["test_step_s"] is not None,
-                    range_nearby_test_stride_segments=stride, range_nearby_half_num_segments=half,
-                    range_nearby_gap_num_segments=gap, range_nearby_usable_num_segments_per_side=len(left),
-                    range_nearby_full_test_num_segments=len(test_full), range_min_segment_idx=minimum+1,
+        meta.update(range_overlap_train_side=config["train_side"],
+                    range_overlap_half_duration_s=config["half_duration_s"], range_overlap_gap_s=config["gap_s"],
+                    range_overlap_test_step_s=test_step, range_overlap_has_custom_test_step=config["test_step_s"] is not None,
+                    range_overlap_test_stride_segments=stride, range_overlap_half_num_segments=half,
+                    range_overlap_gap_num_segments=gap, range_overlap_min_km=lower, range_overlap_max_km=upper,
+                    range_overlap_candidate_num_segments_before=candidate_left,
+                    range_overlap_candidate_num_segments_after=candidate_right,
+                    range_overlap_num_segments_before=len(left), range_overlap_num_segments_after=len(right),
+                    range_overlap_full_test_num_segments=len(test_full), range_min_segment_idx=minimum+1,
                     range_min_time_s=windows["center"][minimum], range_min_km=windows["labels"][minimum])
         for name, indices in (("left", left), ("right", right)):
             meta.update({f"{name}_segment_idx_first": int(indices[0])+1,
@@ -112,6 +120,8 @@ def build_split(windows, config):
                          f"{name}_time_end_s": windows["center"][indices[-1]],
                          f"{name}_range_km_min": np.min(windows["labels"][indices]),
                          f"{name}_range_km_max": np.max(windows["labels"][indices])})
+    else:
+        raise ValueError("split_strategy must be full_interleaved or range_overlap")
     if not len(train) or not len(test):
         raise ValueError("Split produced an empty training or test dataset")
     for name, indices in (("train", train), ("test", test)):

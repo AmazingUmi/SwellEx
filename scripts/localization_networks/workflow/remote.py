@@ -23,7 +23,7 @@ if str(PROJECT) not in sys.path:
 from scripts.localization_networks.workflow.config import RUN_ID, load_config, validate_config
 from scripts.localization_networks.workflow.tasks import ARCHITECTURES, METHODS, expected_phases, model_plan, resolve_selection
 
-DEFAULT_CONFIG = Path(__file__).with_name("haiqin.toml")
+DEFAULT_CONFIG = Path(__file__).with_name("haiqin_full_interleaved.toml")
 LOCAL_RUNS = PROJECT / "output" / "data"
 LOCAL_FIGURES = PROJECT / "output" / "figure"
 SSH_OPTIONS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"]

@@ -9,7 +9,7 @@
 
 | 范围 | 当前能力 |
 |---|---|
-| 数据生成 | Python 读取数值 MAT、距离轨迹和 CTD，生成 RBD/ELM/SCM HDF5；支持 periodic/Range_nearby 划分及五类选频 |
+| 数据生成 | Python 读取数值 MAT、距离轨迹和 CTD，生成 RBD/ELM/SCM HDF5；支持 full_interleaved/range_overlap 划分及五类选频 |
 | 特征 | RBD 保存实际 Green 特征并支持最强波束/多径聚合；ELM 使用严格上三角 LS 比值；SCM 使用含对角线的归一化协方差 |
 | 神经网络 | 每个方法支持 complex CNN、real CNN、ResNet18、ResNet50；独立 loader/registry，共享 CLI、训练、续训和预测 |
 | SCM-GRNN | 独立 build/predict、reference 保存、sigma 搜索和核回归，无 epochs 或优化器 |
@@ -31,6 +31,29 @@
 - 数据目录包含配置指纹，已有目录拒绝覆盖；单个 HDF5 完成并关闭后原子发布。
 - 远端命令与嵌套测试进程传播超时/终止并清理进程组；fetch 使用 checksum，
   PASS 模型运行必须有可验证的可视化交付清单。
+
+## 数据划分配置与共同距离区间验证
+
+三份独立配置为 `haiqin_full_interleaved.toml`（默认）、
+`haiqin_range_overlap_train_before.toml`、`haiqin_range_overlap_train_after.toml`。
+`range_overlap` 在最近距离时刻前后各取最多 800 s 的候选窗，排除中心附近
+15 s 后，只保留两侧共同距离区间内的样本；两侧数量可以不同。
+Python 只接受 `full_interleaved` 和 `range_overlap`，旧名称明确拒绝。
+
+完整 S5、1 s 步长的实际生成结果如下，RBD/ELM/SCM 三路一致：
+
+| 配置 | 训练 HDF5 行数 | 测试 HDF5 行数 | 远端验证 run |
+|---|---:|---:|---|
+| full_interleaved | 3600 | 900 | `20261009T051147Z-45bdce55` |
+| range_overlap train_before | 800 | 700 | `20261009T051117Z-07435bec` |
+| range_overlap train_after | 700 | 800 | `20261009T051140Z-40c7d400` |
+
+候选窗的共同距离区间为约 0.9071–2.1399 km。before smoke 的 22 个阶段全部
+PASS，包括 32 项 quick 检查、8 项数值检查、三路生成及合同校验、三个
+complex CNN 各 1 epoch、RBD 续训、SCM-GRNN 和图表交付；after 和
+full_interleaved 各完成 SCM-GRNN 所选流程，10 个阶段全部 PASS。
+三次均使用 RTX A5000/CUDA，交付文件校验分别为 15、9、9 个文件 PASS。
+配置中正式神经训练仍为 100 epochs；本次验证不构成定位精度验收。
 
 ## A5000 常规配置与验证
 

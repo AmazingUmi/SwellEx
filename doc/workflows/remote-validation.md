@@ -44,13 +44,13 @@ it does not apply an accuracy acceptance threshold.
 
 The bundled configuration uses the complete 4500 s S5 VLA recording: window
 starts from 0 through 4499 s, 100 neural epochs, batch size 64, seed 2026, and
-CUDA. SCM-GRNN uses five-fold CV over 29 sigma candidates. The periodic 4:1
+CUDA. SCM-GRNN uses five-fold CV over 29 sigma candidates. The full_interleaved 4:1
 split provides a within-record baseline, with no accuracy acceptance threshold.
 See [all command defaults](command-defaults.md) for the complete settings.
 
 | Option | Default | Use |
 |---|---|---|
-| `--config PATH` | Bundled `haiqin.toml` | Load a complete TOML configuration |
+| `--config PATH` | Bundled `haiqin_full_interleaved.toml` | Load a complete TOML configuration |
 | `--epochs N` | `100` | Set a positive neural epoch count; rejected for GRNN |
 | `--seed N` | `2026` | Set the run seed, from 0 to 4294967295 |
 | `--detach` | Off | Launch and return the run ID immediately |
@@ -60,11 +60,39 @@ See [all command defaults](command-defaults.md) for the complete settings.
 `--epochs` and `--seed` override the loaded TOML. Unknown names, options,
 fields, and invalid values are rejected before launch.
 
+### Split Configurations
+
+Three complete, independent configurations share the same remote, feature,
+training, and GRNN settings. Choose one with `--config PATH`:
+
+| Configuration in `scripts/localization_networks/workflow/` | Training and test selection |
+|---|---|
+| [haiqin_full_interleaved.toml](../../scripts/localization_networks/workflow/haiqin_full_interleaved.toml) (default) | Full S5 recording; four train windows, then one test window |
+| [haiqin_range_overlap_train_before.toml](../../scripts/localization_networks/workflow/haiqin_range_overlap_train_before.toml) | Shared range interval; before closest approach for training, after it for testing |
+| [haiqin_range_overlap_train_after.toml](../../scripts/localization_networks/workflow/haiqin_range_overlap_train_after.toml) | Shared range interval; after closest approach for training, before it for testing |
+
+Both `range_overlap` configurations take up to 800 s of candidate windows per
+side, skip 15 s nearest closest approach on each side, and retain only labels
+inside the sides' shared range interval. The test step is 1 s. Selected side
+counts may differ; samples are not paired one-to-one by distance.
+`train_test_ratio` is ignored. Neural training still reserves 25% of the selected
+training-side rows for validation when no validation files exist. See the
+[split contract](../datasets/hdf5-datasets-and-splits.md#train-and-test-splits).
+
+```bash
+./scripts/run.sh ELM complex_CNN --config scripts/localization_networks/workflow/haiqin_range_overlap_train_before.toml
+./scripts/run.sh ELM complex_CNN --config scripts/localization_networks/workflow/haiqin_range_overlap_train_after.toml
+```
+
+For smoke validation, keep a candidate interval containing both sides of
+closest approach with overlapping range coverage; the 0–59 s short interval
+below is for `full_interleaved`.
+
 To change other settings, copy and edit the complete configuration, then
 inspect it before launching:
 
 ```bash
-cp scripts/localization_networks/workflow/haiqin.toml /tmp/swellex-experiment.toml
+cp scripts/localization_networks/workflow/haiqin_full_interleaved.toml /tmp/swellex-experiment.toml
 # Edit /tmp/swellex-experiment.toml, then inspect the request:
 ./scripts/run.sh ELM complex_CNN --config /tmp/swellex-experiment.toml --dry-run
 # Launch with the same configuration:
