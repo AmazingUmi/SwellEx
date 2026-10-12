@@ -12,9 +12,9 @@ this page identifies the source to change.
 | `scripts/localization_networks/rbd/` | RBD loader, registry, and model configuration | `main.py train/predict` |
 | `scripts/localization_networks/elm/` | ELM loader, registry, and model configuration | `main.py train/predict` |
 | `scripts/localization_networks/scm/` | SCM loader, registry, and model configuration | `main.py train/predict` |
-| `scripts/localization_networks/grnn/` | SCM reference samples, sigma selection, and kernel prediction | `main.py build/predict` |
+| `scripts/localization_networks/grnn/` | RBD/ELM/SCM reference samples, sigma selection, and shared kernel prediction | `main.py build/predict --method METHOD` |
 | `scripts/localization_networks/common/` | Shared neural CLI, training/prediction, checkpoints, physical input signatures, and paths | Imported by method packages |
-| `scripts/localization_networks/workflow/` | Local SSH dispatch, remote execution, cache, process timeouts, and result retrieval | `remote.py`; `worker.py` is internal |
+| `scripts/localization_networks/workflow/` | Shell dispatch, remote execution/cache/retrieval, explicit local CPU GRNN, and existing-result comparison | `remote.py`, `local_grnn.py`, `compare_results.py`; `worker.py` is internal |
 | `scripts/localization_networks/validation/` | Runtime/model checks, dataset checks, fixtures, and structured reports | `validate.py quick/datasets` |
 | `scripts/visualization/` | Result discovery, consistency checks, aggregate figures, and provenance | `plot_results.py` |
 
@@ -30,9 +30,13 @@ this page identifies the source to change.
   registry, and model configuration remain owned by each method.
 - `validation/validate.py` parses commands; `quick.py` checks runtime/models,
   `datasets.py` checks generated data, and `reporting.py` writes reports.
+- `grnn/` owns reference and kernel algorithms; `workflow/local_grnn.py` owns
+  generation, execution and delivery. `workflow/compare_results.py` reads saved
+  evidence using only the standard library and never launches a model.
 
 Public shell names remain `RBD/ELM/SCM` and `complex_CNN/real_CNN/ResNet18/ResNet50`
-plus `SCM GRNN`. Output roots also retain uppercase method names. Use the
+plus `GRNN` for each method. The complete plan has 15 combinations; smoke has
+three complex CNNs and three GRNNs. Output roots retain uppercase method names. Use the
 [extension guide](python-extension-guide.md) when adding a model or loader.
 
 ## Validation and Change Boundaries

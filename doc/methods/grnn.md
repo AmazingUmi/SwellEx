@@ -1,14 +1,29 @@
-# SCM 特征与独立 GRNN 回归
+# RBD/ELM/SCM 特征与独立 GRNN 回归
 
-本页描述仓库实际实现：先将阵列频域声压构造成归一化 SCM 特征，再用
+本页描述仓库实际实现：读取已生成的 RBD、ELM 或 SCM 复数特征，再用
 Gaussian-kernel GRNN 回归距离（km）。GRNN 位于
 `scripts/localization_networks/grnn/`，通过 `build` 保存参考样本、
 通过 `predict` 加权预测，不使用 epochs、反向传播或优化器。
 
-运行命令与产物路径见 [独立 SCM-GRNN 工作流](../workflows/standalone-scm-grnn.md)；
+运行命令与产物路径见 [独立 GRNN 工作流](../workflows/standalone-grnn.md)；
 数据轴、元数据、窗口及划分合同见 [HDF5 数据集](../datasets/hdf5-datasets-and-splits.md)。
 
-## SCM 构造与向量化
+## 三路特征与向量化
+
+三路复用各自 HDF5 loader 的布局、物理轴和有效样本合同。GRNN 保留实部、
+虚部两个通道，按 `[real_imag, element|pair, frequency]` 展平，不先取幅值。
+
+| 方法 | 特征 | 轴/复数条目 | 实值维度 |
+|---|---|---|---|
+| RBD | 波束形成得到的等效 Green 估计 | 阵元 `E` | `2*E*F` |
+| ELM | 阵元对最小二乘频域比值 | 严格上三角 `i<j`，`E*(E-1)/2` 对 | `E*(E-1)*F` |
+| SCM | 归一化空间协方差 | 含对角线 `i<=j`，`E*(E+1)/2` 对 | `E*(E+1)*F` |
+
+各方法分别保存参考特征、训练标签、sigma 和预处理统计，不共享参考库。
+ELM/SCM 的 pair 均为 1-based 列序；RBD 不使用 pair 轴。
+生成公式见 [HDF5 合同](../datasets/hdf5-datasets-and-splits.md#feature-routes)。
+
+### SCM 构造
 
 `scripts/data_processing/feature_math.py:scm_feature` 对每个 snapshot 做 FFT，
 保留选定的单边频点。设频点为 $f$，snapshot 数为 $N_s$，阵元数为 $M$，
@@ -38,8 +53,8 @@ SCM 保留含对角线的上三角 `C_f[i,j]`（`i<=j`），共 $P=M(M+1)/2$ 个
 对角线虚部也保留，不做独立自由度压缩。
 
 加载器保留 `/valid_sample` 有效且距离标签有限的样本，拒绝非有限特征，
-并要求完整频率、阵元位置/深度与 SCM pair 元数据。多文件输入必须具有
-相同 `[2,P,Q]` 形状和物理轴身份；SCM pair 必须符合完整含对角线的列序上三角。
+并要求完整频率、阵元位置/深度与对应方法的 pair 元数据。多文件输入必须具有
+相同 `[2,E|P,Q]` 形状、方法及物理轴身份；ELM/SCM pair 必须符合各自规则。
 预测输入仍需提供距离标签，供当前 CSV 和误差报告使用。轴与有限性检查
 不证明划分独立性或物理估计准确性。
 
@@ -49,7 +64,7 @@ SCM 保留含对角线的上三角 `C_f[i,j]`（`i<=j`），共 $P=M(M+1)/2$ 个
 
 | 选项 | 操作 | 统计范围 |
 |---|---|---|
-| `per_sample_channel_norm` | 展平前分别对实部、虚部通道做 z-score，标准差下限为 `1e-6` | 单个样本的所有 pair 和频点 |
+| `per_sample_channel_norm` | 展平前分别对实部、虚部通道做 z-score，标准差下限为 `1e-6` | 单个样本的所有阵元/pair 和频点 |
 | `standardize_input` | 对展平后的每个坐标做 z-score，标准差下限为 `eps`（默认 `1e-12`） | 参考样本；CV 时为该折的训练样本 |
 
 坐标标准化使用总体标准差（`unbiased=False`），均值和标准差随 reference
@@ -59,7 +74,7 @@ SCM 保留含对角线的上三角 `C_f[i,j]`（`i<=j`），共 $P=M(M+1)/2$ 个
 
 ## GRNN 核回归与数值稳定性
 
-`model.py:ScmGrnnRegressor` 保存处理后的参考特征 $z_i\in\mathbb R^D$
+`model.py:GrnnRegressor` 保存处理后的参考特征 $z_i\in\mathbb R^D$
 及距离标签 $r_i$。对同样处理后的查询 $z$：
 
 ```math
@@ -96,6 +111,10 @@ NaN/Inf 输入，也不保证任意规模的距离计算都没有浮点误差。
 `max(abs(true_range_km),1e-12)`，接近零距离的样本会显著影响该指标。
 完成选择后使用全部参考样本重新构建 reference，验证样本不自动并入。
 
+搜索对每折的查询 batch 只计算一次距离，再复用于所有 sigma 候选；
+显式验证集也复用参考标准化及 batch 距离。开启坐标标准化时，每折仍只在
+该折训练样本上拟合统计量。候选顺序、核公式和最小 MAPE 选择规则不变。
+
 当前 CV 用固定 seed（默认 2026）随机打乱样本再分折，没有时间、来源或
 重叠窗口分组。相邻/重叠窗口可能跨折，因此随机 CV 分数不能直接证明
 对独立时间段或独立航迹的泛化。需要这类评估时，应准备具有相应分离关系
@@ -106,25 +125,26 @@ NaN/Inf 输入，也不保证任意规模的距离计算都没有浮点误差。
 reference `.pt` 是核回归所需参考数据的持久化，不是训练网络的权重检查点，
 也不保存预计算的查询距离。模型数据包括 `x_reference`、`y_reference_km`、
 `spread`、`standardize_input`、`eps`、`feature_mean` 和 `feature_std`。
-CLI 还保存输入形状/维度、参考样本数、数据集名称、源 HDF5 路径、
+CLI 还保存方法对应的 artifact/model 身份、输入形状/维度、参考样本数、数据集名称、源 HDF5 路径、
 `input_signature`、`per_sample_channel_norm`、`sigma_source` 和 sigma 搜索结果。
 
 `input_signature` 冻结方法、频率轴、阵元位置/深度和 pair 序列。
 显式验证集与参考数据、预测数据与 reference 均须完全匹配这些身份和
-`[2,P,Q]` 形状；相同形状但物理轴不同会被拒绝。预测沿用保存的通道归一化
+`[2,E|P,Q]` 形状；相同形状但物理轴不同会被拒绝。预测沿用保存的通道归一化
 选项和坐标统计量，并校验参考张量形状/有限性。缺少当前合同字段的旧
-reference（包括没有 `input_signature` 的文件）须重新构建。
+reference（包括没有 `input_signature` 的文件）须重新构建。跨方法 reference
+在计算预测前拒绝，即使展平特征维度碰巧相同。
 
 该签名不保存源文件内容哈希，也不代表完整生成配置或样本划分独立性。
 预处理或输入轴改变后应重新构建，并按数据验证流程核对样本来源与划分。
 
 ## 实现范围
 
-当前实现采用归一化 SCM 与 Gaussian-kernel GRNN 的基本形式。
+当前实现将各方法已有复数特征接入同一 Gaussian-kernel GRNN。
 本页依据仓库源码整理，不将此前笔记中的论文样本规模、snapshot 设置、
 频率组合或实验结果作为当前工程配置或已验证的精确复现结论。
 
-仓库实际使用多频 SCM、可选的两种标准化、距离偏移稳定计算及 reference
+仓库实际使用多频特征、可选的两种标准化、距离偏移稳定计算及 reference
 序列化；这些工程选择是否与论文逐项相同，需要另行依据原文和匹配实验核对。
 现有 reference 和 sigma 搜索只能说明执行了当前实现，不能单独证明复现了
 论文结构细节或定位精度。

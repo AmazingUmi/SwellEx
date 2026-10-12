@@ -2,7 +2,7 @@
 
 RBD, ELM, and SCM each support complex CNN, real CNN, ResNet18, and ResNet50.
 This guide covers complete shell runs and manual neural commands on haiqin.
-SCM-GRNN uses a [separate build/predict workflow](standalone-scm-grnn.md).
+RBD/ELM/SCM GRNN uses a [separate build/predict workflow](standalone-grnn.md).
 
 ## Run the Complete Workflow
 

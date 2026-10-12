@@ -1,4 +1,4 @@
-"""Semantic identities of feature axes, shared by neural networks and SCM-GRNN."""
+"""Semantic identities of feature axes, shared by neural networks and GRNN."""
 from __future__ import annotations
 
 from typing import Any

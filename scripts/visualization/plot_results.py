@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 import hashlib
 import importlib.metadata
 import json
-import math
 from pathlib import Path
 import sys
 import textwrap
@@ -16,11 +15,35 @@ import textwrap
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from scripts.visualization.results import load_run
+from scripts.visualization.results import ModelResult, load_run
 from scripts.localization_networks.common.prediction_utils import save_prediction_plot
+from scripts.localization_networks.workflow.tasks import ARCHITECTURES, METHODS, model_plan
 
 COLORS = ("#0072B2", "#9A5300", "#007A5E", "#805080", "#444444", "#A03623")
 MARKERS = ("o", "s", "^", "D", "v", "P")
+
+
+def prediction_grid_layout(models: list[ModelResult]) -> list[list[int | None]]:
+    """Map original model indices to feature rows and shared architecture columns.
+
+    Rows/columns absent from the selected models are omitted. A missing model
+    within a retained feature/architecture pair leaves an empty panel.
+    """
+    if not models:
+        raise ValueError("Prediction grid requires at least one model")
+    canonical = {(item["method"], item["model"]): item["architecture"]
+                 for item in model_plan("experiment")}
+    identities = [(model.method, model.model) for model in models]
+    if len(identities) != len(set(identities)) or any(key not in canonical for key in identities):
+        raise ValueError("Prediction grid requires unique canonical method/model pairs")
+    selected_methods = {method for method, _ in identities}
+    selected_architectures = {canonical[key] for key in identities}
+    methods = [method for method in METHODS if method in selected_methods]
+    architectures = [architecture for architecture in ARCHITECTURES if architecture in selected_architectures]
+    grid = [[None for _ in architectures] for _ in methods]
+    for index, identity in enumerate(identities):
+        grid[methods.index(identity[0])][architectures.index(canonical[identity])] = index
+    return grid
 
 
 def render_run(run_dir: Path, output_dir: Path, dpi=300,
@@ -61,16 +84,19 @@ def render_run(run_dir: Path, output_dir: Path, dpi=300,
         plt.close(fig)
 
     def axes_grid():
-        columns = 2 if len(data.models) == 4 else min(3, len(data.models))
-        rows = math.ceil(len(data.models)/columns)
+        grid = prediction_grid_layout(data.models)
+        rows, columns = len(grid), len(grid[0])
         fig, axes = plt.subplots(rows, columns, figsize=(4.5*columns, 3.5*rows+0.9),
                                  squeeze=False, sharex=True, sharey=True, layout="constrained")
-        flat = list(axes.flat)
-        for ax in flat[:len(data.models)]:
-            ax.tick_params(labelbottom=True, labelleft=True)
-        for ax in flat[len(data.models):]:
-            ax.set_visible(False)
-        return fig, flat
+        model_axes = [None] * len(data.models)
+        for cells, axis_row in zip(grid, axes):
+            for index, ax in zip(cells, axis_row):
+                if index is None:
+                    ax.set_visible(False)
+                else:
+                    ax.tick_params(labelbottom=True, labelleft=True)
+                    model_axes[index] = ax
+        return fig, model_axes
 
     style = {"font.family": "DejaVu Sans", "font.size": 10, "axes.grid": True,
              "grid.alpha": 0.2, "axes.spines.top": False, "axes.spines.right": False,
@@ -170,9 +196,13 @@ def render_run(run_dir: Path, output_dir: Path, dpi=300,
                     best = min(records, key=lambda r: r[prefix+"mape_pct"])["sigma"]
                     fig, axes = plt.subplots(1, 3, figsize=(12, 4.2), layout="constrained")
                     for ax, key, label in zip(axes, ("mae_km", "rmse_km", "mape_pct"), ("MAE (km)", "RMSE (km)", "MAPE (%)")):
-                        ax.plot([r["sigma"] for r in records], [r[prefix+key] for r in records], "o-", color=COLORS[2])
+                        values = [r[prefix+key] for r in records]
+                        ax.plot([r["sigma"] for r in records], values, "o-", color=COLORS[2])
                         ax.axvline(best, color="#555555", ls="--", lw=1, label="Minimum MAPE sigma")
-                        ax.set(xscale="log", xlabel="Gaussian kernel sigma", ylabel=label, ylim=(0, None))
+                        # Nearly constant searches need margin relative to the
+                        # values, not the tiny difference between candidates.
+                        ax.set(xscale="log", xlabel="Gaussian kernel sigma", ylabel=label,
+                               ylim=(0, max(max(values)*1.08, 1e-6)))
                         ax.legend(fontsize=8)
                     kind = "CV mean" if prefix else "Held-out validation"
                     save(fig, f"grnn/{stem}-sigma", model.name+f" sigma search ({kind})",
@@ -208,7 +238,9 @@ def render_run(run_dir: Path, output_dir: Path, dpi=300,
         {"path": path.relative_to(ROOT).as_posix(),
          "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
         for path in (Path(__file__).resolve(), ROOT/"scripts/visualization/results.py",
-                     ROOT/"scripts/localization_networks/common/prediction_utils.py")
+                     ROOT/"scripts/localization_networks/common/prediction_utils.py",
+                     ROOT/"scripts/localization_networks/workflow/tasks.py",
+                     ROOT/"scripts/localization_networks/grnn/bindings.py")
     ]
     manifest["delivery_roots"] = {"figure": f"output/figure/{data.report['run_id']}",
                                   "data": f"output/data/{data.report['run_id']}/reports/visualization"}

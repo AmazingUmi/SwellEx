@@ -6,6 +6,7 @@ on SSH host `haiqin`.
 
 Local prerequisites: uv, Python 3.11+, Git, SSH, and rsync. The remote worker
 uses the frozen dependencies in `pyproject.toml` and `uv.lock`.
+Explicit local CPU GRNN execution uses the separate entry described below.
 
 ## Select One Model
 
@@ -16,7 +17,9 @@ uses the frozen dependencies in `pyproject.toml` and `uv.lock`.
 # Override the neural epoch count and seed
 ./scripts/run.sh SCM ResNet18 --epochs 200 --seed 2027
 
-# SCM-GRNN reference building and prediction
+# GRNN reference building and prediction for any feature route
+./scripts/run.sh RBD GRNN
+./scripts/run.sh ELM GRNN
 ./scripts/run.sh SCM GRNN
 ```
 
@@ -25,14 +28,13 @@ Both positional arguments are required. Names are case-sensitive:
 | Argument | Accepted values |
 |---|---|
 | `METHOD` | `RBD`, `ELM`, `SCM` |
-| `ARCH` for any method | `complex_CNN`, `real_CNN`, `ResNet18`, `ResNet50` |
-| Additional SCM architecture | `GRNN` |
+| `ARCH` for any method | `complex_CNN`, `real_CNN`, `ResNet18`, `ResNet50`, `GRNN` |
 
 Each command performs these steps:
 
 1. Freeze the current source and merged configuration in a new remote run.
 2. Generate or reuse all three aligned RBD/ELM/SCM feature datasets, then validate them.
-3. Train only the selected neural model, or build the SCM-GRNN reference.
+3. Train only the selected neural model, or build the selected method's GRNN reference.
 4. Predict test ranges, check the prediction CSV, and render figures.
 5. Retrieve logs, tables, reports, and figures to the local project.
 
@@ -44,7 +46,7 @@ it does not apply an accuracy acceptance threshold.
 
 The bundled configuration uses the complete 4500 s S5 VLA recording: window
 starts from 0 through 4499 s, 100 neural epochs, batch size 64, seed 2026, and
-CUDA. SCM-GRNN uses five-fold CV over 29 sigma candidates. The full_interleaved 4:1
+CUDA. Each GRNN independently uses five-fold CV over 29 sigma candidates. The full_interleaved 4:1
 split provides a within-record baseline, with no accuracy acceptance threshold.
 See [all command defaults](command-defaults.md) for the complete settings.
 
@@ -102,6 +104,36 @@ cp scripts/localization_networks/workflow/haiqin_full_interleaved.toml /tmp/swel
 Learning rate and dropout are direct Python CLI options; `run.sh` does not
 accept them. The workflow TOML also has no fields for them.
 
+## Local GRNN and Existing-Result Comparison
+
+The local GRNN worker belongs to `workflow/local_grnn.py`. Inspect a
+`range_overlap` direction through the same shell dispatcher:
+
+```bash
+./scripts/run.sh local-grnn --method SCM \
+  --config scripts/localization_networks/workflow/haiqin_range_overlap_train_before.toml \
+  --python /private/tmp/swellex-grnn-local-env/bin/python --dry-run
+```
+
+The dry run performs no computation or SSH. Actual execution requires omitting
+`--dry-run` and an explicitly selected CPU environment. It generates only the selected method,
+or accepts a validated matching directory with `--data PATH`; see
+[local GRNN setup and delivery](standalone-grnn.md#local-cpu-range-overlap-computation).
+
+To merge results already present locally, use the standard-library reader:
+
+```bash
+python3 -B -m scripts.localization_networks.workflow.compare_results
+```
+
+It reads direct run directories under `output/data/`, verifies CSV metrics,
+test identities, epoch histories and GRNN sigma selection, and writes a fresh
+comparison directory containing `comparison.json`, `metrics.csv`, and
+`provenance.json`. Use `--input-dir PATH` or `--output-dir NEW_PATH` to choose
+the locations. Duplicate GRNN predictions retain their source runs; summaries
+without locally available CSV files remain `summary_only`. This command does
+not generate data, build references, predict, render figures, or contact haiqin.
+
 ## Run Validation Suites
 
 ```bash
@@ -115,8 +147,8 @@ accept them. The workflow TOML also has no fields for them.
 |---|---|
 | `check` | SSH access, remote repository, original-input directory, and uv; it does not test CUDA |
 | `validate --suite quick` | Frozen environment, Python/CLI/model and loader contracts, GRNN invariants, numerical oracles, and visualization tests |
-| `validate --suite smoke` | Quick checks, three-route generation/validation, one complex CNN per method, SCM-GRNN, prediction, checkpoint resume, and figures |
-| `validate --suite experiment` | The same workflow with all four neural architectures per method, plus SCM-GRNN |
+| `validate --suite smoke` | Quick checks, three-route generation/validation, one complex CNN and one GRNN per method (six models), prediction, checkpoint resume, and figures |
+| `validate --suite experiment` | The same workflow with all four neural architectures and one GRNN per method (fifteen models) |
 
 `validate` defaults to `smoke`. These suites accept `--config`, `--detach`,
 `--dry-run`, and `--no-cache`; set epochs and seed in their TOML configuration.
@@ -127,7 +159,8 @@ describe those runs; scientific accuracy or model superiority needs separate
 acceptance criteria and repeated seeds.
 
 With the bundled configuration, smoke trains three neural models for 100 epochs
-each; experiment trains all twelve. For a short pipeline check, copy the TOML
+each plus three GRNN references; experiment trains all twelve plus three GRNNs.
+For a short pipeline check, copy the TOML
 as shown above and set `dataset.segment_end_s = 59` and `training.epochs = 2`,
 then pass that file with `--config`. The bundled configuration remains the
 normal experiment baseline.

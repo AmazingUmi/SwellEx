@@ -24,6 +24,8 @@ frequency fitting instead uses training windows only.
 Outputs go to `outputs/Datasets/`. `generation_result.json` records PASS/FAIL
 and route-to-directory mappings. Each dataset has JSON metadata for its
 configuration, split, frequency selection, time geometry, and source identities.
+Its `input_files` records each actual raw input's path, byte size, modification
+time, and SHA256 for later reuse checks.
 Dataset directory names end with a 12-character configuration fingerprint.
 It hashes the normalized dataset/RBD settings, schema, and generator version;
 project and report locations do not affect it. Different settings use different
@@ -105,7 +107,7 @@ The ELM floor is `1e-6` times the median finite FFT power across the current
 combined window; `EPS` is float64 machine epsilon. SCM averages outer products
 after normalizing each snapshot's array vector with a norm floor of `1e-12`;
 its formula, trace qualification, and GRNN vectorization are defined in the
-[SCM/GRNN method note](../methods/scm-grnn.md). Synthetic tests check known
+[GRNN method note](../methods/grnn.md). Synthetic tests check known
 ratios, covariance properties, pair sequence, and zero-power behavior.
 
 ### RBD

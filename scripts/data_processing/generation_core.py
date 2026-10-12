@@ -78,6 +78,19 @@ def load_channel(path):
     return _real_numeric_vector(contents["x"], str(path))
 
 
+def _input_file_identity(path):
+    stat = path.stat()
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    current = path.stat()
+    if (stat.st_size, stat.st_mtime_ns) != (current.st_size, current.st_mtime_ns):
+        raise ValueError(f"Input file changed while hashing: {path}")
+    return {"path": str(path), "size_bytes": stat.st_size,
+            "mtime_ns": stat.st_mtime_ns, "sha256": digest.hexdigest()}
+
+
 def load_inputs(root, config):
     origin = Path(root)/"Origindata"
     d = config["dataset"]; event = d["event_name"]
@@ -121,8 +134,7 @@ def load_inputs(root, config):
     return {"signal": signal, "depths": depths, "range_times": range_times, "ranges": ranges,
             "range_path": str(range_path), "ctd_path": str(ctd_path),
             "profile_depths": profile_depths, "sound_speeds": speeds,
-            "input_files": [{"path": str(path), "size_bytes": path.stat().st_size,
-                             "mtime_ns": path.stat().st_mtime_ns} for path in paths]}
+            "input_files": [_input_file_identity(path) for path in paths]}
 
 
 def _seconds_tag(value):
@@ -291,6 +303,7 @@ def generate_method(method, config, inputs, base_windows, root=ROOT):
                 "segment_step_s": windows["step_s"], "range_file": inputs["range_path"], "ctd_file": inputs["ctd_path"],
                 "freq_num": len(frequencies), "freq_min_hz": float(frequencies[0]), "freq_max_hz": float(frequencies[-1]),
                 "num_elements": len(inputs["depths"]), "split": split_metadata,
+                "input_files": inputs["input_files"],
                 "files": [{"name": split, "file": str(path)} for split, path in paths.items()], "effective_config": config}
     feature_config = {"frequency_selection": "combined_frequency_selection_modes", "frequency_selection_modes": modes,
                       "selected_fft_bin_idx": bins+1, "selected_freq_hz": frequencies, "frequency_selection_info": frequency_info,

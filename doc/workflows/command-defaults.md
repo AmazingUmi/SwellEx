@@ -100,10 +100,12 @@ workflow TOML fields or `run.sh` options. Manual Python uses train batch size 16
 prediction batch size 32, and normalized training loss; see
 [training and prediction](training-and-prediction.md#train-options).
 
-## SCM-GRNN
+## GRNN
 
 GRNN builds a fresh reference and uses it explicitly for prediction. It has
 no epochs or optimizer and uses `validation.seed` for cross-validation.
+The same settings apply independently to RBD, ELM, and SCM; references and
+bandwidth search results are kept under their respective method directories.
 
 | Field in `[grnn]` | Default |
 |---|---|
@@ -113,7 +115,7 @@ no epochs or optimizer and uses `validation.seed` for cross-validation.
 
 Feature-coordinate standardization and per-sample channel normalization are
 both off. The direct GRNN CLI defaults to no CV search and batch size 128; see
-[manual build options](standalone-scm-grnn.md#build-options).
+[manual build options](standalone-grnn.md#build-options).
 
 ## A5000 Sizing
 
@@ -136,7 +138,7 @@ other applications. Four CPU threads remain the baseline: eight did not give
 a consistent improvement in these measurements. CNN base channels remain 16,
 matching the model defaults; model width and epoch count are study settings.
 
-GRNN prediction used all 3600 reference and 900 test rows, with one warm-up
+The historical SCM-GRNN prediction measurement used all 3600 reference and 900 test rows, with one warm-up
 and five measured predictions per setting. Mean prediction times for batches
 128/256/512/1024 were 23.17/18.15/15.56/14.58 ms. Batch 1024 peaked at 414.4 MiB
 of allocated GPU memory and covers each 720-row CV fold or the 900-row test set

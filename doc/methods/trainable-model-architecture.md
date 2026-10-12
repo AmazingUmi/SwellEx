@@ -16,7 +16,7 @@ define the feature and pair semantics.
 RBD configs use `input_elements` and `input_freq_bins`; ELM/SCM use
 `input_pairs` and `input_freq_bins`. Implementations live in each method's
 `network/models/` directory. GRNN is a separate
-[kernel regressor](scm-grnn.md), outside these registries.
+[kernel regressor](grnn.md), outside these registries.
 
 ## Complex CNN
 

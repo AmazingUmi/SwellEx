@@ -1,8 +1,9 @@
 """Canonical execution plans shared by the stdlib dispatcher and worker."""
 from __future__ import annotations
 
+from scripts.localization_networks.grnn.bindings import METHODS, model_name, validate_method
+
 SUITES = ("quick", "smoke", "experiment", "selected")
-METHODS = ("RBD", "ELM", "SCM")
 ARCHITECTURES = ("complex_CNN", "real_CNN", "ResNet18", "ResNet50", "GRNN")
 _PACKAGES = {"RBD": "rbd", "ELM": "elm", "SCM": "scm"}
 _MODELS = {
@@ -28,14 +29,11 @@ def entry_script(selection: dict) -> str:
 
 
 def resolve_selection(method: str, architecture: str) -> dict:
-    if not isinstance(method, str) or method not in METHODS:
-        raise ValueError(f"METHOD must be one of {', '.join(METHODS)}")
+    validate_method(method)
     if not isinstance(architecture, str) or architecture not in ARCHITECTURES:
         raise ValueError(f"ARCH must be one of {', '.join(ARCHITECTURES)}")
     if architecture == "GRNN":
-        if method != "SCM":
-            raise ValueError("GRNN is supported only for SCM")
-        model = "scm_grnn_range"
+        model = model_name(method)
     else:
         prefix = "" if method == "RBD" else method.lower() + "_"
         model = prefix + _MODELS[architecture]
@@ -61,7 +59,7 @@ def model_plan(suite: str, selection: dict | None = None) -> list[dict]:
     if suite == "quick":
         return []
     architectures = ("complex_CNN",) if suite == "smoke" else tuple(_MODELS)
-    return [resolve_selection(method, architecture) for method in METHODS for architecture in architectures] + [resolve_selection("SCM", "GRNN")]
+    return [resolve_selection(method, architecture) for method in METHODS for architecture in architectures] + [resolve_selection(method, "GRNN") for method in METHODS]
 
 
 def expected_phases(suite: str, selection: dict | None = None) -> set[str]:
@@ -71,7 +69,7 @@ def expected_phases(suite: str, selection: dict | None = None) -> set[str]:
         phases.update({"python_quick", "data_numerical"})
     if suite != "quick":
         phases.update({"original_data_identity", "data_generation", "dataset_contract", "visualization"})
-        phases.update("evaluate_grnn" if item["architecture"] == "GRNN" else f"evaluate_{item['method']}_{item['model']}" for item in plan)
+        phases.update(f"evaluate_{item['method']}_{item['model']}" for item in plan)
     if suite in {"smoke", "experiment"}:
         phases.add("checkpoint_resume")
     return phases

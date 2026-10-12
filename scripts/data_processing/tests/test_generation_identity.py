@@ -1,15 +1,19 @@
 """Generation identity and atomic output ownership; execute on haiqin."""
 from __future__ import annotations
 
+import hashlib
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import h5py
 import numpy as np
+from scipy.io import savemat
 
 from scripts.data_processing.generation_config import normalize_config
-from scripts.data_processing.generation_core import create_h5, dataset_names, generation_identity
+from scripts.data_processing.generation_core import create_h5, dataset_names, generation_identity, load_inputs
 
 
 class GenerationIdentityContracts(unittest.TestCase):
@@ -53,6 +57,41 @@ class GenerationIdentityContracts(unittest.TestCase):
             with self.subTest(raw=raw):
                 name = dataset_names("SCM", changed, ["deep", "shallow"], {}, self.windows)[0]
                 self.assertNotEqual(name, baseline)
+
+    def test_loaded_input_identities_hash_actual_raw_files_and_same_stat_changes(self):
+        origin = self.root / "Origindata"
+        positions = origin / "positions/positions_vla.txt"
+        positions.parent.mkdir(parents=True)
+        np.savetxt(positions, [[1, 20], [2, 10]])
+        channels = origin / "events/S5/vla_matfiles"
+        channels.mkdir(parents=True)
+        channel_paths = [channels / f"S5_VLA_NO_{index}.mat" for index in (1, 2)]
+        for index, path in enumerate(channel_paths):
+            savemat(path, {"x": np.arange(16, dtype=np.float64) + index})
+        range_path = origin / "events/range/RangeEventS5/SproulToVLA.S5.txt"
+        range_path.parent.mkdir(parents=True)
+        np.savetxt(range_path, [[0, 0, 0, 1], [0, 0, 1, 2]], header="range")
+        ctd = origin / "environments/ctds/i9605.prn"
+        ctd.parent.mkdir(parents=True)
+        np.savetxt(ctd, [[0, 0, 0, 1500, 0], [30, 0, 0, 1500, 0]])
+        paths = [positions, *channel_paths, range_path, ctd]
+        expected = [{"path": str(path), "size_bytes": path.stat().st_size,
+                     "mtime_ns": path.stat().st_mtime_ns,
+                     "sha256": hashlib.sha256(path.read_bytes()).hexdigest()} for path in paths]
+        with patch.object(Path, "read_bytes", side_effect=AssertionError("Raw input hashes must stream")):
+            loaded = load_inputs(self.root, self.config)
+        self.assertEqual(loaded["input_files"], expected)
+
+        channel = channel_paths[0]
+        stat = channel.stat()
+        savemat(channel, {"x": np.arange(16, dtype=np.float64) + 0.25})
+        self.assertEqual(channel.stat().st_size, stat.st_size)
+        os.utime(channel, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        changed = load_inputs(self.root, self.config)["input_files"][1]
+        self.assertEqual(changed["size_bytes"], expected[1]["size_bytes"])
+        self.assertEqual(changed["mtime_ns"], expected[1]["mtime_ns"])
+        self.assertNotEqual(changed["sha256"], expected[1]["sha256"])
+        self.assertEqual(changed["sha256"], hashlib.sha256(channel.read_bytes()).hexdigest())
 
     def test_success_publishes_closed_h5_and_refuses_overwrite(self):
         path = self.root / "scm.h5"

@@ -1,4 +1,4 @@
-"""CLI for standalone SCM-GRNN reference building and prediction."""
+"""CLI for method-aware GRNN reference building and prediction."""
 
 from __future__ import annotations
 
@@ -9,12 +9,14 @@ import sys
 from pathlib import Path
 
 import torch
+import numpy as np
 
-from scripts.localization_networks.grnn.data import GrnnFeatureBundle, load_scm_grnn_features
-from scripts.localization_networks.grnn.model import ScmGrnnRegressor, kernel_scale
+from scripts.localization_networks.grnn.bindings import METHODS, artifact_type, model_name, validate_method
+from scripts.localization_networks.grnn.data import GrnnFeatureBundle, load_grnn_features
+from scripts.localization_networks.grnn.model import GrnnRegressor, kernel_scale
 from scripts.localization_networks.common.cli import default_device, pdf_path, seed_int
 from scripts.localization_networks.common.h5_utils import resolve_h5_paths
-from scripts.localization_networks.common.input_contract import require_matching_input_signature
+from scripts.localization_networks.common.input_contract import read_input_signature, require_matching_input_signature
 from scripts.localization_networks.common.paths import (
     dataset_test_glob, dataset_train_glob, latest_time_suffixed_path,
     safe_name, time_suffix, with_time_suffix,
@@ -23,7 +25,7 @@ from scripts.localization_networks.common.prediction_utils import (
     PredictionRow, save_prediction_plot, write_predictions_csv,
 )
 from scripts.localization_networks.grnn.paths import (
-    DEFAULT_OUTPUT_DIR, reference_output_dir, test_output_dir,
+    default_output_dir, reference_output_dir, test_output_dir,
 )
 
 
@@ -42,7 +44,8 @@ def resolve_reference_path(args: argparse.Namespace) -> Path:
         return path
 
     dataset_name = safe_name(args.data)
-    base_path = reference_output_dir(args.output_dir) / f"{dataset_name}_reference.pt"
+    output_dir = args.output_dir if args.output_dir is not None else default_output_dir(args.method)
+    base_path = reference_output_dir(output_dir, method=args.method) / f"{dataset_name}_reference.pt"
     if base_path.exists():
         return base_path
     latest_path = latest_time_suffixed_path(base_path)
@@ -56,7 +59,36 @@ def resolve_reference_path(args: argparse.Namespace) -> Path:
     )
 
 
-def load_artifact(path: Path, device: torch.device) -> dict[str, object]:
+def _validate_artifact_signature(signature: object, shape: tuple | list, method: str) -> None:
+    required = {"method", "input_shape", "frequency_hz", "element_idx", "depth_m", "pair_indices"}
+    if not isinstance(signature, dict) or set(signature) != required:
+        raise ValueError("GRNN artifact input_signature must contain the complete physical axes.")
+    if signature["method"] != method or signature["input_shape"] != list(shape):
+        raise ValueError("GRNN artifact input_signature method/input_shape mismatch.")
+
+    class AxisMetadata(dict):
+        filename = "GRNN artifact"
+
+    metadata = AxisMetadata({
+        "frequency/freq_hz": np.asarray(signature["frequency_hz"]),
+        "array/element_idx": np.asarray(signature["element_idx"]),
+        "array/depth_m": np.asarray(signature["depth_m"]),
+    })
+    pairs = np.asarray(signature["pair_indices"])
+    if method == "RBD":
+        if signature["pair_indices"] != []:
+            raise ValueError("RBD-GRNN artifact cannot contain pair axes.")
+    else:
+        if pairs.ndim != 2 or pairs.shape[1] != 2:
+            raise ValueError(f"{method}-GRNN artifact pair_indices must have shape [P,2].")
+        metadata["pair/numerator_element_idx"] = pairs[:, 0]
+        metadata["pair/denominator_element_idx"] = pairs[:, 1]
+    canonical = read_input_signature(metadata, tuple(shape), method)
+    require_matching_input_signature(canonical, signature, "GRNN artifact physical axes")
+
+
+def load_artifact(path: Path, device: torch.device, *, method: str) -> dict[str, object]:
+    method = validate_method(method)
     artifact = torch.load(path, map_location=device, weights_only=True)
     if not isinstance(artifact, dict):
         raise TypeError(f"GRNN artifact must be a dict, got {type(artifact).__name__}.")
@@ -66,16 +98,15 @@ def load_artifact(path: Path, device: torch.device) -> dict[str, object]:
     missing = required - artifact.keys()
     if missing:
         raise ValueError(f"GRNN artifact missing required fields: {', '.join(sorted(missing))}.")
-    if artifact["artifact_type"] != "scm_grnn_reference" or artifact["method"] != "scm_grnn_range":
-        raise ValueError("Expected an SCM-GRNN reference artifact.")
+    if artifact["artifact_type"] != artifact_type(method) or artifact["method"] != model_name(method):
+        raise ValueError(f"Expected a {method}-GRNN reference artifact; method mismatch.")
     shape = artifact["input_shape"]
     if (not isinstance(shape, (tuple, list)) or len(shape) != 3 or shape[0] != 2
             or any(type(value) is not int or value <= 0 for value in shape)):
-        raise ValueError("GRNN artifact input_shape must be [2,P,F] with positive integer axes.")
+        raise ValueError("GRNN artifact input_shape must be [2,E|P,F] with positive integer axes.")
     if type(artifact["per_sample_channel_norm"]) is not bool:
         raise ValueError("GRNN artifact per_sample_channel_norm must be a boolean.")
-    if not isinstance(artifact["input_signature"], dict) or artifact["input_signature"].get("input_shape") != list(shape):
-        raise ValueError("GRNN artifact input_signature must agree with input_shape.")
+    _validate_artifact_signature(artifact["input_signature"], shape, method)
     expected_dim = math.prod(shape)
     if type(artifact["feature_dim"]) is not int or artifact["feature_dim"] != expected_dim:
         raise ValueError("GRNN artifact feature_dim disagrees with input_shape.")
@@ -106,15 +137,15 @@ def select_sigma_by_validation(
     if not candidates:
         raise ValueError("At least one sigma candidate is required.")
     require_matching_input_signature(train_bundle.input_signature, val_bundle.input_signature, "GRNN validation data")
+    model = GrnnRegressor(
+        spread=candidates[0],
+        standardize_input=standardize_input,
+        device=device,
+    )
+    model.fit_reference(train_bundle.x, train_bundle.y_range_km)
+    predictions = model.predict_candidates(val_bundle.x, candidates=candidates, batch_size=batch_size)
     results: list[dict[str, float]] = []
-    for sigma in candidates:
-        model = ScmGrnnRegressor(
-            spread=sigma,
-            standardize_input=standardize_input,
-            device=device,
-        )
-        model.fit_reference(train_bundle.x, train_bundle.y_range_km)
-        pred = model.predict(val_bundle.x, batch_size=batch_size)
+    for sigma, pred in zip(candidates, predictions):
         metrics = metric_summary(val_bundle.y_range_km, pred)
         row = {"sigma": float(sigma), **metrics}
         results.append(row)
@@ -151,22 +182,22 @@ def select_sigma_by_cv(
     shuffled = torch.randperm(n_samples, generator=generator)
     folds = torch.tensor_split(shuffled, cv_folds)
 
-    results: list[dict[str, float]] = []
-    for sigma in candidates:
-        fold_metrics: list[dict[str, float]] = []
-        for fold_id in range(cv_folds):
-            val_idx = folds[fold_id]
-            train_idx = torch.cat([folds[i] for i in range(cv_folds) if i != fold_id])
-
-            model = ScmGrnnRegressor(
-                spread=sigma,
-                standardize_input=standardize_input,
-                device=device,
-            )
-            model.fit_reference(bundle.x[train_idx], bundle.y_range_km[train_idx])
-            pred = model.predict(bundle.x[val_idx], batch_size=batch_size)
+    candidate_metrics: list[list[dict[str, float]]] = [[] for _ in candidates]
+    for fold_id in range(cv_folds):
+        val_idx = folds[fold_id]
+        train_idx = torch.cat([folds[i] for i in range(cv_folds) if i != fold_id])
+        model = GrnnRegressor(
+            spread=candidates[0],
+            standardize_input=standardize_input,
+            device=device,
+        )
+        model.fit_reference(bundle.x[train_idx], bundle.y_range_km[train_idx])
+        predictions = model.predict_candidates(bundle.x[val_idx], candidates=candidates, batch_size=batch_size)
+        for fold_metrics, pred in zip(candidate_metrics, predictions):
             fold_metrics.append(metric_summary(bundle.y_range_km[val_idx], pred))
 
+    results: list[dict[str, float]] = []
+    for sigma, fold_metrics in zip(candidates, candidate_metrics):
         row = {
             "sigma": float(sigma),
             "mean_mae_km": float(sum(m["mae_km"] for m in fold_metrics) / cv_folds),
@@ -186,6 +217,9 @@ def select_sigma_by_cv(
 
 
 def build_command(args: argparse.Namespace) -> None:
+    args.method = validate_method(args.method)
+    if args.output_dir is None:
+        args.output_dir = default_output_dir(args.method)
     device = torch.device(args.device)
     train_paths = resolve_h5_paths(
         args.train_data if args.train_data is not None else [dataset_train_glob(args.data)]
@@ -197,8 +231,9 @@ def build_command(args: argparse.Namespace) -> None:
     )
 
     print(f"Loading reference HDF5 files: {len(train_paths)}")
-    train_bundle = load_scm_grnn_features(
+    train_bundle = load_grnn_features(
         train_paths,
+        method=args.method,
         per_sample_channel_norm=args.per_sample_channel_norm,
         max_samples=args.max_reference_samples,
     )
@@ -214,8 +249,9 @@ def build_command(args: argparse.Namespace) -> None:
 
     if val_paths:
         print(f"Loading validation HDF5 files for sigma selection: {len(val_paths)}")
-        val_bundle = load_scm_grnn_features(
+        val_bundle = load_grnn_features(
             val_paths,
+            method=args.method,
             per_sample_channel_norm=args.per_sample_channel_norm,
             max_samples=args.max_validation_samples,
         )
@@ -246,17 +282,18 @@ def build_command(args: argparse.Namespace) -> None:
         print("--sigma-candidates were provided but no --val-data or --cv-folds > 1 was set.")
         print(f"Using --spread {sigma:g} without sigma search.")
 
-    model = ScmGrnnRegressor(
+    model = GrnnRegressor(
         spread=sigma,
         standardize_input=args.standardize_input,
         device=device,
     )
     model.fit_reference(train_bundle.x, train_bundle.y_range_km)
 
-    _, pairs, freq_bins = train_bundle.input_shape
+    _, feature_count, freq_bins = train_bundle.input_shape
+    feature_axis = "elements" if args.method == "RBD" else "pair-vector entries"
     artifact = {
-        "artifact_type": "scm_grnn_reference",
-        "method": "scm_grnn_range",
+        "artifact_type": artifact_type(args.method),
+        "method": model_name(args.method),
         "dataset_name": args.data,
         "input_shape": train_bundle.input_shape,
         "input_signature": train_bundle.input_signature,
@@ -271,7 +308,7 @@ def build_command(args: argparse.Namespace) -> None:
 
     run_suffix = time_suffix()
     dataset_name = safe_name(args.data)
-    ref_dir = reference_output_dir(args.output_dir)
+    ref_dir = reference_output_dir(args.output_dir, method=args.method)
     ref_dir.mkdir(parents=True, exist_ok=True)
     reference_path = with_time_suffix(ref_dir / f"{dataset_name}_reference.pt", run_suffix)
     torch.save(artifact, reference_path)
@@ -286,7 +323,7 @@ def build_command(args: argparse.Namespace) -> None:
     print(f"Reference files: {len(train_paths)}")
     print(
         "Input: "
-        f"2 x {pairs} pair-vector entries x {freq_bins} freq bins "
+        f"2 x {feature_count} {feature_axis} x {freq_bins} freq bins "
         f"= {artifact['feature_dim']} GRNN input nodes"
     )
     print(f"Pattern layer size: {artifact['reference_sample_count']}")
@@ -300,16 +337,20 @@ def build_command(args: argparse.Namespace) -> None:
 
 
 def predict_command(args: argparse.Namespace) -> None:
+    args.method = validate_method(args.method)
+    if args.output_dir is None:
+        args.output_dir = default_output_dir(args.method)
     device = torch.device(args.device)
     reference_path = resolve_reference_path(args)
-    artifact = load_artifact(reference_path, device)
-    model = ScmGrnnRegressor.from_artifact(artifact, device=device)
+    artifact = load_artifact(reference_path, device, method=args.method)
+    model = GrnnRegressor.from_artifact(artifact, device=device)
 
     input_paths = resolve_h5_paths(
         args.input_data if args.input_data is not None else [dataset_test_glob(args.data)]
     )
-    bundle = load_scm_grnn_features(
+    bundle = load_grnn_features(
         input_paths,
+        method=args.method,
         per_sample_channel_norm=bool(artifact.get("per_sample_channel_norm", False)),
         max_samples=args.max_predict_samples,
     )
@@ -345,7 +386,7 @@ def predict_command(args: argparse.Namespace) -> None:
     run_suffix = time_suffix()
     dataset_name = safe_name(args.data)
     if args.predictions_csv is None:
-        csv_base = test_output_dir(args.output_dir) / f"{dataset_name}_predictions.csv"
+        csv_base = test_output_dir(args.output_dir, method=args.method) / f"{dataset_name}_predictions.csv"
     else:
         csv_base = args.predictions_csv
     csv_path = with_time_suffix(csv_base, run_suffix)
@@ -354,11 +395,11 @@ def predict_command(args: argparse.Namespace) -> None:
 
     if not args.no_plot:
         if args.plot_path is None:
-            plot_base = test_output_dir(args.output_dir) / f"{dataset_name}_range_prediction.pdf"
+            plot_base = test_output_dir(args.output_dir, method=args.method) / f"{dataset_name}_range_prediction.pdf"
         else:
             plot_base = args.plot_path
         plot_path = with_time_suffix(plot_base, run_suffix)
-        save_prediction_plot(rows, plot_path, title="SCM-GRNN Source Range Prediction")
+        save_prediction_plot(rows, plot_path, title=f"{args.method}-GRNN Source Range Prediction")
         print(f"Wrote prediction plot: {plot_path}")
 
     mae = total_abs_error / max(1, len(rows))
@@ -374,20 +415,21 @@ def predict_command(args: argparse.Namespace) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Standalone GRNN for native or MATLAB-reversed SCM HDF5 datasets.",
+        description="Standalone GRNN for native or MATLAB-reversed RBD/ELM/SCM HDF5 datasets.",
         allow_abbrev=False
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     build_parser_ = subparsers.add_parser(
         "build",
-        help="Build a GRNN reference artifact from SCM HDF5 training files.",
+        help="Build a GRNN reference artifact from the selected method HDF5 training files.",
         allow_abbrev=False,
     )
+    build_parser_.add_argument("--method", required=True, choices=METHODS)
     build_parser_.add_argument("--data", required=True, help="Dataset code under outputs/Datasets.")
     build_parser_.add_argument("--train-data", nargs="+", default=None)
     build_parser_.add_argument("--val-data", nargs="+", default=None)
-    build_parser_.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    build_parser_.add_argument("--output-dir", type=Path, default=None, help="Defaults to outputs/networks_results/<METHOD>.")
     build_parser_.add_argument("--spread", type=float, default=0.01)
     build_parser_.add_argument("--sigma-candidates", nargs="+", type=float, default=None)
     build_parser_.add_argument("--cv-folds", type=int, default=0)
@@ -402,13 +444,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     predict_parser = subparsers.add_parser(
         "predict",
-        help="Run a saved GRNN reference artifact on SCM HDF5 test files.",
+        help="Run a method-matching GRNN reference artifact on HDF5 test files.",
         allow_abbrev=False,
     )
+    predict_parser.add_argument("--method", required=True, choices=METHODS)
     predict_parser.add_argument("--data", required=True, help="Dataset code under outputs/Datasets.")
     predict_parser.add_argument("--input-data", nargs="+", default=None)
     predict_parser.add_argument("--reference", type=Path, default=None)
-    predict_parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    predict_parser.add_argument("--output-dir", type=Path, default=None, help="Defaults to outputs/networks_results/<METHOD>.")
     predict_parser.add_argument("--batch-size", type=int, default=128)
     predict_parser.add_argument("--device", default=default_device())
     predict_parser.add_argument("--predictions-csv", type=Path, default=None)
@@ -422,6 +465,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def validate_arguments(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    try:
+        args.method = validate_method(args.method)
+    except ValueError as exc:
+        parser.error(str(exc))
+    if args.output_dir is None:
+        args.output_dir = default_output_dir(args.method)
     for name in ("batch_size", "max_reference_samples", "max_validation_samples", "max_predict_samples"):
         value = getattr(args, name, None)
         if value is not None and value <= 0:

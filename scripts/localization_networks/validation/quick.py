@@ -45,7 +45,7 @@ def syntax_check():
 def imports_check():
     names = [f"{PACKAGE}.common.{path.stem}" for path in sorted((SCRIPTS / "common").glob("*.py"))
              if path.name != "__init__.py" and not path.name.startswith("._")]
-    names += [f"{PACKAGE}.grnn.{name}" for name in ("model", "data", "paths", "cli")]
+    names += [f"{PACKAGE}.grnn.{name}" for name in ("bindings", "model", "data", "paths", "cli")]
     names.append("scripts.data_processing.generation_config")
     for method in METHODS:
         for path in sorted((SCRIPTS / f"{package_name(method)}" / "network").rglob("*.py")):
@@ -62,10 +62,10 @@ def imports_check():
     return {"modules": len(set(names))}
 
 
-def cli_check(method):
-    selection = resolve_selection("SCM" if method == "GRNN" else method, "GRNN" if method == "GRNN" else "complex_CNN")
+def cli_check(method, *, grnn=False):
+    selection = resolve_selection(method, "GRNN" if grnn else "complex_CNN")
     entry = ROOT / entry_script(selection)
-    commands = ([], ["build" if method == "GRNN" else "train"], ["predict"])
+    commands = ([], ["build" if grnn else "train"], ["predict"])
     results = []
     for command in commands:
         proc = run_process([sys.executable, str(entry), *command, "--help"], cwd=ROOT,
@@ -73,11 +73,16 @@ def cli_check(method):
         require(proc.returncode == 0 and "usage:" in proc.stdout.lower(),
                 f"{entry} {' '.join(command)} --help: exit={proc.returncode}\n{proc.stdout}\n{proc.stderr}")
         results.append({"arguments": [*command, "--help"], "exit_code": proc.returncode})
-    parser_module = grnn_module("cli") if method == "GRNN" else importlib.import_module(f"{PACKAGE}.{package_name(method)}.network.cli")
+    parser_module = grnn_module("cli") if grnn else importlib.import_module(f"{PACKAGE}.{package_name(method)}.network.cli")
     parser = parser_module.build_parser()
-    if method != "GRNN":
+    if not grnn:
         require(set(parser_module.MODEL_CHOICES) == set(model_module(method).MODEL_REGISTRY), "CLI model choices differ from registry")
-    return {"commands": results}
+    else:
+        for command in ("build", "predict"):
+            parsed = parser.parse_args([command, "--method", method, "--data", "fixture"])
+            parser_module.validate_arguments(parsed, parser)
+            require(parsed.method == method, "GRNN CLI lost explicit feature method")
+    return {"method": method, "commands": results}
 
 
 def device_check(device):
@@ -128,9 +133,9 @@ def workflow_registry_check():
         mapped = [resolve_selection(method, name) for name in neural]
         require({row["model"] for row in mapped} == set(registry),
                 f"{method} public architecture mapping differs from its actual model registry")
-        require("scm_grnn_range" not in registry, "GRNN must remain outside trainable registries")
+        require(not any(name.endswith("_grnn_range") for name in registry), "GRNN must remain outside trainable registries")
         selections.extend(mapped)
-    selections.append(resolve_selection("SCM", "GRNN"))
+    selections.extend(resolve_selection(method, "GRNN") for method in METHODS)
     return {"selections": selections, "count": len(selections)}
 
 
@@ -260,12 +265,11 @@ def loader_check(method):
                 require(torch.allclose(x.std((1, 2)), torch.ones(2), atol=2e-5), "channel scales not normalized")
             finally:
                 normalized.close()
-            if method == "SCM":
-                load_scm_grnn_features = grnn_module("data").load_scm_grnn_features
-                bundle = load_scm_grnn_features([fixture])
-                expected = np.stack([features[s].transpose(2, 0, 1).reshape(-1) for s in keep])
-                require(np.array_equal(bundle.x.numpy(), expected), "GRNN SCM flatten order differs from CHW contract")
-                require(bundle.source_segment_idx == [51 + s for s in keep], "GRNN source filtering incorrect")
+            load_grnn_features = grnn_module("data").load_grnn_features
+            bundle = load_grnn_features([fixture], method=method)
+            expected = np.stack([features[s].transpose(2, 0, 1).reshape(-1) for s in keep])
+            require(np.array_equal(bundle.x.numpy(), expected), f"GRNN {method} flatten order differs from CHW contract")
+            require(bundle.source_segment_idx == [51 + s for s in keep], "GRNN source filtering incorrect")
             variants.append("MATLAB-reversed" if reverse else "native")
             # Historical files may omit declarations; retain that input contract.
             import h5py
@@ -297,10 +301,9 @@ def loader_check(method):
                 for index in range(2):
                     expected = torch.from_numpy(small_features[index].transpose(2, 0, 1).copy())
                     require(torch.equal(tiny[index][0], expected), "sample axis of length two confused with RI axis")
-                if method == "SCM":
-                    small_grnn = grnn_module("data").load_scm_grnn_features([small])
-                    expected_flat = np.stack([small_features[s].transpose(2, 0, 1).reshape(-1) for s in range(2)])
-                    require(np.array_equal(small_grnn.x.numpy(), expected_flat), "GRNN declared two-sample axes incorrect")
+                small_grnn = load_grnn_features([small], method=method)
+                expected_flat = np.stack([small_features[s].transpose(2, 0, 1).reshape(-1) for s in range(2)])
+                require(np.array_equal(small_grnn.x.numpy(), expected_flat), "GRNN declared two-sample axes incorrect")
             finally:
                 tiny.close()
         constant = directory / "constant.h5"
@@ -344,11 +347,11 @@ def loader_check(method):
 
 def grnn_check(device):
     import torch
-    ScmGrnnRegressor = grnn_module("model").ScmGrnnRegressor
+    GrnnRegressor = grnn_module("model").GrnnRegressor
     reference = torch.tensor([[-1.0, 2.0], [1.0, 2.0]])
     targets = torch.tensor([[2.0], [8.0]])
     queries = torch.tensor([[-1.0, 2.0], [0.0, 2.0], [1.0, 2.0], [100.0, 2.0]])
-    model = ScmGrnnRegressor(spread=0.01, device=device)
+    model = GrnnRegressor(spread=0.01, device=device)
     try:
         model.predict(queries)
     except RuntimeError:
@@ -362,23 +365,23 @@ def grnn_check(device):
     require(torch.allclose(values[:3], torch.tensor([[2.0], [5.0], [8.0]]), atol=1e-5), "reference point/symmetry limit incorrect")
     require(bool(((values >= 2.0) & (values <= 8.0)).all()), "positive-kernel regression left reference target convex hull")
     require(torch.equal(values, model.predict(queries, batch_size=4)), "batch size affects predictions")
-    restored = ScmGrnnRegressor.from_artifact(model.to_artifact(), device=device)
+    restored = GrnnRegressor.from_artifact(model.to_artifact(), device=device)
     require(torch.equal(values, restored.predict(queries)), "artifact round trip changes predictions")
-    permuted = ScmGrnnRegressor(spread=0.01, device=device)
+    permuted = GrnnRegressor(spread=0.01, device=device)
     permuted.fit_reference(reference.flip(0), targets.flip(0))
     require(torch.allclose(values, permuted.predict(queries), atol=1e-6), "reference order affects predictions")
-    standardized = ScmGrnnRegressor(spread=0.3, standardize_input=True, device=device)
+    standardized = GrnnRegressor(spread=0.3, standardize_input=True, device=device)
     standardized.fit_reference(reference, targets)
-    rescaled = ScmGrnnRegressor(spread=0.3, standardize_input=True, device=device)
+    rescaled = GrnnRegressor(spread=0.3, standardize_input=True, device=device)
     scale = torch.tensor([3.0, 4.0]); shift = torch.tensor([9.0, -7.0])
     rescaled.fit_reference(reference * scale + shift, targets)
     require(torch.allclose(standardized.predict(queries), rescaled.predict(queries * scale + shift), atol=2e-5), "standardized GRNN not invariant under feature units/offset")
-    constant = ScmGrnnRegressor(spread=0.1, standardize_input=True, device=device)
+    constant = GrnnRegressor(spread=0.1, standardize_input=True, device=device)
     constant.fit_reference(reference, torch.full((2, 1), 3.25))
     require(torch.allclose(constant.predict(queries), torch.full((4, 1), 3.25)), "GRNN does not preserve constant targets")
     for spread in (0.0, -0.1):
         try:
-            ScmGrnnRegressor(spread=spread, device=device)
+            GrnnRegressor(spread=spread, device=device)
         except ValueError:
             pass
         else:
@@ -391,8 +394,9 @@ def quick(report, device):
     report.check("python.syntax", syntax_check)
     report.check("runtime.cpu_threads", threads_check)
     report.check("python.imports", imports_check)
-    for method in (*METHODS, "GRNN"):
+    for method in METHODS:
         report.check(f"cli.{method}", lambda m=method: cli_check(m))
+        report.check(f"cli.GRNN.{method}", lambda m=method: cli_check(m, grnn=True))
     usable = report.check("runtime.device", lambda: device_check(device))
     report.check("shared.paths_and_splits", shared_check)
     report.check("workflow.unit_tests", workflow_tests_check)

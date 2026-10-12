@@ -1,1 +1,1 @@
-"""Trainable localization networks and standalone SCM-GRNN."""
+"""Trainable localization networks and standalone RBD/ELM/SCM GRNN."""

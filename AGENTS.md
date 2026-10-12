@@ -6,7 +6,7 @@ Workspace instructions for agents working in SwellEx.
 
 Range regression on SwellEx-96 VLA data. Python generates RBD/ELM/SCM HDF5
 features; independent PyTorch packages train CNN/ResNet regressors. Standalone
-SCM-GRNN uses `build`/`predict`, with no epochs or optimizer.
+RBD/ELM/SCM GRNN uses `build`/`predict`, with no epochs or optimizer.
 
 Edit code/configuration/docs locally. Run data generation, numerical tests,
 training, prediction, and plotting on SSH host `haiqin`. Use the frozen uv

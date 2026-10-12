@@ -28,7 +28,7 @@ def valid_config():
 
 
 class PlanTests(unittest.TestCase):
-    def test_all_thirteen_mappings_match_current_registries(self):
+    def test_all_fifteen_mappings_match_current_registries(self):
         selections = []
         for method in tasks.METHODS:
             tree = ast.parse((PROJECT / "scripts/localization_networks" / f"{method.lower()}/network/model.py").read_text())
@@ -42,13 +42,16 @@ class PlanTests(unittest.TestCase):
                     self.assertEqual(tasks.validate_selection(item), item)
                     self.assertEqual(tasks.model_plan("selected", item), [item])
                     selections.append(item)
-        grnn = tasks.resolve_selection("SCM", "GRNN")
-        self.assertEqual(grnn["model"], "scm_grnn_range")
-        selections.append(grnn)
-        self.assertEqual(len({item["model"] for item in selections}), 13)
+        for method in tasks.METHODS:
+            grnn = tasks.resolve_selection(method, "GRNN")
+            self.assertEqual(grnn["model"], f"{method.lower()}_grnn_range")
+            self.assertEqual(tasks.entry_script(grnn), "scripts/localization_networks/grnn/main.py")
+            self.assertEqual(tasks.validate_selection(grnn), grnn)
+            selections.append(grnn)
+        self.assertEqual(len({item["model"] for item in selections}), 15)
 
     def test_noncanonical_and_malformed_selections_rejected(self):
-        for method, architecture in (("rbd", "complex_CNN"), ("RBD", "complex_cnn"), ("RBD", "ResNet34"), ("ELM", "GRNN"), ("RBD", "GRNN"), (None, "ResNet18"), ("SCM", [])):
+        for method, architecture in (("rbd", "complex_CNN"), ("RBD", "complex_cnn"), ("RBD", "ResNet34"), (None, "ResNet18"), ("SCM", [])):
             with self.subTest(method=method, architecture=architecture), self.assertRaises(ValueError):
                 tasks.resolve_selection(method, architecture)
         baseline = tasks.resolve_selection("ELM", "ResNet18")
@@ -59,11 +62,11 @@ class PlanTests(unittest.TestCase):
 
     def test_suite_plans_preserve_validation_scope(self):
         self.assertEqual(tasks.model_plan("quick"), [])
-        self.assertEqual(tasks.model_plan("smoke"), [tasks.resolve_selection(method, "complex_CNN") for method in tasks.METHODS] + [tasks.resolve_selection("SCM", "GRNN")])
+        self.assertEqual(tasks.model_plan("smoke"), [tasks.resolve_selection(method, "complex_CNN") for method in tasks.METHODS] + [tasks.resolve_selection(method, "GRNN") for method in tasks.METHODS])
         experiment = tasks.model_plan("experiment")
-        self.assertEqual(len(experiment), 13)
+        self.assertEqual(len(experiment), 15)
         self.assertEqual(experiment[-1], tasks.resolve_selection("SCM", "GRNN"))
-        self.assertEqual(len({item["model"] for item in experiment}), 13)
+        self.assertEqual(len({item["model"] for item in experiment}), 15)
         for suite, selection in (("unknown", None), ("selected", None), ("smoke", experiment[0]), ("quick", experiment[0]), ("experiment", experiment[0])):
             with self.subTest(suite=suite), self.assertRaises(ValueError):
                 tasks.model_plan(suite, selection)
@@ -74,9 +77,9 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(tasks.expected_phases("quick"), quick)
         data = {"original_data_identity", "data_generation", "dataset_contract", "visualization"}
         for suite in ("smoke", "experiment"):
-            evaluations = {"evaluate_grnn" if item["architecture"] == "GRNN" else f"evaluate_{item['method']}_{item['model']}" for item in tasks.model_plan(suite)}
+            evaluations = {f"evaluate_{item['method']}_{item['model']}" for item in tasks.model_plan(suite)}
             self.assertEqual(tasks.expected_phases(suite), quick | data | evaluations | {"checkpoint_resume"})
-        for method, architecture, evaluation in (("ELM", "ResNet50", "evaluate_ELM_elm_resnet50_range"), ("SCM", "GRNN", "evaluate_grnn")):
+        for method, architecture, evaluation in (("ELM", "ResNet50", "evaluate_ELM_elm_resnet50_range"), ("RBD", "GRNN", "evaluate_RBD_rbd_grnn_range"), ("ELM", "GRNN", "evaluate_ELM_elm_grnn_range"), ("SCM", "GRNN", "evaluate_SCM_scm_grnn_range")):
             self.assertEqual(tasks.expected_phases("selected", tasks.resolve_selection(method, architecture)), base | data | {evaluation})
 
 
@@ -94,13 +97,19 @@ class SelectedCliTests(unittest.TestCase):
         self.assertEqual(original, before)
 
     def test_grnn_epochs_and_invalid_overrides_reject_before_dispatch(self):
-        cases = [("SCM", "GRNN", {"epochs": 1}), ("RBD", "GRNN", {}), ("RBD", "real_CNN", {"epochs": 0}), ("RBD", "real_CNN", {"epochs": True}), ("RBD", "real_CNN", {"seed": -1}), ("RBD", "real_CNN", {"seed": False}), ("RBD", "real_CNN", {"seed": 2**32}), ("SCM", "GRNN", {"seed": 2**32})]
+        cases = [(method, "GRNN", {"epochs": 1}) for method in tasks.METHODS] + [("RBD", "real_CNN", {"epochs": 0}), ("RBD", "real_CNN", {"epochs": True}), ("RBD", "real_CNN", {"seed": -1}), ("RBD", "real_CNN", {"seed": False}), ("RBD", "real_CNN", {"seed": 2**32}), ("SCM", "GRNN", {"seed": 2**32})]
         with mock.patch.object(remote, "dispatch") as dispatch, mock.patch.object(remote, "remote_python") as ssh:
             for method, architecture, options in cases:
                 with self.subTest(method=method, architecture=architecture, options=options), self.assertRaises(ValueError):
                     remote.selected_run(valid_config(), method, architecture, False, False, False, **options)
         dispatch.assert_not_called()
         ssh.assert_not_called()
+
+    def test_each_grnn_method_routes_to_its_canonical_selection(self):
+        for method in tasks.METHODS:
+            with self.subTest(method=method), mock.patch.object(remote, "dispatch", return_value=0) as dispatch:
+                self.assertEqual(remote.selected_run(valid_config(), method, "GRNN", False, True, False), 0)
+                self.assertEqual(dispatch.call_args.kwargs["selection"], tasks.resolve_selection(method, "GRNN"))
 
     def test_config_placement_for_all_commands(self):
         parser = remote.make_parser()
@@ -237,7 +246,7 @@ class ShellEntryTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="swellex shell fixture ")
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        self.root = Path(temporary.name).resolve()
         (self.root / "scripts").mkdir()
         shutil.copyfile(PROJECT / "scripts/run.sh", self.root / "scripts/run.sh")
         self.capture = self.root / "capture.json"

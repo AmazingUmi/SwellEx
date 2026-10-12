@@ -23,7 +23,7 @@ class SelectedWorkerTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="swellex-selected-worker-")
         self.addCleanup(self.temporary.cleanup)
-        self.workspace = Path(self.temporary.name) / "workspace"
+        self.workspace = Path(self.temporary.name).resolve() / "workspace"
         self.run = self.workspace / "runs" / RUN_ID
         self.project = self.run / "project"
         self.project.mkdir(parents=True)
@@ -78,7 +78,7 @@ class SelectedWorkerTests(unittest.TestCase):
             identity = stack.enter_context(mock.patch.object(instance, "data_identity", return_value={"inputs": 24}))
             stack.enter_context(mock.patch.object(instance, "datasets", side_effect=datasets))
             neural = stack.enter_context(mock.patch.object(instance, "train_predict", side_effect=metric))
-            grnn = stack.enter_context(mock.patch.object(instance, "grnn", return_value=metric("SCM", "scm_grnn_range")))
+            grnn = stack.enter_context(mock.patch.object(instance, "grnn", side_effect=lambda method: metric(method, tasks.resolve_selection(method, "GRNN")["model"])))
             resume = stack.enter_context(mock.patch.object(instance, "checkpoint_resume"))
             visualization = stack.enter_context(mock.patch.object(instance, "visualize", return_value={"status": "PASS"}))
             code = instance.execute()
@@ -95,6 +95,7 @@ class SelectedWorkerTests(unittest.TestCase):
         calls["identity"].assert_called_once()
         calls["visualization"].assert_called_once()
         self.assertEqual(instance.report["selection"], self.request["selection"])
+        self.assertEqual(instance.report["model_plan"], [self.request["selection"]])
         self.assertEqual(instance.report["suite"], "selected")
         self.assertEqual(instance.report["purpose"], "configured_single_model_without_accuracy_acceptance_threshold")
         self.assertEqual(instance.report["not_run"], [])
@@ -102,20 +103,23 @@ class SelectedWorkerTests(unittest.TestCase):
         self.assertEqual(json.loads((self.run / "export/data/report.json").read_text())["status"], "PASS")
 
     def test_selected_grnn_execute_has_no_neural_training_or_resume(self):
-        self.select("SCM", "GRNN")
-        instance = self.instance()
-        code, calls = self.execute_mocked(instance)
-        self.assertEqual(code, 0)
-        calls["grnn"].assert_called_once()
-        for name in ("neural", "resume", "quick"):
-            calls[name].assert_not_called()
-        phases = {row["name"] for row in instance.report["checks"]}
-        self.assertIn("evaluate_grnn", phases)
-        self.assertFalse(any(name.startswith("evaluate_RBD") for name in phases))
-        self.assertEqual(instance.report["not_run"], [])
+        for method in tasks.METHODS:
+            with self.subTest(method=method):
+                self.select(method, "GRNN")
+                instance = self.instance()
+                code, calls = self.execute_mocked(instance)
+                self.assertEqual(code, 0)
+                calls["grnn"].assert_called_once_with(method)
+                for name in ("neural", "resume", "quick"):
+                    calls[name].assert_not_called()
+                phases = {row["name"] for row in instance.report["checks"]}
+                self.assertEqual({name for name in phases if name.startswith("evaluate_")},
+                                 {f"evaluate_{method}_{method.lower()}_grnn_range"})
+                self.assertEqual(instance.report["model_plan"], [self.request["selection"]])
+                self.assertEqual(instance.report["not_run"], [])
 
     def test_existing_suites_preserve_validation_and_model_scope(self):
-        for suite, neural_count, grnn_count, resume_count in (("quick", 0, 0, 0), ("smoke", 3, 1, 1), ("experiment", 12, 1, 1)):
+        for suite, neural_count, grnn_count, resume_count in (("quick", 0, 0, 0), ("smoke", 3, 3, 1), ("experiment", 12, 3, 1)):
             with self.subTest(suite=suite):
                 self.select(suite=suite)
                 instance = self.instance()
@@ -124,12 +128,15 @@ class SelectedWorkerTests(unittest.TestCase):
                 self.assertEqual([call.args[0] for call in calls["quick"].call_args_list], ["python_quick", "data_numerical"])
                 self.assertEqual(calls["neural"].call_count, neural_count)
                 self.assertEqual(calls["grnn"].call_count, grnn_count)
+                self.assertEqual(calls["grnn"].call_args_list,
+                                 [] if suite == "quick" else [mock.call(method) for method in tasks.METHODS])
                 self.assertEqual(calls["resume"].call_count, resume_count)
                 if suite == "smoke":
                     self.assertEqual(calls["neural"].call_args_list, [mock.call("RBD", "complex_cnn_range"), mock.call("ELM", "elm_complex_cnn_range"), mock.call("SCM", "scm_complex_cnn_range")])
                 if suite == "experiment":
                     self.assertIn(mock.call("SCM", "scm_resnet50_range"), calls["neural"].call_args_list)
                 self.assertNotIn("selection", instance.report)
+                self.assertEqual(instance.report["model_plan"], tasks.model_plan(suite))
                 self.assertEqual(instance.report["not_run"], [])
 
     def test_selected_setup_rejects_schema_and_model_mapping_tampering(self):
@@ -174,7 +181,7 @@ class SelectedWorkerTests(unittest.TestCase):
             self.instance().setup()
 
     def test_selected_failure_only_lists_selected_dependent_work(self):
-        for method, architecture, evaluation in (("ELM", "ResNet18", "evaluate_ELM_elm_resnet18_range"), ("SCM", "GRNN", "evaluate_grnn")):
+        for method, architecture, evaluation in (("ELM", "ResNet18", "evaluate_ELM_elm_resnet18_range"), ("RBD", "GRNN", "evaluate_RBD_rbd_grnn_range"), ("ELM", "GRNN", "evaluate_ELM_elm_grnn_range"), ("SCM", "GRNN", "evaluate_SCM_scm_grnn_range")):
             with self.subTest(architecture=architecture):
                 self.select(method, architecture)
                 instance = self.instance()
@@ -238,35 +245,43 @@ class SelectedWorkerTests(unittest.TestCase):
         self.assertEqual(result["mae_km"], 0.25)
 
     def test_grnn_commands_only_build_and_predict_explicit_reference(self):
-        self.select("SCM", "GRNN")
-        instance = self.prepare_operation()
-        output = self.project / "outputs/networks_results/SCM/scm_grnn_range"
-        reference = output / "reference_outputs/fixture_reference_1008_120000.pt"
+        for method in tasks.METHODS:
+            with self.subTest(method=method):
+                self.select(method, "GRNN")
+                instance = self.prepare_operation()
+                model = tasks.resolve_selection(method, "GRNN")["model"]
+                output = self.project / "outputs/networks_results" / method / model
+                reference = output / "reference_outputs/fixture_reference_1008_120000.pt"
 
-        def command(name, argv, timeout):
-            if name == "grnn_build":
-                reference.parent.mkdir(parents=True)
-                reference.write_bytes(b"reference fixture")
-            else:
-                self.predictions(output / "test_outputs")
+                def command(name, argv, timeout):
+                    if name == f"grnn_{method}_build":
+                        reference.parent.mkdir(parents=True)
+                        reference.write_bytes(b"reference fixture")
+                    else:
+                        self.predictions(output / "test_outputs")
 
-        with mock.patch.object(instance, "command", side_effect=command) as commands, mock.patch.object(instance, "test_rows", return_value=[(5, 4.5, 2.0)]):
-            result = instance.grnn()
-        build, predict = [call.args[1] for call in commands.call_args_list]
-        self.assertEqual(build[3], "build")
-        self.assertEqual(predict[3], "predict")
-        self.assertIn("--cv-folds", build)
-        self.assertIn("--sigma-candidates", build)
-        for argv in (build, predict):
-            self.assertNotIn("--epochs", argv)
-            self.assertNotIn("train", argv)
-            self.assertNotIn("--model", argv)
-        self.assertEqual(predict[predict.index("--reference") + 1], str(reference))
-        self.assertEqual(predict[predict.index("--batch-size") + 1], str(self.config["grnn"]["batch_size"]))
-        self.assertIn("--no-plot", predict)
-        self.assertFalse(list(output.rglob("*.pdf")))
-        self.assertEqual(result["reference"], str(reference))
-        self.assertEqual(result["mae_km"], 0.25)
+                with mock.patch.object(instance, "command", side_effect=command) as commands, mock.patch.object(instance, "test_rows", return_value=[(5, 4.5, 2.0)]):
+                    result = instance.grnn(method)
+                self.assertEqual([call.args[0] for call in commands.call_args_list],
+                                 [f"grnn_{method}_build", f"grnn_{method}_predict"])
+                build, predict = [call.args[1] for call in commands.call_args_list]
+                self.assertEqual(build[3], "build")
+                self.assertEqual(predict[3], "predict")
+                self.assertIn("--cv-folds", build)
+                self.assertIn("--sigma-candidates", build)
+                for argv in (build, predict):
+                    self.assertNotIn("--epochs", argv)
+                    self.assertNotIn("train", argv)
+                    self.assertNotIn("--model", argv)
+                    self.assertEqual(argv[argv.index("--method") + 1], method)
+                    self.assertEqual(argv[argv.index("--data") + 1], instance.dataset_dirs[method])
+                self.assertEqual(predict[predict.index("--reference") + 1], str(reference))
+                self.assertEqual(predict[predict.index("--batch-size") + 1], str(self.config["grnn"]["batch_size"]))
+                self.assertIn("--no-plot", predict)
+                self.assertFalse(list(output.rglob("*.pdf")))
+                self.assertEqual((result["method"], result["model"]), (method, model))
+                self.assertEqual(result["reference"], str(reference))
+                self.assertEqual(result["mae_km"], 0.25)
 
 
 if __name__ == "__main__":

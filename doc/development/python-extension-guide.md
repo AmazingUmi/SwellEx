@@ -1,7 +1,7 @@
 # Python Extension Guide
 
 Neural packages are `scripts/localization_networks/rbd/`, `elm/`, and `scm/`;
-standalone SCM-GRNN lives in `grnn/`. Each has one `main.py` entry point.
+standalone RBD/ELM/SCM GRNN lives in `grnn/`. Each has one `main.py` entry point.
 Keep shared path, split, training, and prediction logic in `common/`, and
 method-specific tensor layouts in each package. Read the
 [HDF5 contract](../datasets/hdf5-datasets-and-splits.md) before loader changes;
@@ -22,8 +22,13 @@ ELM and SCM have the same tensor rank but different pair semantics.
    cover the new model with a focused remote forward/backward check.
 
 Existing families are described in [model architecture](../methods/trainable-model-architecture.md).
-The current SCM-GRNN stores reference samples and is not a trainable
+GRNN stores method-specific reference samples and is not a trainable
 `nn.Module`; keep it outside these registries.
+
+GRNN feature selection uses explicit `--method RBD|ELM|SCM`; `grnn/bindings.py`
+owns canonical method/model/artifact identities. The common GRNN loader reuses
+each method's HDF5 dataset with neural normalization disabled, then applies
+the requested GRNN preprocessing and preserves CHW flatten order.
 
 ## Add or Change a Loader
 

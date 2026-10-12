@@ -43,6 +43,12 @@ HDF5 datasets, checkpoints, and GRNN references remain on haiqin in the run's
 | How did neural training evolve? | `models/<METHOD>/<model>/training/history.pdf` | Original train/validation loss, MAE, and RMSE by epoch |
 | Which GRNN sigma was selected? | `grnn/` | CV mean or held-out metrics; minimum-MAPE sigma marked |
 
+`range-time`, `prediction-scatter`, and `residuals-time` place each feature
+method in its own row, ordered RBD, ELM, SCM. Shared model columns follow
+complex CNN, real CNN, ResNet18, ResNet50, GRNN; the GRNN column is populated
+for RBD, ELM, and SCM in new complete runs. Model selection omits unused rows/columns and hides missing
+feature/model panels while retaining the shared scales.
+
 A selected run has five aggregate prediction/error figures, one per-model
 prediction figure, and its neural history or GRNN search figure when applicable.
 GRNN has no epoch history. All figures are PDF; no PNG files are saved.
@@ -100,8 +106,10 @@ scientific result figures.
 
 Before rendering, the public CLI checks:
 
-- The complete canonical model plan: four models for smoke, thirteen for
+- The recorded complete model plan: six models for smoke, fifteen for
   experiment, or the single selected model. Unknown or missing models fail.
+  Historical four/thirteen-model reports are accepted only with the known
+  SCM-only source-plan identity; this does not relax new report completeness.
 - Passed evaluation phases for every model in that plan.
 - Exactly one prediction CSV per model, and one history file per neural model.
 - Finite, well-formed rows and consistent recorded errors, metrics, and loss space.

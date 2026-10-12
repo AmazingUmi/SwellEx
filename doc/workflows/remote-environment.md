@@ -45,7 +45,8 @@ and use shorter cleanup grace periods so children stop before the parent.
 ## Manual Commands in a Frozen Run
 
 1. Choose a PASS selected/smoke/experiment run; these runs have datasets for manual commands.
-2. Open local `output/data/<run_id>/report.json` and copy `remote_run_dir`.
+2. Open local `output/data/<run_id>/request.json`; combine `config.remote.workspace`
+   and `run_id` as `<workspace>/runs/<run_id>` to get the remote run directory.
 3. Open `environment.json` in the same directory and copy `uv_environment`.
 4. On haiqin, replace both placeholders below with those exact paths.
 
@@ -58,7 +59,7 @@ cd "$SWELLEX_RUN/project"
 
 Use this existing locked interpreter for
 [neural train/predict](training-and-prediction.md#manual-train-and-predict),
-[GRNN build/predict](standalone-scm-grnn.md#manual-build-and-predict), or
+[GRNN build/predict](standalone-grnn.md#manual-build-and-predict), or
 [manual plotting](result-visualization.md#render-manually-on-haiqin).
 Do not activate the base Conda environment or create another `.venv`.
 

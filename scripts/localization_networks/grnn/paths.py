@@ -1,16 +1,18 @@
-"""SCM-GRNN artifact directories; shared path operations live in common."""
+"""Method-specific GRNN artifacts; shared path operations live in common."""
 
 from pathlib import Path
 
 from scripts.localization_networks.common.paths import PROJECT_ROOT, model_output_dir
-
-DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "outputs" / "networks_results" / "SCM"
-MODEL_DIRNAME = "scm_grnn_range"
+from scripts.localization_networks.grnn.bindings import model_name, validate_method
 
 
-def reference_output_dir(output_dir: Path) -> Path:
-    return model_output_dir(output_dir, MODEL_DIRNAME) / "reference_outputs"
+def default_output_dir(method: str) -> Path:
+    return PROJECT_ROOT / "outputs" / "networks_results" / validate_method(method)
 
 
-def test_output_dir(output_dir: Path) -> Path:
-    return model_output_dir(output_dir, MODEL_DIRNAME) / "test_outputs"
+def reference_output_dir(output_dir: Path, *, method: str) -> Path:
+    return model_output_dir(output_dir, model_name(method)) / "reference_outputs"
+
+
+def test_output_dir(output_dir: Path, *, method: str) -> Path:
+    return model_output_dir(output_dir, model_name(method)) / "test_outputs"

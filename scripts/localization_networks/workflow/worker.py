@@ -191,7 +191,8 @@ class Worker:
         if generation != expected_generation:
             raise ValueError("Generation configuration differs from the frozen request")
         self.manifest = manifest
-        self.report.update(suite=request["suite"], source_sha256=manifest["source_sha256"], git_head=manifest["git_head"], config_sha256=config_hash)
+        self.report.update(suite=request["suite"], source_sha256=manifest["source_sha256"], git_head=manifest["git_head"], config_sha256=config_hash,
+                           model_plan=model_plan(request["suite"], request.get("selection")))
         if request["suite"] == "experiment":
             self.report["purpose"] = "configured_experiment_without_accuracy_acceptance_threshold"
         elif request["suite"] == "selected":
@@ -312,20 +313,23 @@ class Worker:
         metrics = prediction_metrics(csvs[0], self.test_rows(data))
         return {"method": method, "model": model, "epochs": cfg["epochs"], "checkpoint": str(checkpoints[0]), **metrics}
 
-    def grnn(self) -> dict:
+    def grnn(self, method: str) -> dict:
         g, v = self.config["grnn"], self.config["validation"]
-        data = self.dataset_dirs["SCM"]
-        output = self.project / "outputs/networks_results/SCM"
-        entry = str(self.project / entry_script(resolve_selection("SCM", "GRNN")))
-        self.phase("grnn_build", lambda: self.command("grnn_build", [self.python, "-B", entry, "build", "--data", data, "--output-dir", str(output), "--cv-folds", str(g["cv_folds"]), "--sigma-candidates", *map(str, g["sigma_candidates"]), "--seed", str(v["seed"]), "--batch-size", str(g["batch_size"]), "--device", v["device"]], v["training_timeout_s"]))
-        references = list((output / "scm_grnn_range" / "reference_outputs").glob("*_reference_*.pt"))
+        selection = resolve_selection(method, "GRNN")
+        model = selection["model"]
+        data = self.dataset_dirs[method]
+        output = self.project / "outputs/networks_results" / method
+        entry = str(self.project / entry_script(selection))
+        build_name, predict_name = f"grnn_{method}_build", f"grnn_{method}_predict"
+        self.phase(build_name, lambda: self.command(build_name, [self.python, "-B", entry, "build", "--method", method, "--data", data, "--output-dir", str(output), "--cv-folds", str(g["cv_folds"]), "--sigma-candidates", *map(str, g["sigma_candidates"]), "--seed", str(v["seed"]), "--batch-size", str(g["batch_size"]), "--device", v["device"]], v["training_timeout_s"]))
+        references = list((output / model / "reference_outputs").glob("*_reference_*.pt"))
         if len(references) != 1:
             raise ValueError("Expected one GRNN reference artifact")
-        self.phase("grnn_predict", lambda: self.command("grnn_predict", [self.python, "-B", entry, "predict", "--data", data, "--output-dir", str(output), "--reference", str(references[0]), "--batch-size", str(g["batch_size"]), "--device", v["device"], "--print-first", "0", "--no-plot"], v["training_timeout_s"]))
-        csvs = list((output / "scm_grnn_range" / "test_outputs").glob("*_predictions_*.csv"))
+        self.phase(predict_name, lambda: self.command(predict_name, [self.python, "-B", entry, "predict", "--method", method, "--data", data, "--output-dir", str(output), "--reference", str(references[0]), "--batch-size", str(g["batch_size"]), "--device", v["device"], "--print-first", "0", "--no-plot"], v["training_timeout_s"]))
+        csvs = list((output / model / "test_outputs").glob("*_predictions_*.csv"))
         if len(csvs) != 1:
             raise ValueError("Expected one GRNN prediction CSV")
-        return {"method": "SCM", "model": "scm_grnn_range", "reference": str(references[0]), **prediction_metrics(csvs[0], self.test_rows(data))}
+        return {"method": method, "model": model, "reference": str(references[0]), **prediction_metrics(csvs[0], self.test_rows(data))}
 
     def test_rows(self, dataset_dir: str) -> list[tuple[int, float, float]]:
         import h5py
@@ -446,7 +450,7 @@ class Worker:
                 for job in model_plan(suite, selection):
                     method, model = job["method"], job["model"]
                     if job["architecture"] == "GRNN":
-                        metrics.append(self.phase("evaluate_grnn", self.grnn))
+                        metrics.append(self.phase(f"evaluate_{method}_{model}", lambda m=method: self.grnn(m)))
                     else:
                         metrics.append(self.phase(f"evaluate_{method}_{model}", lambda m=method,n=model: self.train_predict(m,n)))
                 expected_indices = metrics[0]["source_segment_indices"]

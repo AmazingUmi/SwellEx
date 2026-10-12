@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 
 from scripts.localization_networks.workflow.tasks import model_plan, validate_selection
+from scripts.localization_networks.grnn.bindings import METHODS, model_name
 
 PREDICTION_FIELDS = (
     "sample", "source_segment_idx", "window_center_s", "pred_range_km",
@@ -18,6 +19,44 @@ PREDICTION_FIELDS = (
 )
 TIME_TOLERANCE = 1.1e-6
 ERROR_TOLERANCE = 2.1e-6
+# This recorded source version predates RBD/ELM GRNN. Historical reports do
+# not carry model_plan, so their manifest must identify that exact contract.
+LEGACY_TASKS_SHA256 = "3457c6a2ae05096af371a74d2744cb6d4cbbf8132ec6365d7480035c38dd93eb"
+TASKS_SOURCE = "scripts/localization_networks/workflow/tasks.py"
+
+
+def is_grnn(method: str, model: str) -> bool:
+    return method in METHODS and model == model_name(method)
+
+
+def recorded_model_plan(report: dict, run_dir: Path, sources: list[dict]) -> tuple[list[dict], bool]:
+    """Validate the source-bound execution contract, including saved old runs.
+
+    Newly recorded results require the explicit current plan. Only a manifest
+    identifying the known SCM-only source contract enables historical reading.
+    This is result analysis, never an execution alias or a partial-suite fallback.
+    """
+    planned = model_plan(report["suite"], report.get("selection"))
+    if "model_plan" in report:
+        if report["model_plan"] != planned:
+            raise ValueError("Recorded model plan differs from its complete canonical suite plan")
+        return planned, False
+    manifest = _json(_read(run_dir/"manifest.json", run_dir, sources))
+    inventory = manifest.get("files")
+    if not isinstance(inventory, list) or any(not isinstance(item, dict) for item in inventory):
+        raise ValueError("Historical run requires a recorded source inventory")
+    digest = hashlib.sha256(json.dumps(inventory, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    tasks = [item for item in inventory if item.get("path") == TASKS_SOURCE]
+    if (manifest.get("run_id") != report["run_id"] or manifest.get("suite") != report["suite"]
+            or digest != manifest.get("source_sha256") or digest != report.get("source_sha256")
+            or len(tasks) != 1 or tasks[0].get("sha256") != LEGACY_TASKS_SHA256):
+        raise ValueError("Missing model plan without the known historical source contract")
+    legacy = [item for item in planned if item["architecture"] != "GRNN" or item["method"] == "SCM"]
+    if not legacy:
+        raise ValueError("The historical source contract supports GRNN only for SCM")
+    if report["suite"] == "selected" and manifest.get("selection") != report.get("selection"):
+        raise ValueError("Historical manifest selection differs from the selected run")
+    return legacy, True
 
 
 @dataclass(frozen=True)
@@ -217,7 +256,7 @@ def load_run(run_dir: Path, models: list[str] | None = None, *, require_pass=Tru
         names.append(f"{row['method']}/{row['model']}")
     if len(names) != len(set(names)):
         raise ValueError("Duplicate method/model in run report")
-    planned = model_plan(report["suite"], report.get("selection"))
+    planned, historical = recorded_model_plan(report, run_dir, sources)
     expected_names = {f"{item['method']}/{item['model']}" for item in planned}
     if set(names) != expected_names:
         raise ValueError("Run model results differ from its complete canonical suite plan")
@@ -231,8 +270,8 @@ def load_run(run_dir: Path, models: list[str] | None = None, *, require_pass=Tru
     root = run_dir/"project/outputs/networks_results"
     for row, name in zip(metrics, names):
         method, model = row["method"], row["model"]
-        is_grnn = method == "SCM" and model == "scm_grnn_range"
-        phase = "evaluate_grnn" if is_grnn else f"evaluate_{method}_{model}"
+        grnn = is_grnn(method, model)
+        phase = "evaluate_grnn" if historical and grnn else f"evaluate_{method}_{model}"
         if phase not in completed:
             raise ValueError(f"Model evaluation has not passed: {phase}")
         directory = root/method/model
@@ -241,7 +280,7 @@ def load_run(run_dir: Path, models: list[str] | None = None, *, require_pass=Tru
         summary = summarize(predictions)
         _verify_metrics(summary, row)
         history, sigma_search = [], []
-        if is_grnn:
+        if grnn:
             search = _unique(directory/"reference_outputs", "*_sigma_search_*.json", optional=True)
             if search:
                 sigma_search = read_sigma_search(_read(search, run_dir, sources))

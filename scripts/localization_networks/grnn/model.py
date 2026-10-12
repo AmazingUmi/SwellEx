@@ -1,4 +1,4 @@
-"""Standalone generalized regression neural network for SCM features."""
+"""Standalone Gaussian-kernel GRNN for flattened complex acoustic features."""
 
 from __future__ import annotations
 
@@ -18,8 +18,8 @@ def kernel_scale(spread: float) -> float:
     return 2.0 * spread**2
 
 
-class ScmGrnnRegressor:
-    """Gaussian-kernel GRNN regressor backed by memorized SCM reference samples."""
+class GrnnRegressor:
+    """Gaussian-kernel GRNN regressor backed by memorized reference samples."""
 
     def __init__(
         self,
@@ -43,7 +43,7 @@ class ScmGrnnRegressor:
         self.x_reference: torch.Tensor | None = None
         self.y_reference_km: torch.Tensor | None = None
 
-    def to(self, device: str | torch.device) -> "ScmGrnnRegressor":
+    def to(self, device: str | torch.device) -> "GrnnRegressor":
         self.device = torch.device(device)
         for name in ("feature_mean", "feature_std", "x_reference", "y_reference_km"):
             value = getattr(self, name)
@@ -91,7 +91,26 @@ class ScmGrnnRegressor:
 
     @torch.no_grad()
     def predict(self, x: torch.Tensor, *, batch_size: int = 256) -> torch.Tensor:
+        return self.predict_candidates(x, candidates=[self.spread], batch_size=batch_size)[0]
+
+    @torch.no_grad()
+    def predict_candidates(
+        self,
+        x: torch.Tensor,
+        *,
+        candidates: list[float],
+        batch_size: int = 256,
+    ) -> list[torch.Tensor]:
+        """Reuse each query batch's distances for an ordered list of spreads.
+
+        Feature statistics remain those fitted on this model's reference samples.
+        Only a single batch-by-reference distance matrix is retained, regardless
+        of the number of candidates; the returned predictions are CPU tensors.
+        """
         x_ref, y_ref, mean, std = self._require_reference()
+        if not candidates:
+            raise ValueError("At least one sigma candidate is required.")
+        scales = [kernel_scale(value) for value in candidates]
         if type(batch_size) is not int or batch_size <= 0:
             raise ValueError("GRNN batch_size must be a positive integer.")
         x_all = x.to(self.device, dtype=torch.float32)
@@ -105,7 +124,7 @@ class ScmGrnnRegressor:
                 f"reference has {x_ref.size(1)}."
             )
 
-        outputs: list[torch.Tensor] = []
+        outputs: list[list[torch.Tensor]] = [[] for _ in candidates]
         for start in range(0, x_all.size(0), batch_size):
             batch = x_all[start : start + batch_size]
             batch = (batch - mean) / std.clamp_min(self.eps)
@@ -116,11 +135,12 @@ class ScmGrnnRegressor:
             # Row-wise offset preserves normalized weights and prevents all-zero
             # underflow when the spread is small in a high-dimensional feature space.
             dist2 = dist2 - dist2.min(dim=1, keepdim=True).values
-            weights = torch.exp(-dist2 / self.kernel_scale)
-            denominator = weights.sum(dim=1, keepdim=True).clamp_min(self.eps)
-            outputs.append((weights @ y_ref) / denominator)
+            for scale, candidate_outputs in zip(scales, outputs):
+                weights = torch.exp(-dist2 / scale)
+                denominator = weights.sum(dim=1, keepdim=True).clamp_min(self.eps)
+                candidate_outputs.append((weights @ y_ref) / denominator)
 
-        return torch.cat(outputs, dim=0).cpu()
+        return [torch.cat(candidate_outputs, dim=0).cpu() for candidate_outputs in outputs]
 
     def to_artifact(self) -> dict[str, object]:
         x_ref, y_ref, mean, std = self._require_reference()
@@ -140,7 +160,7 @@ class ScmGrnnRegressor:
         artifact: dict[str, object],
         *,
         device: str | torch.device = "cpu",
-    ) -> "ScmGrnnRegressor":
+    ) -> "GrnnRegressor":
         model = cls(
             spread=artifact["spread"],
             standardize_input=artifact["standardize_input"],

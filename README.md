@@ -1,7 +1,7 @@
 # SwellEx Range Regression
 
 Predict source range in km from SwellEx-96 vertical line array data. Python
-creates HDF5 features; PyTorch CNN/ResNet models or standalone SCM-GRNN perform
+creates HDF5 features; PyTorch CNN/ResNet models or standalone GRNN perform
 regression.
 
 | Feature route | Input features |
@@ -22,19 +22,22 @@ From the local project root, with uv, Python 3.11+, Git, SSH, and rsync availabl
 # Run one neural model through generation, training, prediction, and plotting
 ./scripts/run.sh ELM complex_CNN
 
-# Run SCM-GRNN through reference building, prediction, and plotting
+# Run GRNN for any feature route through reference building, prediction, and plotting
+./scripts/run.sh RBD GRNN
+./scripts/run.sh ELM GRNN
 ./scripts/run.sh SCM GRNN
 
-# Check the full pipeline with three complex CNNs and SCM-GRNN
+# Check the full pipeline with three complex CNNs and three GRNNs
 ./scripts/run.sh validate --suite smoke
 ```
 
 Choose `RBD`, `ELM`, or `SCM` with `complex_CNN`, `real_CNN`, `ResNet18`, or
-`ResNet50`. `GRNN` is available only for SCM and has no epochs or optimizer.
+`ResNet50`, or `GRNN`. GRNN has no epochs or optimizer. The complete experiment
+contains 12 neural models and three method-specific GRNNs.
 A model command prepares all three feature routes and evaluates the chosen model.
 
 Bundled defaults: the complete 4500 s S5 VLA recording (window starts 0–4499 s),
-100 neural epochs, A5000-tuned batch size 64, seed 2026, and CUDA. SCM-GRNN uses
+100 neural epochs, A5000-tuned batch size 64, seed 2026, and CUDA. Each GRNN uses
 five-fold sigma search. The full_interleaved 4:1 split is a within-record baseline; independent
 time/track generalization and accuracy acceptance require separate experiments.
 See the [command guide](doc/workflows/remote-validation.md) for options,

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Thin local entry point; all numerical work runs through the remote dispatcher.
+# Stdlib dispatcher; local-grnn explicitly selects a local CPU Python.
 set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)

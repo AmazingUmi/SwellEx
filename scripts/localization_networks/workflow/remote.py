@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dispatch fixed source snapshots to haiqin; no local numerical imports."""
+"""Dispatch haiqin runs or explicitly requested local CPU GRNN; stdlib only."""
 from __future__ import annotations
 
 import argparse
@@ -378,8 +378,30 @@ def selected_run(config: dict, method: str, architecture: str, detach: bool, dry
     return dispatch(merged, "selected", detach, dry_run, no_cache, selection=selection)
 
 
+def local_grnn(config: dict, config_path: Path, python: Path, data: Path | None, dry_run: bool, *, method: str) -> int:
+    """Plan locally without numerical imports; launch only the selected Python."""
+    validate_config(config)
+    selection = resolve_selection(method, "GRNN")
+    if config["dataset"]["split_strategy"] != "range_overlap":
+        raise ValueError("local-grnn requires --config with split_strategy=range_overlap")
+    # Keep a virtual environment's symlink path: resolving it would select the
+    # base interpreter and lose the explicitly selected CPU environment.
+    executable = python.expanduser().absolute()
+    command = [str(executable), "-B", str(PROJECT / "scripts/localization_networks/workflow/local_grnn.py"),
+               "--method", method, "--config", str(config_path.resolve())]
+    if data is not None:
+        command.extend(("--data", str(data.resolve())))
+    if dry_run:
+        print(json.dumps({"command": "local-grnn", "execution": "local_cpu", "argv": command,
+                          "selection": selection, "config": config,
+                          "data": "reuse" if data is not None else f"generate_{method.lower()}"},
+                         ensure_ascii=False, indent=2))
+        return 0
+    return subprocess.run(command, cwd=PROJECT, check=False).returncode
+
+
 def make_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False, epilog="Shell entry: ./scripts/run.sh METHOD ARCH [options]. GRNN supports SCM only and has no epochs.")
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False, epilog="Shell entry: ./scripts/run.sh METHOD ARCH [options]. GRNN supports RBD/ELM/SCM and has no epochs.")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     sub = parser.add_subparsers(dest="command", required=True)
     check_parser = sub.add_parser("check", allow_abbrev=False, help="Check haiqin repository, original inputs, and uv")
@@ -390,11 +412,16 @@ def make_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("architecture", metavar="ARCH", choices=ARCHITECTURES)
     run_parser.add_argument("--epochs", type=int, help="Override neural training epochs; invalid for GRNN")
     run_parser.add_argument("--seed", type=int, help="Override the training/GRNN seed")
+    local_parser = sub.add_parser("local-grnn", allow_abbrev=False, help="Run range_overlap GRNN with an explicit method and local CPU Python")
+    local_parser.add_argument("--method", choices=METHODS, required=True)
+    local_parser.add_argument("--python", type=Path, required=True, help="CPU environment Python executable; dependencies must already be installed")
+    local_parser.add_argument("--data", type=Path, help="Reuse a matching method dataset directory; otherwise generate that method")
+    local_parser.add_argument("--dry-run", action="store_true", help="Print the local command and configuration without running it")
     for child in (validate_parser, run_parser):
         child.add_argument("--detach", action="store_true")
         child.add_argument("--dry-run", action="store_true")
         child.add_argument("--no-cache", action="store_true")
-    children = [check_parser, validate_parser, run_parser]
+    children = [check_parser, validate_parser, run_parser, local_parser]
     for name in ("status", "fetch"):
         child = sub.add_parser(name, allow_abbrev=False)
         child.add_argument("--run", required=True)
@@ -410,6 +437,8 @@ def main(argv: list[str] | None = None) -> int:
     args = make_parser().parse_args(argv)
     try:
         config = load_config(args.config.resolve())
+        if args.command == "local-grnn":
+            return local_grnn(config, args.config, args.python, args.data, args.dry_run, method=args.method)
         if args.command == "check":
             result = remote_python(config, CHECK_CODE, config)
             print(json.dumps(result, ensure_ascii=False, indent=2))

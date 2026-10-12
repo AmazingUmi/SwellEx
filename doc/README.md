@@ -12,7 +12,8 @@ and remaining scientific work.
 | Check or change the default settings | [Command defaults](workflows/command-defaults.md) |
 | Enter a frozen remote run or inspect runtime files | [Frozen environment and run files](workflows/remote-environment.md) |
 | Train, resume, or predict with a neural model manually | [Training and prediction](workflows/training-and-prediction.md) |
-| Build a GRNN reference or choose sigma manually | [Standalone SCM-GRNN](workflows/standalone-scm-grnn.md) |
+| Build a GRNN reference or choose sigma manually | [Standalone RBD/ELM/SCM GRNN](workflows/standalone-grnn.md) |
+| Plan local CPU GRNN or merge existing results | [Local workflow and comparison](workflows/remote-validation.md#local-grnn-and-existing-result-comparison) |
 | Find figures, understand them, or render a model selection | [Result visualization](workflows/result-visualization.md) |
 
 ## Datasets and Development
@@ -28,7 +29,7 @@ and remaining scientific work.
 | Topic | Reference |
 |---|---|
 | CNN/ResNet structure and regression output | [Trainable model architecture](methods/trainable-model-architecture.md) |
-| SCM construction, GRNN kernels, and sigma selection | [SCM features and GRNN](methods/scm-grnn.md) |
+| RBD/ELM/SCM features, GRNN kernels, and sigma selection | [Feature representations and GRNN](methods/grnn.md) |
 | RBD peak selection, aggregation, and diagnostics | [RBD multipath peak detection](methods/rbd-multipath-detection.md) |
 | Papers and reference tracking | [papers.xlsx](references/papers.xlsx) |
 
