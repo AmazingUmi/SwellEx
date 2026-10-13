@@ -1,11 +1,16 @@
 # Shell Command Defaults
 
-These values apply to `./scripts/run.sh METHOD ARCH` with the bundled
-[haiqin_full_interleaved.toml](../../scripts/localization_networks/workflow/haiqin_full_interleaved.toml).
-`METHOD` and `ARCH` are required and have no defaults.
+These values apply to `./scripts/run.sh base_pack` and `base_pack METHOD ARCH` with the bundled
+[haiqin_full_interleaved.toml](../../scripts/base_pack/localization_networks/workflow/haiqin_full_interleaved.toml).
+The pack is required. Pack alone selects the full experiment; a single-model
+selection requires both `METHOD` and `ARCH`. This page
+describes `base_pack`. The joint pack begins with these settings and adds the
+[fusion contract](../packs/joint-feature-pack.md); the recorded A5000 sizing
+below measured original single-route inputs, not joint-input memory use.
 
-Use `--epochs` or `--seed` to override those two values. For other TOML
-settings, copy the complete file and pass `--config PATH`. The merged settings
+For a single model, use `--epochs` or `--seed` to override those two values.
+For the full experiment or other settings, copy the complete TOML and pass
+`--config PATH`. The merged settings
 are saved in `request.json`; see the [command guide](remote-validation.md).
 The two independent `range_overlap` configurations are listed under
 [split configurations](remote-validation.md#split-configurations).
@@ -24,6 +29,7 @@ The two independent `range_overlap` configurations are listed under
 | Foreground waiting and automatic fetch | On |
 | Dataset cache reuse | On, with hashes and validation checked |
 | Dry run | Off |
+| Pack-only suite | `experiment` |
 | `validate` suite | `smoke` |
 
 The TOML `schema_version` is `1`. Remote paths and the interpreter are listed in

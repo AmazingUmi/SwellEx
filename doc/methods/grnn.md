@@ -2,7 +2,7 @@
 
 本页描述仓库实际实现：读取已生成的 RBD、ELM 或 SCM 复数特征，再用
 Gaussian-kernel GRNN 回归距离（km）。GRNN 位于
-`scripts/localization_networks/grnn/`，通过 `build` 保存参考样本、
+`scripts/base_pack/localization_networks/grnn/`，通过 `build` 保存参考样本、
 通过 `predict` 加权预测，不使用 epochs、反向传播或优化器。
 
 运行命令与产物路径见 [独立 GRNN 工作流](../workflows/standalone-grnn.md)；
@@ -25,7 +25,7 @@ ELM/SCM 的 pair 均为 1-based 列序；RBD 不使用 pair 轴。
 
 ### SCM 构造
 
-`scripts/data_processing/feature_math.py:scm_feature` 对每个 snapshot 做 FFT，
+`scripts/base_pack/data_processing/feature_math.py:scm_feature` 对每个 snapshot 做 FFT，
 保留选定的单边频点。设频点为 $f$，snapshot 数为 $N_s$，阵元数为 $M$，
 阵列声压向量为 $x_s(f)\in\mathbb C^M$：
 

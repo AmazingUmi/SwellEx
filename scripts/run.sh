@@ -1,24 +1,15 @@
 #!/bin/sh
-# Stdlib dispatcher; local-grnn explicitly selects a local CPU Python.
+# Thin launcher: Python owns defaults, validation, help, and pack dispatch.
 set -eu
+
+if ! command -v uv >/dev/null 2>&1; then
+    echo "ERROR: uv is required to run SwellEx; install uv and add it to PATH." >&2
+    exit 127
+fi
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PROJECT_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 cd "$PROJECT_ROOT"
 
-# Keep every argument intact, including a config path containing spaces.
-case "${1-}" in
-    RBD|ELM|SCM) set -- run "$@" ;;
-    --config)
-        if [ "$#" -ge 3 ]; then
-            config_path=$2
-            shift 2
-            case "${1-}" in
-                RBD|ELM|SCM) set -- run "$@" ;;
-            esac
-            set -- --config "$config_path" "$@"
-        fi
-        ;;
-esac
-
-exec uv run --no-project --python python3 scripts/localization_networks/workflow/remote.py "$@"
+# Keep every argument intact, including pack-specific config paths with spaces.
+exec uv run --no-project --python python3 python -B scripts/run.py "$@"

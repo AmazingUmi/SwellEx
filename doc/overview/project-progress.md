@@ -1,12 +1,53 @@
 # SwellEx 项目进展
 
-更新日期：2026-10-12
+更新日期：2026-10-13
 
 本地修改源码和配置；数据生成、数值验证、训练、预测及绘图在 haiqin 的
 冻结 uv 环境中运行。命令见 [远端工作流](../workflows/remote-validation.md)。
 用户明确指定的本地 CPU GRNN 使用独立环境和同一 workflow 入口。
 
-## 已完成
+## Pack 组织与联合特征实验
+
+原 `scripts/` 下的数据生成、定位网络及绘图实现迁入
+`scripts/base_pack/`；新实验位于 `scripts/joint_feature_pack/`。
+统一入口为 `./scripts/run.sh PACK`，PACK 必填；只指定 pack 默认全量
+`experiment`（base 15 模型、joint 35 模型），追加 `METHOD ARCH` 只运行指定模型。
+参数解析集中于 `scripts/pack_cli.py`，显式 `validate` 仍默认 `smoke`；
+`check/validate/status/fetch` 同样先指定 pack，旧省略 pack 的形式拒绝。
+独立说明见 [pack 文档](../packs/README.md)。
+
+入口默认行为调整通过 47 项标准库测试，并通过实际 `run.sh --dry-run`
+核对两个 pack 的 15/35 模型计划及默认完整 S5、100 epochs 配置。
+本次入口验证未启动远端训练；下表仍记录此前各冻结源码快照的数值证据。
+
+联合方案沿特征行拼接 RBD/ELM/SCM，比较 3 个单路、3 个两路和 1 个三路
+组合；每个组合使用原有四类神经网络和 GRNN，单一 fusion 条件的完整计划为
+35 个模型。`raw_concat` 与训练侧拟合的 `block_rms` 分开比较；不增加网络
+分支或修改网络层结构。首版要求 Ns=1 且三路样本、来源、物理轴严格对齐。
+
+迁移及联合输入的工程验证已在 haiqin 冻结 uv/CUDA 环境中通过：
+
+| 范围 | 验证结果 | run |
+|---|---|---|
+| base 迁移 smoke | 3 个 complex CNN、3 个 GRNN、续训及图表 PASS；19 个交付文件校验通过 | `20261013T081028Z-3cf7899e` |
+| base 最终 quick | 35 项 quick、8 项数值检查 PASS | `20261013T081527Z-6be00fbf` |
+| joint `block_rms` 完整模型计划 | 28 个神经模型、7 个 GRNN、续训及图表 PASS；77 个交付文件校验通过 | `20261013T081928Z-66477916` |
+| joint `raw_concat` smoke | 7 个 complex CNN、7 个 GRNN、续训及图表 PASS；35 个交付文件校验通过 | `20261013T082119Z-a5ee5c26` |
+| joint 最终训练回归 | 14 个模型、保存/预测/续训 PASS；包含训练文件改值、重排及历史 best 身份拒绝测试 | `20261013T083325Z-0569cc38` |
+| joint 最终 quick | 37 项 quick、8 项数值检查 PASS；包含 ECDF 跨架构大误差不裁切回归 | `20261013T083556Z-b46dc461` |
+
+该次验证结束时，最终快照的 260 个脚本、Shell、配置及 MATLAB 文件与工作区哈希一致。
+用该快照重绘 35 模型结果的 75 个 PDF，77 个交付文件 size/SHA256 校验 PASS；
+修正后的 ECDF 已渲染检查，所有架构的大误差及累计概率 1 的终点均可见。
+重绘交付单独保存在最终 quick run 的 `reports/visualization_35_redraw/` 和
+`output/figure/20261013T083556Z-b46dc461/redraw-35-models/`，不修改原计算证据。
+
+上述训练使用短窗口、神经模型 1 epoch 和 GRNN 3 折，用于验证执行与合同；
+正式联合特征精度比较仍为 **NOT_RUN**。不同源码快照的 PASS 各自保留，
+新增数据身份合同由最终训练回归验证，不追溯赋予较早产物。下文历史数值
+结果属于原方案，不能作为联合特征有效的证据。
+
+## 原方案已完成能力与历史证据
 
 | 范围 | 当前能力 |
 |---|---|
@@ -14,7 +55,7 @@
 | 特征 | RBD 保存实际 Green 特征并支持最强波束/多径聚合；ELM 使用严格上三角 LS 比值；SCM 使用含对角线的归一化协方差 |
 | 神经网络 | 每个方法支持 complex CNN、real CNN、ResNet18、ResNet50；独立 loader/registry，共享 CLI、训练、续训和预测 |
 | GRNN | RBD/ELM/SCM 三路独立 build/predict、reference 保存、sigma 搜索和共用核回归，无 epochs 或优化器 |
-| Shell 工作流 | `./scripts/run.sh METHOD ARCH` 支持 15 个组合；支持配置覆盖、dry-run、后台运行、status/fetch 和内容校验缓存；`local-grnn --method METHOD` 支持显式本地 CPU 环境 |
+| Shell 工作流 | `./scripts/run.sh base_pack METHOD ARCH` 支持 15 个组合；支持配置覆盖、dry-run、后台运行、status/fetch 和内容校验缓存；`local-grnn --method METHOD` 支持显式本地 CPU 环境 |
 | 结果交付 | 日志/报告/history/CSV 回收到 `output/data/<run_id>/`，PDF 图表回收到 `output/figure/<run_id>/`；训练曲线归入对应模型的 `training/` |
 
 数据字段、窗口和选频规则以 [HDF5 契约](../datasets/hdf5-datasets-and-splits.md)
@@ -108,7 +149,7 @@ full_interleaved 各完成 SCM-GRNN 所选流程，10 个阶段全部 PASS。
 ### GRNN 本地完整计算与保留
 
 此前按用户要求在 macOS CPU 执行，未连接 haiqin。计算编排已移入
-`workflow/local_grnn.py`，经 `./scripts/run.sh local-grnn` 调用，复用两份方向配置，
+`workflow/local_grnn.py`，经 `./scripts/run.sh base_pack local-grnn` 调用，复用两份方向配置，
 只生成 SCM；训练侧进行
 5 折、29 个 sigma 候选搜索，再保存全部训练 reference 并预测全部对侧样本。
 搜索按折/batch 复用距离；已用独立的原算法对照验证候选指标和选择结果。

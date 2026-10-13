@@ -1,0 +1,69 @@
+# range_overlap: Train before closest approach; test after it.
+schema_version = 1
+
+[remote]
+host = "haiqin"
+repository = "/mnt/SDD/project/SwellEx"
+workspace = "/mnt/SDD/project/SwellEx_validation"
+base_python = "/home/yiyang-lu/miniforge3/envs/pytorch/bin/python"
+uv = "/mnt/SDD/project/SwellEx_validation/runtime_profile/tools/uv-0.12.19/uv-x86_64-unknown-linux-gnu/uv"
+
+[validation]
+device = "cuda"
+seed = 2026
+threads = 4
+# Per-command budgets: checks/rendering 15 min, generation 30 min, train/build/predict 2 h.
+quick_timeout_s = 900
+generation_timeout_s = 1800
+training_timeout_s = 7200
+
+[dataset]
+event_name = "S5"
+fs = 1500
+segment_start_s = 0
+# S5 has 4500 s of VLA data; this is the last 1 s window's start time.
+segment_end_s = 4499
+segment_duration_s = 1.0
+segment_step_s = 1.0
+# Keep RBD/ELM/SCM rows aligned with disjoint, single-snapshot windows.
+num_snapshots_per_segment = 1
+snapshot_overlap_count = 0
+frequency_selection_modes = ["deep", "shallow"]
+split_strategy = "range_overlap"
+# Required by the schema and unused for range_overlap.
+train_test_ratio = [4, 1]
+# Limit each side to half_duration_s, exclude the central gap, then keep the shared range interval.
+train_side = "before"
+half_duration_s = 800
+gap_s = 15
+test_step_s = 1
+manual_dataset_variant_tag = ""
+
+[rbd]
+beam_selection = "best"
+frequency_estimation = "selected"
+use_plane_wave = false
+normalize_spectrum = false
+
+[training]
+epochs = 100
+# A5000: near batch-128 throughput with about 5 GiB peak reserved on SCM ResNet50.
+batch_size = 64
+base_channels = 16
+loss_space = "km"
+huber_beta = 0.5
+val_fraction = 0.25
+
+[grnn]
+cv_folds = 5
+# Match the standalone GRNN search grid: 0.01-0.10, then 0.20-2.00.
+sigma_candidates = [
+    0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10,
+    0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 1.00, 1.10,
+    1.20, 1.30, 1.40, 1.50, 1.60, 1.70, 1.80, 1.90, 2.00,
+]
+# Prediction block size; reference/test row counts depend on the split.
+batch_size = 1024
+
+[fusion]
+mode = "block_rms"

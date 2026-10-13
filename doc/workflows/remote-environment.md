@@ -7,7 +7,7 @@ and run integrity.
 
 ## Configured Paths and Runtime
 
-The bundled [haiqin_full_interleaved.toml](../../scripts/localization_networks/workflow/haiqin_full_interleaved.toml)
+The bundled [haiqin_full_interleaved.toml](../../scripts/base_pack/localization_networks/workflow/haiqin_full_interleaved.toml)
 defines these locations:
 
 | Setting | Configured value |
@@ -90,12 +90,14 @@ Paths below are relative to `remote.workspace`:
 The underlying dispatcher can also be invoked directly:
 
 ```bash
-uv run --no-project --python python3 scripts/localization_networks/workflow/remote.py \
+uv run --no-project --python python3 scripts/base_pack/localization_networks/workflow/remote.py \
   --config /tmp/swellex-experiment.toml validate --suite smoke
 ```
 
 Both the dispatcher and shell entry accept `--config` before or after the
-subcommand. For the shell model command, it can also follow `METHOD ARCH`.
+subcommand. The public shell requires the pack first; its options can follow
+that pack or `METHOD ARCH`. Direct Python entry points select a pack through
+their source path. Use the selected pack's configuration and entry point.
 
 ## Dataset Cache and Alignment
 

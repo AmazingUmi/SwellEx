@@ -72,7 +72,7 @@ and `SWELLEX_PYTHON` must be its locked interpreter.
 From that run's `project/` directory, render all report models to a new directory:
 
 ```bash
-"$SWELLEX_PYTHON" -B scripts/visualization/plot_results.py \
+"$SWELLEX_PYTHON" -B scripts/base_pack/visualization/plot_results.py \
   --run "$SWELLEX_RUN" \
   --output-dir output/figure/manual-all
 ```
@@ -81,7 +81,7 @@ To compare specific models from a completed **smoke or experiment** run,
 choose another new directory and repeat `--model`:
 
 ```bash
-"$SWELLEX_PYTHON" -B scripts/visualization/plot_results.py \
+"$SWELLEX_PYTHON" -B scripts/base_pack/visualization/plot_results.py \
   --run "$SWELLEX_RUN" \
   --output-dir output/figure/manual-comparison \
   --model RBD/complex_cnn_range --model SCM/scm_grnn_range

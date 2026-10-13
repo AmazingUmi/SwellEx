@@ -1,11 +1,17 @@
 # Python Extension Guide
 
-Neural packages are `scripts/localization_networks/rbd/`, `elm/`, and `scm/`;
+Neural packages are `scripts/base_pack/localization_networks/rbd/`, `elm/`, and `scm/`;
 standalone RBD/ELM/SCM GRNN lives in `grnn/`. Each has one `main.py` entry point.
 Keep shared path, split, training, and prediction logic in `common/`, and
 method-specific tensor layouts in each package. Read the
 [HDF5 contract](../datasets/hdf5-datasets-and-splits.md) before loader changes;
 ELM and SCM have the same tensor rank but different pair semantics.
+
+This guide describes the preserved base implementation. Joint experiments
+belong under `scripts/joint_feature_pack/` with their own imports and metadata;
+read the [joint feature contract](../packs/joint-feature-pack.md) before changing
+fusion loaders or fitted preprocessing. Keep experimental changes out of the
+base pack unless they are independently justified baseline fixes.
 
 ## Add a Model
 
@@ -65,7 +71,7 @@ model registry, paths, and shape field. Keep method-specific layouts out of
 the shared loop. The [scripts map](scripts-organization.md) lists module ownership.
 
 Generation schema changes belong in
-`scripts/data_processing/generation_config.py`; reject unknown/invalid fields
+`scripts/base_pack/data_processing/generation_config.py`; reject unknown/invalid fields
 and keep cache fingerprints/metadata in step with the new behavior.
 
 Run numerical checks and model validation on haiqin through the

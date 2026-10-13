@@ -8,27 +8,54 @@ Local prerequisites: uv, Python 3.11+, Git, SSH, and rsync. The remote worker
 uses the frozen dependencies in `pyproject.toml` and `uv.lock`.
 Explicit local CPU GRNN execution uses the separate entry described below.
 
+The public command is `./scripts/run.sh PACK [METHOD ARCH | COMMAND] [options]`.
+The pack is required and must come first. Pack alone runs its full experiment;
+`METHOD ARCH` selects one model. Examples and plan counts in this guide use `base_pack`;
+see [experiment packs](../packs/README.md) for joint-feature selections and
+fusion options. Status, fetch, check, and validate also require the pack.
+
+## Run a Complete Pack
+
+```bash
+./scripts/run.sh base_pack
+./scripts/run.sh joint_feature_pack
+./scripts/run.sh joint_feature_pack --dry-run
+./scripts/run.sh joint_feature_pack --fusion raw_concat --detach
+```
+
+Pack alone selects `validate --suite experiment`: 15 base models or 35 joint
+models. It uses the complete interval and epoch count in the selected TOML;
+bundled defaults are full S5 and 100 neural epochs. Joint fusion defaults to
+`block_rms`. `--config`, `--detach`, `--dry-run`, and `--no-cache` apply to the
+whole experiment. Set full-plan epochs and seed in the TOML.
+`PACK --help` explains the available commands without starting work.
+
 ## Select One Model
 
 ```bash
 # ELM complex CNN, using the bundled configuration
-./scripts/run.sh ELM complex_CNN
+./scripts/run.sh base_pack ELM complex_CNN
 
 # Override the neural epoch count and seed
-./scripts/run.sh SCM ResNet18 --epochs 200 --seed 2027
+./scripts/run.sh base_pack SCM ResNet18 --epochs 200 --seed 2027
 
 # GRNN reference building and prediction for any feature route
-./scripts/run.sh RBD GRNN
-./scripts/run.sh ELM GRNN
-./scripts/run.sh SCM GRNN
+./scripts/run.sh base_pack RBD GRNN
+./scripts/run.sh base_pack ELM GRNN
+./scripts/run.sh base_pack SCM GRNN
 ```
 
-Both positional arguments are required. Names are case-sensitive:
+For a single model, both METHOD and ARCH are required after PACK. Names are case-sensitive:
 
 | Argument | Accepted values |
 |---|---|
+| `PACK` | `base_pack`, `joint_feature_pack` |
 | `METHOD` | `RBD`, `ELM`, `SCM` |
 | `ARCH` for any method | `complex_CNN`, `real_CNN`, `ResNet18`, `ResNet50`, `GRNN` |
+
+The method values above describe `base_pack`. Joint selections also include
+`RBD_ELM`, `RBD_SCM`, `ELM_SCM`, and `RBD_ELM_SCM`; its fusion and alignment
+contract is documented [separately](../packs/joint-feature-pack.md).
 
 Each command performs these steps:
 
@@ -59,19 +86,21 @@ See [all command defaults](command-defaults.md) for the complete settings.
 | `--dry-run` | Off | Print the merged request without contacting haiqin |
 | `--no-cache` | Off | Regenerate all three feature datasets |
 
-`--epochs` and `--seed` override the loaded TOML. Unknown names, options,
-fields, and invalid values are rejected before launch.
+For selected-model commands, `--epochs` and `--seed` override the loaded TOML.
+`--config` may precede the command or follow it; other options follow the
+command, or PACK for its default experiment. Unknown names, incomplete or
+repeated options, invalid fields, and invalid values are rejected before launch.
 
 ### Split Configurations
 
 Three complete, independent configurations share the same remote, feature,
 training, and GRNN settings. Choose one with `--config PATH`:
 
-| Configuration in `scripts/localization_networks/workflow/` | Training and test selection |
+| Configuration in `scripts/base_pack/localization_networks/workflow/` | Training and test selection |
 |---|---|
-| [haiqin_full_interleaved.toml](../../scripts/localization_networks/workflow/haiqin_full_interleaved.toml) (default) | Full S5 recording; four train windows, then one test window |
-| [haiqin_range_overlap_train_before.toml](../../scripts/localization_networks/workflow/haiqin_range_overlap_train_before.toml) | Shared range interval; before closest approach for training, after it for testing |
-| [haiqin_range_overlap_train_after.toml](../../scripts/localization_networks/workflow/haiqin_range_overlap_train_after.toml) | Shared range interval; after closest approach for training, before it for testing |
+| [haiqin_full_interleaved.toml](../../scripts/base_pack/localization_networks/workflow/haiqin_full_interleaved.toml) (default) | Full S5 recording; four train windows, then one test window |
+| [haiqin_range_overlap_train_before.toml](../../scripts/base_pack/localization_networks/workflow/haiqin_range_overlap_train_before.toml) | Shared range interval; before closest approach for training, after it for testing |
+| [haiqin_range_overlap_train_after.toml](../../scripts/base_pack/localization_networks/workflow/haiqin_range_overlap_train_after.toml) | Shared range interval; after closest approach for training, before it for testing |
 
 Both `range_overlap` configurations take up to 800 s of candidate windows per
 side, skip 15 s nearest closest approach on each side, and retain only labels
@@ -82,8 +111,8 @@ training-side rows for validation when no validation files exist. See the
 [split contract](../datasets/hdf5-datasets-and-splits.md#train-and-test-splits).
 
 ```bash
-./scripts/run.sh ELM complex_CNN --config scripts/localization_networks/workflow/haiqin_range_overlap_train_before.toml
-./scripts/run.sh ELM complex_CNN --config scripts/localization_networks/workflow/haiqin_range_overlap_train_after.toml
+./scripts/run.sh base_pack ELM complex_CNN --config scripts/base_pack/localization_networks/workflow/haiqin_range_overlap_train_before.toml
+./scripts/run.sh base_pack ELM complex_CNN --config scripts/base_pack/localization_networks/workflow/haiqin_range_overlap_train_after.toml
 ```
 
 For smoke validation, keep a candidate interval containing both sides of
@@ -94,11 +123,11 @@ To change other settings, copy and edit the complete configuration, then
 inspect it before launching:
 
 ```bash
-cp scripts/localization_networks/workflow/haiqin_full_interleaved.toml /tmp/swellex-experiment.toml
+cp scripts/base_pack/localization_networks/workflow/haiqin_full_interleaved.toml /tmp/swellex-experiment.toml
 # Edit /tmp/swellex-experiment.toml, then inspect the request:
-./scripts/run.sh ELM complex_CNN --config /tmp/swellex-experiment.toml --dry-run
+./scripts/run.sh base_pack ELM complex_CNN --config /tmp/swellex-experiment.toml --dry-run
 # Launch with the same configuration:
-./scripts/run.sh ELM complex_CNN --config /tmp/swellex-experiment.toml
+./scripts/run.sh base_pack ELM complex_CNN --config /tmp/swellex-experiment.toml
 ```
 
 Learning rate and dropout are direct Python CLI options; `run.sh` does not
@@ -110,8 +139,8 @@ The local GRNN worker belongs to `workflow/local_grnn.py`. Inspect a
 `range_overlap` direction through the same shell dispatcher:
 
 ```bash
-./scripts/run.sh local-grnn --method SCM \
-  --config scripts/localization_networks/workflow/haiqin_range_overlap_train_before.toml \
+./scripts/run.sh base_pack local-grnn --method SCM \
+  --config scripts/base_pack/localization_networks/workflow/haiqin_range_overlap_train_before.toml \
   --python /private/tmp/swellex-grnn-local-env/bin/python --dry-run
 ```
 
@@ -123,7 +152,7 @@ or accepts a validated matching directory with `--data PATH`; see
 To merge results already present locally, use the standard-library reader:
 
 ```bash
-python3 -B -m scripts.localization_networks.workflow.compare_results
+python3 -B -m scripts.base_pack.localization_networks.workflow.compare_results
 ```
 
 It reads direct run directories under `output/data/`, verifies CSV metrics,
@@ -137,10 +166,10 @@ not generate data, build references, predict, render figures, or contact haiqin.
 ## Run Validation Suites
 
 ```bash
-./scripts/run.sh check
-./scripts/run.sh validate --suite quick
-./scripts/run.sh validate --suite smoke
-./scripts/run.sh validate --suite experiment
+./scripts/run.sh base_pack check
+./scripts/run.sh base_pack validate --suite quick
+./scripts/run.sh base_pack validate --suite smoke
+./scripts/run.sh base_pack validate --suite experiment
 ```
 
 | Command | What it checks or runs |
@@ -168,17 +197,18 @@ normal experiment baseline.
 ## Detach, Check Status, and Fetch
 
 ```bash
-./scripts/run.sh RBD ResNet50 --epochs 100 --detach
+./scripts/run.sh base_pack RBD ResNet50 --epochs 100 --detach
 
 # Replace <run_id> with the ID printed by the launch command.
 RUN_ID='<run_id>'
-./scripts/run.sh status --run "$RUN_ID"
-./scripts/run.sh fetch --run "$RUN_ID"
+./scripts/run.sh base_pack status --run "$RUN_ID"
+./scripts/run.sh base_pack fetch --run "$RUN_ID"
 ```
 
 Use the same `--config PATH` for status/fetch if the launch configuration
 changes the remote host or workspace. Foreground runs fetch automatically
 when they finish; detached runs need `fetch`.
+Use the launching pack for these commands; a mismatched run pack is rejected.
 
 | Status | Meaning |
 |---|---|
@@ -222,7 +252,7 @@ See [result visualization](result-visualization.md) for figure meanings.
 | Problem | Next action |
 |---|---|
 | Invalid command or configuration | Correct the named argument or TOML field; use `--dry-run` to inspect the request |
-| SSH, raw-data, or uv preflight failure | Run `./scripts/run.sh check`; inspect the configured remote paths |
+| SSH, raw-data, or uv preflight failure | Run `./scripts/run.sh base_pack check`; inspect the configured remote paths |
 | CUDA or dependency failure | Read the logs and `environment.json` if present; follow the [frozen environment guide](remote-environment.md) |
 | CUDA out of memory | Check other GPU workloads; run when enough memory is free, or lower `training.batch_size` in a complete TOML copy passed with `--config` |
 | Dataset cache validation failure | Inspect the failure; use `--no-cache` for a fresh generation |

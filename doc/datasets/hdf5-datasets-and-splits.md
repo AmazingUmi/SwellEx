@@ -4,7 +4,7 @@
 
 The [shell workflow](../workflows/remote-validation.md) generates and validates
 RBD/ELM/SCM datasets on haiqin. The canonical Python generator is
-`scripts/data_processing/generate.py`, with a required `--config PATH` JSON file.
+`scripts/base_pack/data_processing/generate.py`, with a required `--config PATH` JSON file.
 
 | Source | Responsibility |
 |---|---|
@@ -37,7 +37,7 @@ Each HDF5 file is written to a temporary file and published only after closing
 successfully. Publication refuses an existing final file; a failed write leaves
 no partial final file. This is a file-level guarantee, not an atomic transaction
 across all three feature routes. MATLAB files under
-`scripts/data_processing/matlab_reference/` are static references.
+`scripts/base_pack/data_processing/matlab_reference/` are static references.
 
 ## Stored Contracts
 

@@ -4,6 +4,17 @@ Choose a guide by the task you want to perform. Use
 [project progress](overview/project-progress.md) for verified capabilities
 and remaining scientific work.
 
+## Experiment Packs
+
+| Task | Guide |
+|---|---|
+| Choose a pack and understand ownership | [Pack index](packs/README.md) |
+| Run the preserved independent-feature scheme | [Base pack](packs/base-pack.md) |
+| Compare joint inputs with existing architectures | [Joint feature pack](packs/joint-feature-pack.md) |
+
+The workflow and method references below describe `base_pack` unless they
+explicitly identify the joint pack. Pack-specific differences belong in `packs/`.
+
 ## Workflows
 
 | Task | Guide |

@@ -9,9 +9,9 @@ backpropagation. See the [method note](../methods/grnn.md) for the equations.
 From the local project root:
 
 ```bash
-./scripts/run.sh RBD GRNN
-./scripts/run.sh ELM GRNN
-./scripts/run.sh SCM GRNN
+./scripts/run.sh base_pack RBD GRNN
+./scripts/run.sh base_pack ELM GRNN
+./scripts/run.sh base_pack SCM GRNN
 ```
 
 The command prepares and validates the three feature datasets, builds a fresh
@@ -40,13 +40,13 @@ the run's `project/` directory.
 GRNN_METHOD='RBD'
 GRNN_DATA='<dataset_name>'
 GRNN_OUTPUT='outputs/manual_results/grnn'
-"$SWELLEX_PYTHON" -B scripts/localization_networks/grnn/main.py build \
+"$SWELLEX_PYTHON" -B scripts/base_pack/localization_networks/grnn/main.py build \
   --method "$GRNN_METHOD" --data "$GRNN_DATA" --device cuda --cv-folds 3 \
   --output-dir "$GRNN_OUTPUT" \
   --sigma-candidates 0.01 0.1 1.0 --batch-size 64 --seed 2026
 
 REFERENCE='<path_to_reference>'
-"$SWELLEX_PYTHON" -B scripts/localization_networks/grnn/main.py predict \
+"$SWELLEX_PYTHON" -B scripts/base_pack/localization_networks/grnn/main.py predict \
   --method "$GRNN_METHOD" --data "$GRNN_DATA" --device cuda --reference "$REFERENCE" --batch-size 64 \
   --output-dir "$GRNN_OUTPUT"
 ```
@@ -61,7 +61,7 @@ files ambiguous when rendering again.
 
 ## Options Used by Both Manual Commands
 
-The sole direct entry is `scripts/localization_networks/grnn/main.py`.
+The sole direct entry is `scripts/base_pack/localization_networks/grnn/main.py`.
 These tables describe its `build` and `predict` commands, not `run.sh`.
 
 | Option | Default | Meaning |
@@ -158,7 +158,7 @@ See [result visualization](result-visualization.md).
 ## Local CPU Range-Overlap Computation
 
 When local execution is requested, `workflow/local_grnn.py` runs the complete
-selected-method GRNN calculation through `./scripts/run.sh local-grnn`, without SSH.
+selected-method GRNN calculation through `./scripts/run.sh base_pack local-grnn`, without SSH.
 It reuses the existing before/after TOML
 presets, generates only `--method`, selects sigma by training-side random CV, builds
 the reference from all training rows, and predicts every opposite-side test
@@ -175,12 +175,12 @@ UV_CACHE_DIR=/private/tmp/swellex-grnn-uv-cache \
   --no-config --index-url https://pypi.org/simple \
   numpy==2.4.3 scipy==1.18.1 h5py==3.16.0 torch==2.11.0 matplotlib==3.10.9
 
-./scripts/run.sh local-grnn --method RBD \
-  --config scripts/localization_networks/workflow/haiqin_range_overlap_train_before.toml \
+./scripts/run.sh base_pack local-grnn --method RBD \
+  --config scripts/base_pack/localization_networks/workflow/haiqin_range_overlap_train_before.toml \
   --python /private/tmp/swellex-grnn-local-env/bin/python --dry-run
 
-./scripts/run.sh local-grnn --method ELM \
-  --config scripts/localization_networks/workflow/haiqin_range_overlap_train_after.toml \
+./scripts/run.sh base_pack local-grnn --method ELM \
+  --config scripts/base_pack/localization_networks/workflow/haiqin_range_overlap_train_after.toml \
   --python /private/tmp/swellex-grnn-local-env/bin/python --dry-run
 ```
 

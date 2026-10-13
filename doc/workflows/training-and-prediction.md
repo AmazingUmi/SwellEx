@@ -9,7 +9,7 @@ RBD/ELM/SCM GRNN uses a [separate build/predict workflow](standalone-grnn.md).
 From the local project root:
 
 ```bash
-./scripts/run.sh SCM ResNet18 --epochs 100 --seed 2026
+./scripts/run.sh base_pack SCM ResNet18 --epochs 100 --seed 2026
 ```
 
 The command prepares and validates all three feature datasets, trains only
@@ -35,13 +35,13 @@ run's `project/` directory.
 ```bash
 RBD_DATA='<rbd_dataset_name>'
 NEURAL_OUTPUT='outputs/manual_results/rbd-complex-cnn'
-"$SWELLEX_PYTHON" -B scripts/localization_networks/rbd/main.py train \
+"$SWELLEX_PYTHON" -B scripts/base_pack/localization_networks/rbd/main.py train \
   --model complex_cnn_range --data "$RBD_DATA" --device cuda \
   --output-dir "$NEURAL_OUTPUT" \
   --no-resume --epochs 100 --loss-space km --huber-beta 0.5
 
 CHECKPOINT='<path_to_best_checkpoint>'
-"$SWELLEX_PYTHON" -B scripts/localization_networks/rbd/main.py predict \
+"$SWELLEX_PYTHON" -B scripts/base_pack/localization_networks/rbd/main.py predict \
   --model complex_cnn_range --data "$RBD_DATA" --device cuda \
   --checkpoint "$CHECKPOINT" --output-dir "$NEURAL_OUTPUT"
 ```
@@ -57,9 +57,9 @@ For ELM or SCM, change the entry point, dataset, and registered model together:
 
 | Method | Python entry point | Registered-name prefix |
 |---|---|---|
-| RBD | `scripts/localization_networks/rbd/main.py` | None |
-| ELM | `scripts/localization_networks/elm/main.py` | `elm_` |
-| SCM | `scripts/localization_networks/scm/main.py` | `scm_` |
+| RBD | `scripts/base_pack/localization_networks/rbd/main.py` | None |
+| ELM | `scripts/base_pack/localization_networks/elm/main.py` | `elm_` |
+| SCM | `scripts/base_pack/localization_networks/scm/main.py` | `scm_` |
 
 | Shell architecture | Registered base name |
 |---|---|

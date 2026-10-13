@@ -1,6 +1,6 @@
 # RBD Multipath Peak Detection
 
-`scripts/data_processing/feature_math.py:rbd_decompose` forms equivalent Green
+`scripts/base_pack/data_processing/feature_math.py:rbd_decompose` forms equivalent Green
 features from Bartlett beams. `rbd.beam_selection="best"` uses the strongest
 angle; `"multipath"` uses accepted local peaks. The stored `/X` contains the
 aggregated Green feature, so this selection affects network input directly.
