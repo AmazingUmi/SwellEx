@@ -246,13 +246,15 @@ def load_run(run_dir: Path, models: list[str] | None = None, *, require_pass=Tru
     if not isinstance(metrics, list) or not metrics:
         raise ValueError("Run has no model results")
     if report["suite"] == "selected":
-        selection = validate_selection(report.get("selection"))
-        if report["purpose"] != "configured_single_model_without_accuracy_acceptance_threshold":
-            raise ValueError("Selected run purpose differs from the configured single-model contract")
-        if (len(metrics) != 1 or not isinstance(metrics[0], dict)
-                or metrics[0].get("method") != selection["method"]
-                or metrics[0].get("model") != selection["model"]):
-            raise ValueError("Selected run requires exactly one metric matching its method/model selection")
+        if report["purpose"] != "configured_model_selection_without_accuracy_acceptance_threshold":
+            raise ValueError("Selected run purpose is inconsistent")
+        planned_selection = model_plan("selected", report.get("selection"))
+        metrics = report.get("metrics")
+        expected = {(job["method"], job["model"]) for job in planned_selection}
+        if (not isinstance(metrics, list) or len(metrics) != len(expected)
+                or any(not isinstance(row, dict) for row in metrics)
+                or {(row.get("method"), row.get("model")) for row in metrics} != expected):
+            raise ValueError("Selected run metrics differ from its complete filtered plan")
     names = []
     for row in metrics:
         if not isinstance(row, dict) or row.get("method") not in {"RBD", "ELM", "SCM"} or not re.fullmatch(r"[a-z][a-z0-9_]*", str(row.get("model", ""))):

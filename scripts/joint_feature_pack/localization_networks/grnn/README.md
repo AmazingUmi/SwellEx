@@ -13,7 +13,7 @@ reference signature and saved fusion/scaling contract; references missing the
 current contract fields must be rebuilt. Block RMS is fitted within each CV
 training fold and on all training rows for the final reference.
 
-Use `./scripts/run.sh joint_feature_pack METHOD GRNN --fusion block_rms` for
+Use `./scripts/run.sh joint_feature_pack --method METHOD --network GRNN --fusion block_rms` for
 the remote build/predict workflow. See the
 [method note](../../../../doc/methods/grnn.md) for the shared kernel formula
 and evaluation limits; the joint pack contract defines its preprocessing.

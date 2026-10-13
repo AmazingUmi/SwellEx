@@ -14,7 +14,6 @@ FIELDS = {
     "training": {"epochs", "batch_size", "base_channels", "loss_space", "huber_beta", "val_fraction"},
     "grnn": {"cv_folds", "sigma_candidates", "batch_size"},
 }
-RUN_ID = re.compile(r"^[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$")
 
 
 def positive(value: object, name: str, *, integer: bool = False, zero: bool = False) -> None:

@@ -3,8 +3,10 @@
 ## Generation
 
 The [shell workflow](../workflows/remote-validation.md) generates and validates
-RBD/ELM/SCM datasets on haiqin. The canonical Python generator is
-`scripts/base_pack/data_processing/generate.py`, with a required `--config PATH` JSON file.
+RBD/ELM/SCM datasets on haiqin. Each pack's generator is
+`scripts/<pack>/data_processing/generate.py`, with a required `--config PATH`
+generation JSON (distinct from workflow TOML). Base feature contracts follow;
+joint concatenation is specified in the [joint guide](../packs/joint-feature-pack.md).
 
 | Source | Responsibility |
 |---|---|
@@ -114,7 +116,6 @@ ratios, covariance properties, pair sequence, and zero-power behavior.
 
 RBD uses variable-sound-speed steering-delay integration, plane-wave fallback,
 and Bartlett beamforming. Its stored feature is the actual Green estimate.
-Regenerate older RBD data that saved the FFT return value under that name.
 
 | Setting | Choices and effect |
 |---|---|
@@ -146,14 +147,18 @@ behavior are defined in [RBD multipath](../methods/rbd-multipath-detection.md).
 
 ### Window Geometry
 
-Dataset configuration controls `segment_duration_s`, `segment_step_s`,
-`segment_start_s`, `segment_end_s`, `num_snapshots_per_segment` and
-`snapshot_overlap_count`. ELM/SCM combine Ns consecutive base snapshots and
-advance by `(Ns-overlap)` base windows. Their labels/times describe the combined
-window. RBD operates on base windows.
+| Dataset parameter | Meaning |
+|---|---|
+| `segment_duration_s` | Base snapshot duration; must align to integer samples |
+| `segment_step_s` | Base window start-to-start step; must align to integer samples |
+| `segment_start_s`, `segment_end_s` | Inclusive candidate window-start bounds |
+| `num_snapshots_per_segment` | Ns base snapshots combined by ELM/SCM; RBD uses one |
+| `snapshot_overlap_count` | Shared snapshots between adjacent ELM/SCM windows; less than Ns |
 
-Remote comparison suites require Ns=1, no overlap, and disjoint base windows
-so all routes evaluate identical rows.
+ELM/SCM advance by `(Ns-overlap)` base windows; labels/times describe the
+combined window. Remote comparisons require Ns=1, zero overlap, and disjoint
+base windows. [Workflow defaults](../workflows/command-defaults.md#dataset)
+list the bundled values.
 
 ### Frequency Selection
 
@@ -195,8 +200,7 @@ matching or equal label distributions. `train_test_ratio` is unused;
 `after` reverses the sides. Optional `test_step_s` subsamples the selected test
 side chronologically after range filtering. Metadata records
 `range_overlap_min_km`, `range_overlap_max_km`, candidate/selected side counts,
-and the selected time bounds. The earlier Python names `periodic` and
-`Range_nearby` are rejected; static MATLAB references retain their original names.
+and selected time bounds. Only the two listed strategy names are accepted.
 
 Dataset names encode the route, estimator, and window/frequency settings.
 `manual_dataset_variant_tag` adds a safe variant suffix before the configuration

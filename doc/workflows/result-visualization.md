@@ -2,7 +2,7 @@
 
 Selected-model, smoke, and experiment runs automatically render figures after
 successful model evaluation. Foreground runs retrieve them on completion;
-for detached runs, use [status and fetch](remote-validation.md#detach-check-status-and-fetch).
+after stopping local monitoring, use [status and fetch](remote-validation.md#task-id-status-and-fetch).
 
 ## Find Delivered Results
 
@@ -43,25 +43,14 @@ HDF5 datasets, checkpoints, and GRNN references remain on haiqin in the run's
 | How did neural training evolve? | `models/<METHOD>/<model>/training/history.pdf` | Original train/validation loss, MAE, and RMSE by epoch |
 | Which GRNN sigma was selected? | `grnn/` | CV mean or held-out metrics; minimum-MAPE sigma marked |
 
-`range-time`, `prediction-scatter`, and `residuals-time` place each feature
-method in its own row, ordered RBD, ELM, SCM. Shared model columns follow
-complex CNN, real CNN, ResNet18, ResNet50, GRNN; the GRNN column is populated
-for RBD, ELM, and SCM in new complete runs. Model selection omits unused rows/columns and hides missing
-feature/model panels while retaining the shared scales.
+Base grids use RBD/ELM/SCM rows and shared architecture columns; joint grids
+use feature-combination rows, and joint ECDFs separate architectures. Display
+selection omits unused panels while preserving comparable scales.
 
-A selected run has five aggregate prediction/error figures, one per-model
-prediction figure, and its neural history or GRNN search figure when applicable.
-GRNN has no epoch history. All figures are PDF; no PNG files are saved.
-The automatic renderer creates model predictions from the recorded CSV and
-training curves from the original history JSON.
-
-Plots retain every valid test row, without smoothing, downsampling, pooling
-runs, or invented error bars. Time plots use points so they do not bridge
-unknown gaps. Periodic test spacing does not imply missing predictions.
-
-SmoothL1 loss is labeled by its configured `km` or `normalized` loss space;
-it is not squared range error. Figures describe the recorded run. Short smoke
-runs and configured experiments do not establish scientific model superiority.
+All figures are PDF and retain every valid test row. Time plots use points;
+there is no smoothing, downsampling, pooling of runs, or invented uncertainty.
+The renderer reads recorded CSV/history; GRNN has a search curve when available
+and no epoch history. SmoothL1 labels retain the configured loss space.
 
 ## Render Manually on haiqin
 
@@ -69,7 +58,9 @@ First [enter a completed frozen run](remote-environment.md#manual-commands-in-a-
 `SWELLEX_RUN` must point to the remote run directory containing `report.json`,
 and `SWELLEX_PYTHON` must be its locked interpreter.
 
-From that run's `project/` directory, render all report models to a new directory:
+The examples below use a base-pack run. For a joint run, use
+`scripts/joint_feature_pack/visualization/plot_results.py` and its registered
+model names. From the frozen `project/` directory, render to a new directory:
 
 ```bash
 "$SWELLEX_PYTHON" -B scripts/base_pack/visualization/plot_results.py \
@@ -77,7 +68,7 @@ From that run's `project/` directory, render all report models to a new director
   --output-dir output/figure/manual-all
 ```
 
-To compare specific models from a completed **smoke or experiment** run,
+To compare specific models from a completed **selected, smoke, or experiment** run,
 choose another new directory and repeat `--model`:
 
 ```bash
@@ -87,8 +78,8 @@ choose another new directory and repeat `--model`:
   --model RBD/complex_cnn_range --model SCM/scm_grnn_range
 ```
 
-A selected-model run contains only one model. Existing output directories are
-rejected. Manual rendering writes figures and CSV/JSON provenance together;
+A filtered run contains the complete method/network selection. Existing output
+directories are rejected. Manual rendering writes figures and CSV/JSON provenance together;
 these new files require separate retrieval and are not added to a completed
 run's automatic export.
 
@@ -104,25 +95,19 @@ scientific result figures.
 
 ## Input Checks and Provenance
 
-Before rendering, the public CLI checks:
+| Check | Required condition |
+|---|---|
+| Plan | Complete recorded suite: base smoke/full 6/15; joint smoke/full 14/35; selected: complete filtered plan |
+| Evaluation | Every planned model passed evaluation |
+| Files | Exactly one prediction CSV per model and one history per neural model |
+| Values | Finite rows, consistent errors/metrics, and recorded loss space |
+| Identity | Matching window indices, times, and true labels across models; canonical method/network filters |
+| Joint run | Matching pack/fusion and complete joint plan |
 
-- The recorded complete model plan: six models for smoke, fifteen for
-  experiment, or the single selected model. Unknown or missing models fail.
-  Historical four/thirteen-model reports are accepted only with the known
-  SCM-only source-plan identity; this does not relax new report completeness.
-- Passed evaluation phases for every model in that plan.
-- Exactly one prediction CSV per model, and one history file per neural model.
-- Finite, well-formed rows and consistent recorded errors, metrics, and loss space.
-- Matching source-window indices, timestamps, and true labels across all run models.
-- For `selected`, exactly one model metric and a matching canonical
-  `method`/`architecture`/`model` selection.
-
-These checks run before `--model` filtering. Selection controls rendering;
-missing or damaged inputs for unselected models still fail, and input provenance
-includes the files verified for the full run.
-
-Discovery is limited to `project/outputs/networks_results/`; resume-validation
-histories and other runs are excluded.
+Checks cover the entire run before `--model` filtering. Discovery is limited
+to `project/outputs/networks_results/`, excluding resume-check histories and
+other runs. Base historical 4/13-model reports require their known SCM-only
+source-plan identity; this exception does not relax new plan completeness.
 
 | File or field | Meaning |
 |---|---|
@@ -135,17 +120,11 @@ histories and other runs are excluded.
 | `render_output_dir` | Actual rendering directory on haiqin |
 | `purpose` | `engineering_validation` for smoke; no-accuracy-threshold purpose for selected/experiment runs |
 
-Fetch verifies each listed file's safe relative path, size, and SHA-256 after
-checksum retrieval. Its recorded scope is `visualization_manifest_files`:
-the rendering manifest's exported PDFs (including all per-model prediction and
-training PDFs), metrics, and captured source report.
-Other exported logs use rsync checksum retrieval and are outside this visualization
-manifest. Renderer source-file hashes are recorded separately from the training
-source snapshot.
-A PASS model run with a missing rendering manifest fails delivery verification;
-its remote computation status remains recorded separately in `report.json`.
+Fetch verifies safe relative paths, sizes, and SHA256 for manifest-listed PDFs,
+metrics, and captured source reports. Other logs use rsync checksum retrieval
+and are outside that manifest's scope. Renderer source hashes are separate
+from training source hashes.
 
-The exact selected-run purpose is
-`configured_single_model_without_accuracy_acceptance_threshold`; experiment
-uses `configured_experiment_without_accuracy_acceptance_threshold`. A PASS
-report confirms the configured pipeline, without a scientific accuracy threshold.
+A PASS model run without a rendering manifest fails delivery verification;
+remote computation status remains separately recorded in `report.json`.
+Pipeline PASS carries no scientific accuracy acceptance threshold.

@@ -9,7 +9,7 @@ and remaining scientific work.
 | Task | Guide |
 |---|---|
 | Choose a pack and understand ownership | [Pack index](packs/README.md) |
-| Run the preserved independent-feature scheme | [Base pack](packs/base-pack.md) |
+| Run the preserved independent-feature scheme | [Base pack](packs/README.md#base-pack) |
 | Compare joint inputs with existing architectures | [Joint feature pack](packs/joint-feature-pack.md) |
 
 The workflow and method references below describe `base_pack` unless they
@@ -19,12 +19,12 @@ explicitly identify the joint pack. Pack-specific differences belong in `packs/`
 
 | Task | Guide |
 |---|---|
-| Run a model, validate, check status, or fetch results | [Shell commands and remote workflow](workflows/remote-validation.md) |
-| Check or change the default settings | [Command defaults](workflows/command-defaults.md) |
+| Run all train-before models, select methods/networks, or recover a run | [Shell commands and remote workflow](workflows/remote-validation.md) |
+| Check TOML parameters, defaults, and constraints | [Configuration defaults](workflows/command-defaults.md) |
 | Enter a frozen remote run or inspect runtime files | [Frozen environment and run files](workflows/remote-environment.md) |
 | Train, resume, or predict with a neural model manually | [Training and prediction](workflows/training-and-prediction.md) |
 | Build a GRNN reference or choose sigma manually | [Standalone RBD/ELM/SCM GRNN](workflows/standalone-grnn.md) |
-| Plan local CPU GRNN or merge existing results | [Local workflow and comparison](workflows/remote-validation.md#local-grnn-and-existing-result-comparison) |
+| Plan local CPU GRNN or merge existing results | [Local workflow and comparison](workflows/remote-validation.md#maintenance-commands) |
 | Find figures, understand them, or render a model selection | [Result visualization](workflows/result-visualization.md) |
 
 ## Datasets and Development
@@ -32,8 +32,8 @@ explicitly identify the joint pack. Pack-specific differences belong in `packs/`
 | Task | Guide |
 |---|---|
 | Understand generation, HDF5 fields, windows, frequencies, or splits | [HDF5 datasets and split strategies](datasets/hdf5-datasets-and-splits.md) |
-| Add a model or change a loader | [Python extension guide](development/python-extension-guide.md) |
-| Locate a script, shared module, or method entry point | [Scripts organization](development/scripts-organization.md) |
+| Add a model or change a loader | [Python development guide](development/python-extension-guide.md) |
+| Locate a script, shared module, or method entry point | [Directory map](development/python-extension-guide.md#directory-map) |
 
 ## Methods
 
@@ -47,8 +47,9 @@ explicitly identify the joint pack. Pack-specific differences belong in `packs/`
 ## Documentation Rules
 
 - Keep one authority per topic; link shared details instead of duplicating them.
+- Use parameter/default/meaning tables and short examples; distinguish shell
+  settings from direct Python defaults.
 - Preserve each document's language and update links when moving content.
 - Use English lowercase directories and hyphen-separated filenames without
   numeric ordering prefixes. Keep `README.md` for indexes.
-- Name files for their subject. Meaningful numbers, such as years, may remain.
-- These rules apply to `doc/`; code and generated artifacts have their own contracts.
+- Keep run logs in their artifacts; progress pages summarize key evidence and gaps.

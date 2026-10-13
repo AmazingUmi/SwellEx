@@ -26,7 +26,7 @@ PROJECT = WORKFLOW.parents[3]
 sys.path.insert(0, str(PROJECT))
 from scripts.base_pack.localization_networks.workflow import config, remote, worker
 
-RUN_ID = "20261008T120000Z-01234567"
+RUN_ID = "20261008T120000Z-base-full-all-all-01234567"
 FIELDS = ["sample", "source_segment_idx", "window_center_s", "pred_range_km", "true_range_km", "abs_error_km"]
 
 
@@ -366,7 +366,7 @@ class ResultDeliveryTests(unittest.TestCase):
             manifest = {"status": "PASS", "figures": ["models/RBD/complex_cnn_range/test_outputs/prediction.pdf"]}
             instance.python = sys.executable
             instance.config = valid_config()
-            instance.request = {"suite": "selected", "selection": worker.resolve_selection("RBD", "complex_CNN")}
+            instance.request = {"suite": "selected", "selection": {"method": "RBD", "network": "complex_CNN"}}
             output = instance.project / "output/figure"
             output.mkdir(parents=True)
             prediction = output / manifest["figures"][0]
@@ -726,6 +726,7 @@ class DispatchTests(unittest.TestCase):
         self.addCleanup(stack.close)
         stack.enter_context(mock.patch.object(remote, "LOCAL_RUNS", self.root))
         stack.enter_context(mock.patch.object(remote, "freeze_source", return_value=self.manifest))
+        stack.enter_context(mock.patch.object(remote, "make_run_id", return_value=RUN_ID))
         clock = stack.enter_context(mock.patch.object(remote, "datetime"))
         clock.now.return_value.strftime.return_value = RUN_ID[:-8]
         clock.now.return_value.isoformat.return_value = "2026-10-08T12:00:00+00:00"
@@ -758,7 +759,7 @@ class DispatchTests(unittest.TestCase):
             raise RuntimeError("network unreachable")
         run = self.patches(call)
         with self.assertRaisesRegex(RuntimeError, "network unreachable"):
-            remote.validate(self.config, "quick", True, False, False)
+            remote.validate(self.config, "quick", False)
         run.assert_not_called()
         report = self.failed_report()
         self.assertNotIn("remote_recovery", report)
@@ -782,7 +783,7 @@ class DispatchTests(unittest.TestCase):
             return {"marked": True, "report": copy.deepcopy(payload["report"])}
         run = self.patches(call, rsync_code=23)
         with self.assertRaisesRegex(RuntimeError, "Source transfer failed"):
-            remote.validate(self.config, "quick", True, False, False)
+            remote.validate(self.config, "quick", False)
         self.assertEqual(run.call_count, 1)
         self.assertEqual(calls, [remote.CHECK_CODE, remote.INIT_CODE, remote.DISPATCH_FAILURE_CODE])
         self.assertTrue(self.failed_report()["remote_recovery"]["marked"])
@@ -797,7 +798,7 @@ class DispatchTests(unittest.TestCase):
             return {"marked": True, "report": copy.deepcopy(payload["report"])}
         run = self.patches(call)
         with self.assertRaisesRegex(RuntimeError, "initialization response lost"):
-            remote.validate(self.config, "quick", True, False, False)
+            remote.validate(self.config, "quick", False)
         run.assert_not_called()
         self.assertTrue(self.failed_report()["remote_recovery"]["marked"])
 
@@ -813,7 +814,7 @@ class DispatchTests(unittest.TestCase):
             return {"marked": False, "report": {"run_id": RUN_ID, "status": "RUNNING"}}
         self.patches(call)
         with self.assertRaisesRegex(RuntimeError, "launch response lost"):
-            remote.validate(self.config, "quick", True, False, False)
+            remote.validate(self.config, "quick", False)
         result = self.failed_report()["remote_recovery"]
         self.assertFalse(result["marked"])
         self.assertEqual(result["report"]["status"], "RUNNING")
@@ -827,7 +828,7 @@ class DispatchTests(unittest.TestCase):
             raise RuntimeError("network unavailable during recovery")
         self.patches(call, rsync_code=23)
         with self.assertRaisesRegex(RuntimeError, "Source transfer failed"):
-            remote.validate(self.config, "quick", True, False, False)
+            remote.validate(self.config, "quick", False)
         self.assertIn("network unavailable during recovery", self.failed_report()["remote_recovery_error"])
 
     def test_existing_local_run_is_never_overwritten(self):
@@ -836,7 +837,7 @@ class DispatchTests(unittest.TestCase):
         report.write_text('{"status":"PASS","marker":"original"}')
         self.patches(lambda *args: self.fail("Network must not be contacted for an existing run"))
         with self.assertRaises(FileExistsError):
-            remote.validate(self.config, "quick", True, False, False)
+            remote.validate(self.config, "quick", False)
         self.assertEqual(json.loads(report.read_text()), {"status": "PASS", "marker": "original"})
 
     def test_failure_marker_cannot_overwrite_foreign_or_launched_run(self):

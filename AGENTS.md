@@ -9,7 +9,9 @@ features; independent PyTorch packages train CNN/ResNet regressors. Standalone
 RBD/ELM/SCM GRNN uses `build`/`predict`, with no epochs or optimizer. The original
 scheme lives in `base_pack`; joint-feature experiments live in
 `joint_feature_pack`. The public entry requires `./scripts/run.sh PACK ...`.
-PACK alone starts its full experiment; add `--dry-run` to inspect the plan.
+PACK alone starts its full experiment and follows progress; disconnection does
+not stop a launched worker. Select with `--preset`, `--method`, and `--network`
+(joint also accepts `--fusion`); use `--help` without launching work.
 Keep shell argument rules in `scripts/pack_cli.py`, shared by both packs.
 
 Edit code/configuration/docs locally. Run data generation, numerical tests,

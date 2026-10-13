@@ -47,9 +47,16 @@ class SelectedWorkerTests(unittest.TestCase):
         self.request.pop("selection", None)
         self.manifest.pop("selection", None)
         if suite == "selected":
-            selection = tasks.resolve_selection(method, architecture)
+            selection = {"method": method, "network": architecture}
             self.request["selection"] = selection
             self.manifest["selection"] = dict(selection)
+        from scripts.run_identity import make_run_id
+        run_id = make_run_id("base_pack", self.config, self.request.get("selection"))
+        destination = self.run.with_name(run_id)
+        self.run.rename(destination)
+        self.run = destination
+        self.project = destination / "project"
+        self.request["run_id"] = self.manifest["run_id"] = run_id
         self.write_inputs()
 
     def write_inputs(self):
@@ -95,9 +102,9 @@ class SelectedWorkerTests(unittest.TestCase):
         calls["identity"].assert_called_once()
         calls["visualization"].assert_called_once()
         self.assertEqual(instance.report["selection"], self.request["selection"])
-        self.assertEqual(instance.report["model_plan"], [self.request["selection"]])
+        self.assertEqual(instance.report["model_plan"], tasks.model_plan("selected", self.request["selection"]))
         self.assertEqual(instance.report["suite"], "selected")
-        self.assertEqual(instance.report["purpose"], "configured_single_model_without_accuracy_acceptance_threshold")
+        self.assertEqual(instance.report["purpose"], "configured_model_selection_without_accuracy_acceptance_threshold")
         self.assertEqual(instance.report["not_run"], [])
         self.assertEqual(json.loads((self.run / "reports/metrics.json").read_text())["metrics"][0]["model"], "elm_resnet18_range")
         self.assertEqual(json.loads((self.run / "export/data/report.json").read_text())["status"], "PASS")
@@ -115,8 +122,25 @@ class SelectedWorkerTests(unittest.TestCase):
                 phases = {row["name"] for row in instance.report["checks"]}
                 self.assertEqual({name for name in phases if name.startswith("evaluate_")},
                                  {f"evaluate_{method}_{method.lower()}_grnn_range"})
-                self.assertEqual(instance.report["model_plan"], [self.request["selection"]])
+                self.assertEqual(instance.report["model_plan"], tasks.model_plan("selected", self.request["selection"]))
                 self.assertEqual(instance.report["not_run"], [])
+
+    def test_independent_filters_execute_the_complete_selected_plan(self):
+        for method, network, neural_count, grnn_count in (("SCM", None, 4, 1), (None, "GRNN", 0, 3)):
+            self.select(method, network)
+            instance = self.instance()
+            code, calls = self.execute_mocked(instance)
+            self.assertEqual(code, 0)
+            self.assertEqual(calls["neural"].call_count, neural_count)
+            self.assertEqual(calls["grnn"].call_count, grnn_count)
+            calls["resume"].assert_not_called()
+            self.assertEqual(instance.report["model_plan"], tasks.model_plan("selected", self.request["selection"]))
+
+    def test_id_must_describe_the_actual_frozen_filters(self):
+        self.request["selection"] = self.manifest["selection"] = {"method": "RBD", "network": "GRNN"}
+        self.write_inputs()
+        with self.prefix(), self.assertRaisesRegex(ValueError, "Run ID parameters"):
+            self.instance().setup()
 
     def test_existing_suites_preserve_validation_and_model_scope(self):
         for suite, neural_count, grnn_count, resume_count in (("quick", 0, 0, 0), ("smoke", 3, 3, 1), ("experiment", 12, 3, 1)):
@@ -151,7 +175,7 @@ class SelectedWorkerTests(unittest.TestCase):
             lambda r: r["selection"].update(method="RBD", architecture="GRNN", model="scm_grnn_range"),
             lambda r: r["selection"].update(architecture="resnet18"),
             lambda r: r["selection"].update(extra=True),
-            lambda r: r["selection"].pop("model"),
+            lambda r: r["selection"].pop("network"),
         )
         for mutate in mutations:
             with self.subTest(mutation=mutate):
@@ -202,7 +226,7 @@ class SelectedWorkerTests(unittest.TestCase):
                     calls[name].assert_not_called()
 
     def test_failed_setup_keeps_conservative_snapshot_expectation(self):
-        self.manifest["selection"] = tasks.resolve_selection("SCM", "GRNN")
+        self.manifest["selection"] = {"method": "SCM", "network": "GRNN"}
         self.write_inputs()
         instance = self.instance()
         with self.prefix():

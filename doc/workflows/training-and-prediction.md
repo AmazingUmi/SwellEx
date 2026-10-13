@@ -1,26 +1,9 @@
 # Neural Training and Prediction
 
-RBD, ELM, and SCM each support complex CNN, real CNN, ResNet18, and ResNet50.
-This guide covers complete shell runs and manual neural commands on haiqin.
-RBD/ELM/SCM GRNN uses a [separate build/predict workflow](standalone-grnn.md).
-
-## Run the Complete Workflow
-
-From the local project root:
-
-```bash
-./scripts/run.sh base_pack SCM ResNet18 --epochs 100 --seed 2026
-```
-
-The command prepares and validates all three feature datasets, trains only
-SCM ResNet18, predicts, plots, and retrieves results. It starts fresh and uses
-that run's best checkpoint. See the [shell guide](remote-validation.md) for
-background runs and retrieval.
-
-Without overrides, the shell uses 100 epochs, train/predict batch size 64,
-CNN base channels 16, and km-space loss. The complete
-[default reference](command-defaults.md#neural-training-and-prediction) lists
-settings and their sources. Manual Python defaults below are different.
+This page documents direct **base-pack** Python commands. For automatic runs,
+use the [shell guide](remote-validation.md); for joint inputs, use the
+[joint contract](../packs/joint-feature-pack.md). GRNN has a separate
+[build/predict CLI](standalone-grnn.md).
 
 ## Manual Train and Predict
 
@@ -83,7 +66,7 @@ These tables describe direct `main.py train` and `predict`, not `run.sh`.
 | `--model MODEL` | Required | Method-specific registered name |
 | `--device DEVICE` | CUDA if available, otherwise CPU | Supply `cuda` explicitly for the remote workflow |
 | `--output-dir PATH` | Method's output root | Adds `<model>/` unless the path already names that model |
-| `--batch-size N` | Train `16`; predict `32` | Samples per batch |
+| `--batch-size N` | Train `16`; predict `32` | Positive samples per batch; workflow TOML defaults to `64` |
 | `--num-workers N` | `0` | DataLoader workers |
 
 ## Train Options
@@ -92,15 +75,15 @@ These tables describe direct `main.py train` and `predict`, not `run.sh`.
 |---|---|---|
 | `--train-data GLOB ...` | Dataset `*_train.h5` | Explicit training files; quote globs |
 | `--val-data GLOB ...` | See validation order below | Explicit validation files; quote globs |
-| `--epochs N` | `100` | Fresh epochs, or additional epochs when resuming |
-| `--lr VALUE` | `3e-4` | Learning rate |
-| `--weight-decay VALUE` | `1e-4` | Optimizer weight decay |
+| `--epochs N` | `100` | Positive fresh epochs, or additional epochs when resuming |
+| `--lr VALUE` | `3e-4` | Positive learning rate |
+| `--weight-decay VALUE` | `1e-4` | Nonnegative optimizer weight decay |
 | `--base-channels N` | `16` | Fresh CNN width; ResNet uses its own layout |
-| `--dropout VALUE` | `0.15` | Fresh model dropout |
+| `--dropout VALUE` | `0.15` | Fresh model dropout in `[0,1)` |
 | `--loss-space SPACE` | `normalized` | `normalized` or `km` SmoothL1 loss |
-| `--huber-beta VALUE` | `0.5` | SmoothL1 transition in the chosen loss space |
-| `--val-fraction VALUE` | `0.25` | Fraction held out when validation files are absent |
-| `--seed N` | `2026` | Seed for the training/validation split |
+| `--huber-beta VALUE` | `0.5` | Nonnegative SmoothL1 transition in the chosen loss space |
+| `--val-fraction VALUE` | `0.25` | Internal holdout fraction in `(0,1)` when validation files are absent |
+| `--seed N` | `2026` | Split seed in `0..4294967295` |
 | `--no-input-norm` | Off | Disable per-sample real/imag channel normalization; real CNN already defaults to off |
 | `--no-resume` | Off | Start fresh; cannot be combined with `--resume-checkpoint` |
 | `--resume-checkpoint PATH` | Automatic lookup | Continue from a specific checkpoint; a missing explicit file fails |
@@ -115,9 +98,8 @@ Target normalization fits training labels only. Reported MAE/RMSE are always
 in km. Loss uses normalized targets for `normalized`, and physical km errors
 for `km`; Huber beta follows that space. SmoothL1 is not squared range error.
 
-Training requires nonempty training and validation sets. Epochs and batch sizes
-must be positive; `--val-fraction` must be strictly between 0 and 1. Nonfinite
-settings and abbreviated options are rejected. Seeds use `0..4294967295`.
+Training requires nonempty training/validation sets. Nonfinite settings and
+abbreviated options are rejected.
 
 ## Predict Options
 
@@ -137,8 +119,8 @@ settings and abbreviated options are rejected. Seeds use `0..4294967295`.
 | Predict | `<dataset>_best.pt`, then the matching timestamped `best` file with latest mtime |
 
 Missing explicit train or prediction checkpoint paths fail immediately.
-Automatic lookup considers only files with a valid `MMDD_HHMMSS` suffix and
-chooses the latest mtime.
+The timestamped fallback considers valid `MMDD_HHMMSS` suffixes and selects
+by latest mtime. If automatic training lookup finds nothing, training starts fresh.
 
 Checkpoints require the current version, method/model/dataset names, and physical
 input signature. Frequency, element/depth, or pair changes fail even when shapes
@@ -146,8 +128,9 @@ match. Older artifacts without this contract must be regenerated.
 
 Resume restores weights, model configuration, normalization, loss settings,
 optimizer state, and history. Rebuilt split indices, split mode, and seed must
-match the saved values. Keep the original data files unchanged; the split check
-does not hash their contents.
+match the saved values. Base checks do not hash source-file contents, so keep
+the files unchanged. Joint checkpoints additionally verify ordered source paths,
+sizes, and SHA256 hashes, including the historical best checkpoint.
 
 Each invocation runs a new cosine learning-rate phase from its `--lr` to zero
 over its `--epochs`. Resuming restores optimizer momentum but starts this new

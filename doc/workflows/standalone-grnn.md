@@ -1,36 +1,23 @@
 # RBD/ELM/SCM GRNN Build and Prediction
 
-GRNN stores the selected RBD, ELM, or SCM features and range labels as reference samples, then
-predicts by Gaussian-kernel averaging. It uses no epochs, optimizer, or
-backpropagation. See the [method note](../methods/grnn.md) for the equations.
+This page documents the **base-pack** GRNN CLI and explicit local CPU workflow.
+GRNN stores reference features/labels and predicts by Gaussian-kernel averaging;
+it has no epochs or optimizer. Equations are in the [method note](../methods/grnn.md).
 
-## Run the Complete Workflow
-
-From the local project root:
+For automatic remote execution:
 
 ```bash
-./scripts/run.sh base_pack RBD GRNN
-./scripts/run.sh base_pack ELM GRNN
-./scripts/run.sh base_pack SCM GRNN
+./scripts/run.sh base_pack --method SCM --network GRNN
 ```
 
-The command prepares and validates the three feature datasets, builds a fresh
-method-specific reference, selects sigma independently for that method, predicts,
-plots, and retrieves results. The complete experiment has 15 models; smoke has
-three complex CNNs and three GRNNs. GRNN stays outside neural model registries.
-Bundled GRNN settings are 5-fold cross-validation, 29 candidates (0.01–0.10 in
-steps of 0.01, then 0.20–2.00 in steps of 0.10), batch size 1024, and seed 2026.
-
-Use `--seed N` or `--config PATH` to change run settings. `--epochs` is rejected.
-See the [shell guide](remote-validation.md) for background runs and retrieval,
-and [command defaults](command-defaults.md#grnn) for the full configuration.
+Select `RBD`, `ELM`, or `SCM`. Shell options and bundled defaults are maintained
+in the [command guide](remote-validation.md) and [configuration table](command-defaults.md#grnn).
 
 ## Manual Build and Predict
 
 First [enter a completed frozen run](remote-environment.md#manual-commands-in-a-frozen-run)
-on haiqin. Choose a run from the three-method GRNN version; older SCM-only
-snapshots retain their historical CLI. Use its `SWELLEX_PYTHON` interpreter from
-the run's `project/` directory.
+on haiqin with base-pack source paths. Use its `SWELLEX_PYTHON` interpreter
+from the run's `project/` directory.
 
 1. Choose a method and its path from `dataset_directories` in the run's `report.json`.
 2. Replace `<dataset_name>` below and build the reference.
@@ -51,18 +38,12 @@ REFERENCE='<path_to_reference>'
   --output-dir "$GRNN_OUTPUT"
 ```
 
-The example uses a smaller search than the bundled workflow. The direct CLI
-defaults below differ. Manual results need separate retrieval and do not
-update a completed run's report.
-
-Choose a new `GRNN_OUTPUT` directory for each manual run. Adding result files
-to the original automatic output directory would make its prediction/search
-files ambiguous when rendering again.
+This example uses a smaller search than the workflow. Use a new output
+directory to avoid ambiguous result discovery; retrieve manual results separately.
 
 ## Options Used by Both Manual Commands
 
-The sole direct entry is `scripts/base_pack/localization_networks/grnn/main.py`.
-These tables describe its `build` and `predict` commands, not `run.sh`.
+These defaults belong to direct `grnn/main.py build|predict`, not `run.sh`.
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -118,15 +99,11 @@ settings are saved in the reference and reused during prediction.
 | `--no-plot` | Off | Omit the per-model plot |
 | `--print-first N` | `10` | Number of prediction rows printed |
 
-Without `--reference`, prediction tries `<dataset>_reference.pt`, then the
-matching `MMDD_HHMMSS` reference with latest mtime. Prediction requires the
-saved `[2,E|P,F]` shape and `input_signature` to match the input data exactly,
-including frequency, array, and pair axes. Explicit validation files must match
-the reference-building inputs by the same rule. A reference with missing
-contract fields, including older files without `input_signature`, is rejected;
-rebuild it with the current entry. The
-[dataset contract](../datasets/hdf5-datasets-and-splits.md) defines the required
-metadata and axis handling.
+Without `--reference`, lookup tries `<dataset>_reference.pt`, then the matching
+`MMDD_HHMMSS` file with latest mtime. A missing explicit path fails.
+References bind the method, preprocessing, shape, and physical axes. Validation
+and prediction inputs must match; missing contract fields require rebuilding.
+See the [dataset contract](../datasets/hdf5-datasets-and-splits.md).
 
 ## Artifacts
 
@@ -157,12 +134,18 @@ See [result visualization](result-visualization.md).
 
 ## Local CPU Range-Overlap Computation
 
-When local execution is requested, `workflow/local_grnn.py` runs the complete
-selected-method GRNN calculation through `./scripts/run.sh base_pack local-grnn`, without SSH.
-It reuses the existing before/after TOML
-presets, generates only `--method`, selects sigma by training-side random CV, builds
-the reference from all training rows, and predicts every opposite-side test
-row. Each direction gets its own reference and run directory.
+Use this only when local execution is requested. The base worker runs one
+`range_overlap` direction without SSH: generate/reuse one method, select sigma
+with training-side CV, build on all training rows, predict the opposite side,
+and deliver results.
+
+| Option | Default | Meaning / constraint |
+|---|---|---|
+| `--method METHOD` | Required | `RBD`, `ELM`, or `SCM` |
+| `--python PATH` | Required | Existing CPU environment interpreter |
+| `--preset` | `full` (rejected here) | Choose `train_before` or `train_after` |
+| `--config PATH` | — | Complete range-overlap TOML; exclusive with `--preset` |
+| `--data PATH` | Generate fresh | Reuse a matching method dataset after settings/split/raw-input validation |
 
 The project lock is for Linux/CUDA. For macOS CPU execution, use a separate
 Python 3.14 environment with the same direct numerical dependency versions:
@@ -176,42 +159,24 @@ UV_CACHE_DIR=/private/tmp/swellex-grnn-uv-cache \
   numpy==2.4.3 scipy==1.18.1 h5py==3.16.0 torch==2.11.0 matplotlib==3.10.9
 
 ./scripts/run.sh base_pack local-grnn --method RBD \
-  --config scripts/base_pack/localization_networks/workflow/haiqin_range_overlap_train_before.toml \
-  --python /private/tmp/swellex-grnn-local-env/bin/python --dry-run
-
-./scripts/run.sh base_pack local-grnn --method ELM \
-  --config scripts/base_pack/localization_networks/workflow/haiqin_range_overlap_train_after.toml \
-  --python /private/tmp/swellex-grnn-local-env/bin/python --dry-run
+  --preset train_before \
+  --python /private/tmp/swellex-grnn-local-env/bin/python
 ```
 
-`--dry-run` uses only the standard-library dispatcher and prints the planned
-command; it does not import numerical packages, create a run, or contact haiqin.
-Remove it when local computation is intended. `--method` and `--python` are required; the latter selects
-the already-installed CPU environment; set `MPLCONFIGDIR` to a writable directory
-when needed. The workflow does not create or modify the numerical environment.
+This command computes immediately in the local foreground; interruption stops it.
+The worker explicitly uses CPU and configured threads; remote host/device and neural fields are unused. It does not install
+packages. Set `MPLCONFIGDIR` to a writable directory if needed.
 
-The entry explicitly uses CPU and the configured thread count; the TOML's
-remote device/host and neural training fields are unused. It prints `Run:`
-before computation, rejects `full_interleaved`, and gives generation a unique
-variant tag so existing datasets are preserved. Optional `--data PATH` reuses
-one matching method directory after checking its method and generation settings, complete
-split membership, disjoint original sample intervals, and identical raw range
-tracks. It also requires metadata's complete `input_files` inventory and verifies
-the recorded raw files against their size, modification time, and SHA256; missing
-or changed input identity is rejected. An opposite-side dataset is rejected.
+Reuse checks method/configuration, split membership, disjoint sample intervals,
+range tracks, and raw-input path/size/mtime/SHA256. Opposite-side or changed
+inputs fail. Fresh generation uses a unique variant tag to preserve datasets.
 
-`output/data/<run_id>/` keeps the report, configuration, executed build/predict
-arguments, logs, complete Python source snapshot including method loaders,
-package-version freeze, reference, sigma-search
-JSON, and prediction CSV. `output/figure/<run_id>/` keeps the prediction and
-sigma-search PDFs; method HDF5 and metadata remain under `outputs/Datasets/`.
-Reports record input/source hashes, all split identities, selected sigma, and
-delivered-CSV MAE/RMSE/MAPE. Local references also record training-side window
-identities and the training HDF5 hash. Prediction always uses this run's explicit
-reference. Final checks reject source/input changes during computation.
+| Location | Saved evidence |
+|---|---|
+| `output/data/<run_id>/` | Report, config, commands/logs, complete Python snapshot, package versions, reference, search JSON, prediction CSV, hashes |
+| `output/figure/<run_id>/` | Prediction and sigma-search PDFs |
+| `outputs/Datasets/` | Method HDF5 and generation metadata |
 
-Sigma search reuses each fold's batched distances across candidates. Each fold
-still fits preprocessing only on its training rows; the kernel and minimum-MAPE
-selection rule are unchanged. The test side never selects sigma. Random CV,
-the range interval selected from both sides' true labels, and full-record mean
-centering retain the [method's evaluation boundaries](../methods/grnn.md).
+Prediction explicitly uses the current run's reference. Final checks reject
+source/input changes during execution. Random CV, both-sides range selection,
+and full-record mean centering retain the [method's evaluation boundaries](../methods/grnn.md#sigma-选择与评估边界).

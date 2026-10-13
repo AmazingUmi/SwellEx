@@ -7,21 +7,7 @@ loaders, contracts, configuration, workflow, and result handling.
 
 ## Select an Experiment
 
-```bash
-# Complete 35-model plan with the bundled configuration and block_rms
-./scripts/run.sh joint_feature_pack
-
-# Three feature blocks, each scaled using training samples
-./scripts/run.sh joint_feature_pack RBD_ELM_SCM complex_CNN --fusion block_rms
-
-# Two feature blocks without block scaling
-./scripts/run.sh joint_feature_pack RBD_SCM ResNet18 --fusion raw_concat
-
-# Same input comparison with a standalone GRNN
-./scripts/run.sh joint_feature_pack RBD_ELM_SCM GRNN --fusion block_rms
-```
-
-| Selection | Blocks, in fixed order | Rows for 21 elements |
+| Selection | Blocks in fixed order | Rows for 21 elements |
 |---|---|---:|
 | `RBD` | RBD | 21 |
 | `ELM` | ELM | 210 |
@@ -31,22 +17,18 @@ loaders, contracts, configuration, workflow, and result handling.
 | `ELM_SCM` | ELM, SCM | 441 |
 | `RBD_ELM_SCM` | RBD, ELM, SCM | 462 |
 
-Each selection supports `complex_CNN`, `real_CNN`, `ResNet18`, `ResNet50`, and
-`GRNN`. The complete plan contains 28 neural models and seven GRNNs for one
-fusion mode, split, and seed. `raw_concat` and `block_rms` are separate runs;
-the complete plan does not implicitly evaluate both modes.
-Use `./scripts/run.sh joint_feature_pack --fusion raw_concat` to run the full
-plan under the other fusion mode, or add `--dry-run` to inspect either plan.
+| Parameter | Default | Meaning |
+|---|---|---|
+| `--fusion` / `[fusion] mode` | `block_rms` | `block_rms` or `raw_concat`; CLI overrides TOML |
+| `validate --suite` | `smoke` | Maintenance only: `quick`, `smoke` (14 models), or `experiment` (35); each uses one fusion mode |
 
-`validate --suite smoke` runs one complex CNN and one GRNN for each selection
-(14 models); `validate --suite experiment` runs all 35. Use a copied joint
-preset with a short valid interval and reduced epochs for engineering checks;
-the default preset keeps the full interval and 100 neural epochs.
+Each selection supports the four neural families and GRNN. Shared options and
+configuration examples are in the [command guide](../workflows/remote-validation.md).
 
-The default fusion mode is `block_rms`. Set `--fusion raw_concat|block_rms`,
-or change `mode` in the selected joint preset's `[fusion]` table; the CLI
-overrides the configuration. Unknown selections and fusion modes are rejected.
-GRNN uses build/predict, so `--epochs` remains invalid for it.
+```bash
+./scripts/run.sh joint_feature_pack --preset train_before --fusion raw_concat
+./scripts/run.sh joint_feature_pack --method RBD_ELM_SCM --network complex_CNN --fusion block_rms
+```
 
 ## Representation and Fitted Scales
 

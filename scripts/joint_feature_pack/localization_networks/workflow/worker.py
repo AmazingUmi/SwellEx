@@ -21,9 +21,10 @@ import time
 PROJECT = Path(__file__).resolve().parents[4]
 if str(PROJECT) not in sys.path:
     sys.path.insert(0, str(PROJECT))
-from scripts.joint_feature_pack.localization_networks.workflow.config import RUN_ID, validate_config
+from scripts.joint_feature_pack.localization_networks.workflow.config import validate_config
+from scripts.run_identity import validate_filters, validate_run_identity
 from scripts.joint_feature_pack.localization_networks.workflow.processes import run_process
-from scripts.joint_feature_pack.localization_networks.workflow.tasks import SUITES, entry_script, expected_phases, model_plan, package_name, resolve_selection, validate_selection
+from scripts.joint_feature_pack.localization_networks.workflow.tasks import SUITES, entry_script, expected_phases, model_plan, package_name, resolve_selection
 
 PACK = "joint_feature_pack"
 
@@ -168,12 +169,13 @@ class Worker:
             raise ValueError("Invalid remote request schema")
         if request["pack"] != PACK:
             raise ValueError("Remote request pack mismatch")
-        if request["run_id"] != self.run.name or not RUN_ID.fullmatch(self.run.name) or request["suite"] not in SUITES or not isinstance(request["use_cache"], bool):
+        if request["run_id"] != self.run.name or request["suite"] not in SUITES or not isinstance(request["use_cache"], bool):
             raise ValueError("Invalid run ID, suite or cache policy")
         if request["suite"] == "selected":
-            validate_selection(request["selection"])
+            validate_filters(PACK, request["selection"])
         self.request = request
         self.config = validate_config(request["config"])
+        validate_run_identity(self.run.name, PACK, self.config, request.get("selection"))
         expected = Path(self.config["remote"]["workspace"]) / "runs" / self.run.name
         if self.run != expected or self.project.resolve() != self.project:
             raise ValueError("Remote run is outside configured snapshot location")
@@ -181,7 +183,7 @@ class Worker:
         if manifest.get("pack") != PACK or manifest["run_id"] != self.run.name or manifest["suite"] != request["suite"]:
             raise ValueError("Manifest pack/run/suite mismatch")
         if request["suite"] == "selected":
-            selection = validate_selection(manifest.get("selection"))
+            selection = validate_filters(PACK, manifest.get("selection"))
             if selection != request["selection"]:
                 raise ValueError("Manifest selection differs from the frozen request")
         elif "selection" in manifest:
@@ -200,7 +202,7 @@ class Worker:
         if request["suite"] == "experiment":
             self.report["purpose"] = "configured_experiment_without_accuracy_acceptance_threshold"
         elif request["suite"] == "selected":
-            self.report.update(selection=dict(request["selection"]), purpose="configured_single_model_without_accuracy_acceptance_threshold")
+            self.report.update(selection=dict(request["selection"]), purpose="configured_model_selection_without_accuracy_acceptance_threshold")
         threads = str(self.config["validation"]["threads"])
         self.env.update(OMP_NUM_THREADS=threads, MKL_NUM_THREADS=threads, OPENBLAS_NUM_THREADS=threads)
         self.python = sys.executable

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import copy
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -14,14 +13,15 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
 import uuid
 
 PROJECT = Path(__file__).resolve().parents[4]
 if str(PROJECT) not in sys.path:
     sys.path.insert(0, str(PROJECT))
-from scripts.joint_feature_pack.localization_networks.workflow.config import RUN_ID, load_config, validate_config
-from scripts.joint_feature_pack.localization_networks.workflow.tasks import ARCHITECTURES, METHODS, expected_phases, model_plan, resolve_selection
+from scripts.joint_feature_pack.localization_networks.workflow.config import load_config, validate_config
+from scripts.run_identity import make_run_id, parse_run_id, validate_filters
+from scripts.run_monitor import LOG_PROGRESS_CODE, RemoteConnectionError, follow
+from scripts.joint_feature_pack.localization_networks.workflow.tasks import ARCHITECTURES, METHODS, model_plan, resolve_selection
 
 DEFAULT_CONFIG = Path(__file__).with_name("haiqin_full_interleaved.toml")
 PACK = "joint_feature_pack"
@@ -72,7 +72,7 @@ def source_paths(project: Path = PROJECT) -> list[Path]:
 
 
 def freeze_source(stage: Path, config: dict, run_id: str, suite: str, project: Path = PROJECT, *, selection: dict | None = None) -> dict:
-    plan = model_plan(suite, selection)
+    model_plan(suite, selection)  # Validate the complete selection before any side effects.
     inventory = []
     for rel in source_paths(project):
         dest = stage / rel
@@ -85,7 +85,7 @@ def freeze_source(stage: Path, config: dict, run_id: str, suite: str, project: P
     dirty = subprocess.run(["git", "status", "--porcelain=1"], cwd=project, check=True, capture_output=True, text=True).stdout.splitlines()
     manifest = {"schema_version": 1, "pack": PACK, "run_id": run_id, "suite": suite, "created_at": datetime.now(timezone.utc).isoformat(), "git_head": head, "git_status": dirty, "source_sha256": digest, "files": inventory, "config_sha256": hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()}
     if suite == "selected":
-        manifest["selection"] = plan[0]
+        manifest["selection"] = dict(selection)
     return manifest
 
 
@@ -94,7 +94,8 @@ def remote_python(config: dict, code: str, payload: dict | None = None) -> dict:
     command = shlex.join([remote["base_python"], "-c", code])
     proc = subprocess.run(["ssh", *SSH_OPTIONS, remote["host"], command], input=json.dumps(payload or {}), text=True, capture_output=True)
     if proc.returncode:
-        raise RuntimeError(f"SSH command failed ({proc.returncode}): {proc.stderr.strip() or proc.stdout.strip()}")
+        error = RemoteConnectionError if proc.returncode == 255 else RuntimeError
+        raise error(f"SSH command failed ({proc.returncode}): {proc.stderr.strip() or proc.stdout.strip()}")
     try:
         return json.loads(proc.stdout)
     except json.JSONDecodeError as exc:
@@ -177,8 +178,7 @@ print(json.dumps(result))'''
 
 
 def run_dir(config: dict, run_id: str) -> str:
-    if not RUN_ID.fullmatch(run_id):
-        raise ValueError("Invalid run ID; use the ID printed by validate")
+    parse_run_id(run_id, PACK)
     return f"{config['remote']['workspace']}/runs/{run_id}"
 
 
@@ -187,6 +187,20 @@ def status(config: dict, run_id: str) -> dict:
     if report.get("pack") != PACK or report.get("run_id") != run_id:
         raise ValueError(f"Run identity mismatch: expected {PACK}/{run_id}")
     return report
+
+
+def progress(config: dict, run_id: str, offsets: dict) -> dict:
+    code = STATUS_CODE.replace("print(json.dumps(result))", LOG_PROGRESS_CODE)
+    update = remote_python(config, code, {"run_dir": run_dir(config, run_id), "offsets": offsets})
+    report = update["report"]
+    if report.get("pack") != PACK or report.get("run_id") != run_id:
+        raise ValueError(f"Run identity mismatch: expected {PACK}/{run_id}")
+    return update
+
+
+def follow_run(config: dict, run_id: str) -> int:
+    return follow(run_id, progress=lambda offsets: progress(config, run_id, offsets),
+                  fetch=lambda: fetch(config, run_id), summarize=summarize)
 
 
 def summarize(report: dict) -> None:
@@ -250,12 +264,14 @@ def fetch(config: dict, run_id: str) -> dict:
             source = f"{config['remote']['host']}:{run_dir(config, run_id)}/export/{kind}/"
             proc = subprocess.run(["rsync", "-rlt", "--checksum", "-e", shlex.join(["ssh", *SSH_OPTIONS]), source, str(destination) + "/"], capture_output=True, text=True)
             if proc.returncode:
-                raise RuntimeError(f"Result {kind} retrieval failed: {proc.stderr.strip()}")
+                error = RemoteConnectionError if proc.returncode in {10, 12, 30, 35, 255} else RuntimeError
+                raise error(f"Result {kind} retrieval failed: {proc.stderr.strip()}")
     retrieve_export()
     # Live/crashed workers may not have exported anything yet; always retain logs.
     proc = subprocess.run(["rsync", "-rlt", "--checksum", "-e", shlex.join(["ssh", *SSH_OPTIONS]), f"{config['remote']['host']}:{run_dir(config, run_id)}/logs/", str(local / "logs") + "/"], capture_output=True, text=True)
     if proc.returncode:
-        raise RuntimeError(f"Log retrieval failed: {proc.stderr.strip()}")
+        error = RemoteConnectionError if proc.returncode in {10, 12, 30, 35, 255} else RuntimeError
+        raise error(f"Log retrieval failed: {proc.stderr.strip()}")
     report = status(config, run_id)
     # Once terminal, export is immutable. If completion occurred during the
     # transfer, retrieve it again before reporting or verifying that completion.
@@ -279,37 +295,33 @@ def fetch(config: dict, run_id: str) -> dict:
     return report
 
 
-def dispatch(config: dict, suite: str, detach: bool, dry_run: bool, no_cache: bool, *, selection: dict | None = None) -> int:
+def dispatch(config: dict, suite: str, no_cache: bool, *, selection: dict | None = None) -> int:
     config = validate_config(config)
-    plan = model_plan(suite, selection)
-    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-") + uuid.uuid4().hex[:8]
+    model_plan(suite, selection)  # Validate the complete selection before any side effects.
+    run_id = make_run_id(PACK, config, selection)
     remote = config["remote"]
     remote_dir = run_dir(config, run_id)
     request = {"schema_version": 1, "pack": PACK, "run_id": run_id, "suite": suite, "config": config, "use_cache": not no_cache}
     if suite == "selected":
-        request["selection"] = plan[0]
+        request["selection"] = dict(selection)
     generation_config = {"schema_version": 1, "dataset": config["dataset"], "rbd": config["rbd"], "result_path": "outputs/validation/generation_result.json"}
     local = LOCAL_RUNS / run_id
     dispatch_token = uuid.uuid4().hex
     starting = {"schema_version": 1, "pack": PACK, "run_id": run_id, "suite": suite, "status": "STARTING", "started_at": datetime.now(timezone.utc).isoformat(), "checks": [], "remote_run_dir": remote_dir}
     if suite == "selected":
-        starting["selection"] = plan[0]
-    if not dry_run:
-        # A collision never overwrites an earlier run or its evidence.
-        local.mkdir(parents=True, exist_ok=False)
-        dump(local / "request.json", request)
-        dump(local / "generation_config.json", generation_config)
-        dump(local / "dispatch.json", {"token": dispatch_token})
-        dump(local / "report.json", starting)
-        print(f"Run: {run_id}", flush=True)
+        starting["selection"] = dict(selection)
+    # A collision never overwrites an earlier run or its evidence.
+    local.mkdir(parents=True, exist_ok=False)
+    dump(local / "request.json", request)
+    dump(local / "generation_config.json", generation_config)
+    dump(local / "dispatch.json", {"token": dispatch_token})
+    dump(local / "report.json", starting)
+    print(f"Run: {run_id}", flush=True)
     with tempfile.TemporaryDirectory(prefix="swellex-source-") as temp:
         stage = Path(temp)
         init_attempted = False
         try:
             manifest = freeze_source(stage, config, run_id, suite, selection=selection) if suite == "selected" else freeze_source(stage, config, run_id, suite)
-            if dry_run:
-                print(json.dumps({"run_id": run_id, "remote_run_dir": remote_dir, "files": len(manifest["files"]), "source_sha256": manifest["source_sha256"], "model_plan": plan, "expected_phases": sorted(expected_phases(suite, selection)), "request": request, "generation_config": generation_config}, ensure_ascii=False, indent=2))
-                return 0
             dump(local / "manifest.json", manifest)
             dump(stage / "manifest.json", manifest)
             dump(stage / "request.json", request)
@@ -328,58 +340,31 @@ def dispatch(config: dict, suite: str, detach: bool, dry_run: bool, no_cache: bo
             launched = remote_python(config, START_CODE, {"run_dir": remote_dir, "base_python": remote["base_python"], "uv": remote["uv"], "workspace": remote["workspace"]})
             dump(local / "launch.json", launched)
         except BaseException as exc:
-            if not dry_run:
-                failure = {**starting, "status": "FAIL", "exit_code": 130 if isinstance(exc, KeyboardInterrupt) else 1, "finished_at": datetime.now(timezone.utc).isoformat(), "error": f"Dispatch failed: {type(exc).__name__}: {exc}"}
+            failure = {**starting, "status": "FAIL", "exit_code": 130 if isinstance(exc, KeyboardInterrupt) else 1, "finished_at": datetime.now(timezone.utc).isoformat(), "error": f"Dispatch failed: {type(exc).__name__}: {exc}"}
+            dump(local / "report.json", failure)
+            if init_attempted:
+                try:
+                    result = remote_python(config, DISPATCH_FAILURE_CODE, {"run_dir": remote_dir, "dispatch_token": dispatch_token, "report": failure})
+                    # An ambiguous SSH launch failure may leave a healthy
+                    # worker running; never overwrite its authoritative report.
+                    failure["remote_recovery"] = result
+                except Exception as recovery:
+                    failure["remote_recovery_error"] = f"{type(recovery).__name__}: {recovery}"
                 dump(local / "report.json", failure)
-                if init_attempted:
-                    try:
-                        result = remote_python(config, DISPATCH_FAILURE_CODE, {"run_dir": remote_dir, "dispatch_token": dispatch_token, "report": failure})
-                        # An ambiguous SSH launch failure may leave a healthy
-                        # worker running; never overwrite its authoritative report.
-                        failure["remote_recovery"] = result
-                    except Exception as recovery:
-                        failure["remote_recovery_error"] = f"{type(recovery).__name__}: {recovery}"
-                    dump(local / "report.json", failure)
-                print(f"Dispatch evidence: {local}", file=sys.stderr)
+            print(f"Dispatch evidence: {local}", file=sys.stderr)
             raise
-        if detach:
-            print(f"Detached. Inspect with: ./scripts/run.sh {PACK} status --run {run_id}")
-            return 0
-        previous = None
-        try:
-            while True:
-                report = status(config, run_id)
-                progress = (report["status"], len(report.get("checks", [])))
-                if progress != previous:
-                    summarize(report)
-                    previous = progress
-                if report["status"] in TERMINAL:
-                    fetch(config, run_id)
-                    return 0 if report["status"] == "PASS" else int(report.get("exit_code", 1)) or 1
-                time.sleep(5)
-        except KeyboardInterrupt:
-            print(f"Remote task continues. Run ID: {run_id}")
-            return 130
+    return follow_run(config, run_id)
 
 
-def validate(config: dict, suite: str, detach: bool, dry_run: bool, no_cache: bool) -> int:
-    """Keep the existing validation call contract separate from selected runs."""
+def validate(config: dict, suite: str, no_cache: bool) -> int:
     if suite not in {"quick", "smoke", "experiment"}:
         raise ValueError("Validation suite must be quick, smoke, or experiment")
-    return dispatch(config, suite, detach, dry_run, no_cache)
+    return dispatch(config, suite, no_cache)
 
 
-def selected_run(config: dict, method: str, architecture: str, detach: bool, dry_run: bool, no_cache: bool, *, epochs: int | None = None, seed: int | None = None) -> int:
-    selection = resolve_selection(method, architecture)
-    if architecture == "GRNN" and epochs is not None:
-        raise ValueError("GRNN uses build/predict and does not accept --epochs")
-    merged = copy.deepcopy(config)
-    if epochs is not None:
-        merged["training"]["epochs"] = epochs
-    if seed is not None:
-        merged["validation"]["seed"] = seed
-    validate_config(merged)
-    return dispatch(merged, "selected", detach, dry_run, no_cache, selection=selection)
+def selected_run(config: dict, method: str | None, network: str | None, no_cache: bool) -> int:
+    selection = validate_filters(PACK, {"method": method, "network": network})
+    return dispatch(config, "selected", no_cache, selection=selection)
 
 
 def make_parser() -> argparse.ArgumentParser:
@@ -390,7 +375,9 @@ def make_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = make_parser().parse_args(argv)
     try:
-        config = load_config(args.config.resolve())
+        from scripts.pack_cli import config_path
+        path = config_path(args).resolve()
+        config = load_config(path)
         if getattr(args, "fusion", None) is not None:
             config["fusion"]["mode"] = args.fusion
             validate_config(config)
@@ -399,9 +386,11 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return 0 if result["status"] == "PASS" else 1
         if args.command == "validate":
-            return validate(config, args.suite, args.detach, args.dry_run, args.no_cache)
-        if args.command == "run":
-            return selected_run(config, args.method, args.architecture, args.detach, args.dry_run, args.no_cache, epochs=args.epochs, seed=args.seed)
+            return validate(config, args.suite, args.no_cache)
+        if args.command is None:
+            if args.method is not None or args.network is not None:
+                return selected_run(config, args.method, args.network, args.no_cache)
+            return dispatch(config, "experiment", args.no_cache)
         report = status(config, args.run) if args.command == "status" else fetch(config, args.run)
         summarize(report)
         return 0 if report["status"] == "PASS" else (1 if report["status"] == "FAIL" else 2)

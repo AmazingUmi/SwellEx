@@ -27,32 +27,15 @@ class LocalGrnnRoutingTests(unittest.TestCase):
     def config(self, side="before"):
         return WORKFLOW / f"haiqin_range_overlap_train_{side}.toml"
 
-    def test_dry_run_all_methods_and_both_directions_preserve_spaced_paths(self):
-        data = self.root / "method data; literal $(token)"
-        python = self.root / "CPU env/bin/python"
-        for method, side in ((method, side) for method in remote.METHODS for side in ("before", "after")):
-            stdout = io.StringIO()
-            with self.subTest(method=method, side=side), mock.patch.object(sys, "stdout", stdout), \
-                 mock.patch.object(remote, "remote_python") as ssh, \
-                 mock.patch.object(remote, "freeze_source") as freeze, \
-                 mock.patch.object(remote.subprocess, "run") as launch, \
-                 mock.patch.object(remote, "LOCAL_RUNS", self.root / "data"), \
-                 mock.patch.object(remote, "LOCAL_FIGURES", self.root / "figures"):
-                code = remote.main(["local-grnn", "--method", method, "--config", str(self.config(side)),
-                                    "--python", str(python), "--data", str(data), "--dry-run"])
-            self.assertEqual(code, 0)
-            plan = json.loads(stdout.getvalue())
-            self.assertEqual(plan["execution"], "local_cpu")
-            self.assertEqual(plan["config"]["dataset"]["train_side"], side)
-            self.assertEqual(plan["selection"], remote.resolve_selection(method, "GRNN"))
-            self.assertEqual(plan["argv"], [str(python), "-B", str(WORKFLOW / "local_grnn.py"),
-                                           "--method", method, "--config", str(self.config(side)), "--data", str(data.resolve())])
-            self.assertEqual(plan["data"], "reuse")
-            ssh.assert_not_called()
-            freeze.assert_not_called()
-            launch.assert_not_called()
-            self.assertFalse((self.root / "data").exists())
-            self.assertFalse((self.root / "figures").exists())
+    def test_all_methods_and_presets_preserve_literal_arguments(self):
+        for method in remote.METHODS:
+            for side in ("before", "after"):
+                python = self.root / "CPU env/bin/python"
+                data = self.root / "data; $(literal)"
+                with mock.patch.object(remote.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as launch, mock.patch.object(remote, "remote_python") as ssh:
+                    self.assertEqual(remote.main(["local-grnn", "--method", method, "--preset", f"train_{side}", "--python", str(python), "--data", str(data)]), 0)
+                self.assertEqual(launch.call_args.args[0], [str(python), "-B", str(WORKFLOW / "local_grnn.py"), "--method", method, "--config", str(self.config(side)), "--data", str(data.resolve())])
+                ssh.assert_not_called()
 
     def test_config_placement_and_method_and_python_are_required(self):
         parser = remote.make_parser()
@@ -63,7 +46,7 @@ class LocalGrnnRoutingTests(unittest.TestCase):
         for options in (["--method", "SCM"], ["--python", sys.executable],
                         ["--method", "scm", "--python", sys.executable]):
             with self.subTest(options=options), mock.patch.object(sys, "stderr", io.StringIO()), self.assertRaises(SystemExit) as error:
-                parser.parse_args(["local-grnn", "--config", str(self.config()), "--dry-run", *options])
+                parser.parse_args(["local-grnn", "--config", str(self.config()), *options])
             self.assertEqual(error.exception.code, 2)
 
     def test_invalid_split_and_unknown_config_reject_before_any_launch(self):
@@ -74,7 +57,7 @@ class LocalGrnnRoutingTests(unittest.TestCase):
                  mock.patch.object(remote, "remote_python") as ssh, \
                  mock.patch.object(remote.subprocess, "run") as launch:
                 self.assertEqual(remote.main(["local-grnn", "--method", "SCM", "--config", str(path),
-                                              "--python", sys.executable, "--dry-run"]), 1)
+                                              "--python", sys.executable]), 1)
             ssh.assert_not_called()
             launch.assert_not_called()
 
@@ -102,24 +85,6 @@ class LocalGrnnRoutingTests(unittest.TestCase):
             cwd=PROJECT, check=False)
         ssh.assert_not_called()
 
-    def test_import_and_dry_run_do_not_import_numerical_worker(self):
-        # An isolated interpreter makes this check independent of test ordering.
-        code = """import importlib.abc, sys
-class RejectNumericalImports(importlib.abc.MetaPathFinder):
-    def find_spec(self, fullname, path=None, target=None):
-        if fullname.split('.')[0] in {'torch', 'numpy', 'scipy', 'h5py', 'matplotlib'}:
-            raise AssertionError('Numerical import in dispatcher: ' + fullname)
-sys.meta_path.insert(0, RejectNumericalImports())
-from scripts.base_pack.localization_networks.workflow import remote
-result = remote.main(sys.argv[1:])
-assert 'scripts.base_pack.localization_networks.workflow.local_grnn' not in sys.modules
-assert 'scripts.base_pack.data_processing.generation_core' not in sys.modules
-raise SystemExit(result)
-"""
-        process = subprocess.run([sys.executable, "-B", "-c", code, "local-grnn", "--method", "ELM", "--config", str(self.config()),
-                                  "--python", sys.executable, "--dry-run"], cwd=PROJECT, capture_output=True, text=True)
-        self.assertEqual(process.returncode, 0, process.stderr)
-        self.assertEqual(json.loads(process.stdout)["data"], "generate_elm")
 
 
 class LocalGrnnShellEntryTests(unittest.TestCase):
@@ -137,7 +102,7 @@ class LocalGrnnShellEntryTests(unittest.TestCase):
             environment = {**os.environ, "PATH": str(root / "bin") + os.pathsep + os.environ["PATH"],
                            "SWELLEX_CAPTURE": str(capture)}
             argv = ["base_pack", "local-grnn", "--method", "RBD", "--config", "config with spaces.toml", "--python", "CPU env/bin/python",
-                    "--data", "RBD data; $(literal)", "--dry-run"]
+                    "--data", "RBD data; $(literal)"]
             result = subprocess.run(["sh", str(root / "scripts/run.sh"), *argv],
                                     cwd=root.parent, env=environment, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)

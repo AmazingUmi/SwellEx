@@ -7,16 +7,24 @@ aggregated Green feature, so this selection affects network input directly.
 
 ## Configuration
 
+These are `rbd.multipath_options` fields in standalone generation JSON;
+workflow TOML does not expose custom thresholds.
+
+| Parameter | Default | Meaning / constraint |
+|---|---|---|
+| `peak_threshold_db` | `-6` | Finite relative power threshold in dB |
+| `min_separation_deg` | `2` | Nonnegative angular separation between accepted peaks |
+| `max_num_peaks` | `181` | Positive integer cap on accepted peaks |
+| `sidelobe_reject_db` | `3` | Finite rejection margin above predicted leakage, dB |
+
+Example override within a generation JSON object:
+
 ```json
 {"rbd": {"beam_selection": "multipath", "multipath_options": {
   "peak_threshold_db": -6, "min_separation_deg": 2,
   "max_num_peaks": 181, "sidelobe_reject_db": 3
 }}}
 ```
-
-`generation_config.py` validates these fields. The relative threshold limits
-candidates; separation limits nearby accepted angles; the count caps accepted
-peaks; the sidelobe margin controls rejection of predicted leakage.
 
 ## Selection and Aggregation
 

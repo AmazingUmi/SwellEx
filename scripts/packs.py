@@ -4,6 +4,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
+NETWORKS = ("complex_CNN", "real_CNN", "ResNet18", "ResNet50", "GRNN")
+
+
 @dataclass(frozen=True)
 class Pack:
     name: str

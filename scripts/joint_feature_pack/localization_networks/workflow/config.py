@@ -15,7 +15,6 @@ FIELDS = {
     "fusion": {"mode"},
     "grnn": {"cv_folds", "sigma_candidates", "batch_size"},
 }
-RUN_ID = re.compile(r"^[0-9]{8}T[0-9]{6}Z-[a-f0-9]{8}$")
 
 
 def positive(value: object, name: str, *, integer: bool = False, zero: bool = False) -> None:

@@ -14,7 +14,7 @@ from scripts.joint_feature_pack.localization_networks.workflow import config, re
 from scripts.joint_feature_pack.localization_networks.workflow.worker import Worker
 
 WORKFLOW = Path(__file__).resolve().parents[1]
-RUN = "20261013T080000Z-01234567"
+RUN = "20261013T080000Z-joint-full-all-all-block_rms-01234567"
 
 
 def fixture():
@@ -30,7 +30,7 @@ class JointWorkflowTests(unittest.TestCase):
         self.assertEqual(len(tasks.model_plan("smoke")), 14)
         for row in plan:
             self.assertEqual(tasks.validate_selection(row), row)
-            self.assertIn("joint_datasets", tasks.expected_phases("selected", row))
+            self.assertIn("joint_datasets", tasks.expected_phases("selected", {"method": row["method"], "network": row["architecture"]}))
             self.assertTrue(tasks.entry_script(row).startswith("scripts/joint_feature_pack/"))
 
     def test_only_joint_and_grnn_network_entrypoints_are_executable(self):
@@ -56,12 +56,12 @@ class JointWorkflowTests(unittest.TestCase):
 
     def test_fusion_override_and_grnn_epoch_rejection(self):
         with patch.object(remote, 'dispatch', return_value=0) as dispatch:
-            self.assertEqual(remote.main(['run', 'RBD_ELM_SCM', 'ResNet18', '--fusion', 'raw_concat', '--epochs', '2']), 0)
+            self.assertEqual(remote.main(['--method', 'RBD_ELM_SCM', '--network', 'ResNet18', '--fusion', 'raw_concat']), 0)
             self.assertEqual(dispatch.call_args.args[0]['fusion']['mode'], 'raw_concat')
-            self.assertEqual(dispatch.call_args.args[0]['training']['epochs'], 2)
+            self.assertEqual(dispatch.call_args.args[0]['training']['epochs'], 100)
         with patch.object(remote, 'dispatch') as dispatch:
             with self.assertRaises(ValueError):
-                remote.selected_run(fixture(), 'RBD_SCM', 'GRNN', False, False, False, epochs=1)
+                remote.selected_run(fixture(), 'RBD_SCM', 'invalid', False)
             dispatch.assert_not_called()
 
     def test_pack_mismatch_rejected_before_fetch(self):

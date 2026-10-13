@@ -13,7 +13,6 @@ import re
 import shutil
 import sys
 import time
-import uuid
 
 ROOT = Path(__file__).resolve().parents[4]
 if str(ROOT) not in sys.path:
@@ -151,7 +150,8 @@ def run(config_path: Path, *, method: str, data: Path | None = None, root: Path 
     config = load_config(config_path)
     if config["dataset"]["split_strategy"] != "range_overlap":
         raise ValueError("Local GRNN range_overlap computation requires split_strategy=range_overlap")
-    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
+    from scripts.run_identity import make_run_id
+    run_id = make_run_id("base_pack", config, {"method": method, "network": "GRNN"})
     print(f"Run: {run_id}", flush=True)
     delivery = root / "output/data" / run_id
     figures = root / "output/figure" / run_id

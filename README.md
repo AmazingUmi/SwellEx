@@ -1,96 +1,68 @@
 # SwellEx Range Regression
 
-Predict source range in km from SwellEx-96 vertical line array data. Python
-creates HDF5 features; PyTorch CNN/ResNet models or standalone GRNN perform
-regression. Experiments are organized as explicit packs: `base_pack` preserves
-the original independent feature routes; `joint_feature_pack` evaluates
-combinations of those features with the existing network architectures.
+Predict source range (km) from SwellEx-96 VLA recordings using Python-generated
+HDF5 features and CNN/ResNet or GRNN regressors.
 
-| Feature route | Input features |
+| Feature | Representation |
 |---|---|
 | RBD | Beamformer-derived equivalent Green estimates |
 | ELM | Element-pair least-squares frequency ratios, excluding the diagonal |
 | SCM | Normalized spatial covariance entries, including the diagonal |
 
-## Run an Experiment or Model
+## Quick Start
 
-Edit code and configuration locally. Generation, numerical tests, training,
-prediction, and plotting run on SSH host `haiqin`. MATLAB source is retained
-only as a static reference.
-
-From the local project root, with uv, Python 3.11+, Git, SSH, and rsync available:
+Edit locally; generation, numerical tests, training, prediction, and plotting
+run on SSH host `haiqin`. Local commands need uv, Python 3.11+, Git, SSH, and
+rsync. MATLAB source is a static reference.
 
 ```bash
-# Run the selected pack's complete experiment
-./scripts/run.sh base_pack
-./scripts/run.sh joint_feature_pack
+# All 15 base models: range_overlap, train before / test after closest approach
+./scripts/run.sh base_pack --preset train_before
 
-# Inspect the full joint plan without SSH or computation
-./scripts/run.sh joint_feature_pack --dry-run
+# One model, including generation, prediction, figures, and retrieval
+./scripts/run.sh base_pack --preset train_before --method SCM --network ResNet18
 
-# Run one neural model through generation, training, prediction, and plotting
-./scripts/run.sh base_pack ELM complex_CNN
-
-# Run GRNN for any feature route through reference building, prediction, and plotting
-./scripts/run.sh base_pack RBD GRNN
-./scripts/run.sh base_pack ELM GRNN
-./scripts/run.sh base_pack SCM GRNN
-
-# Check the full pipeline with three complex CNNs and three GRNNs
-./scripts/run.sh base_pack validate --suite smoke
-
-# Joint input with a training-fitted scale for each feature block
-./scripts/run.sh joint_feature_pack RBD_ELM_SCM complex_CNN --fusion block_rms
+# All 35 joint models with the same split
+./scripts/run.sh joint_feature_pack --preset train_before
 ```
 
-For `base_pack`, choose `RBD`, `ELM`, or `SCM` with `complex_CNN`, `real_CNN`, `ResNet18`, or
-`ResNet50`, or `GRNN`. GRNN has no epochs or optimizer. The complete experiment
-contains 12 neural models and three method-specific GRNNs.
-A base-pack model command prepares all three feature routes and evaluates the
-chosen model. The pack argument is required; commands without it are rejected.
-The joint pack supports seven feature combinations and the same five model
-families. See the [pack guide](doc/packs/README.md) for commands, fusion rules,
-and comparison boundaries.
+| Parameter | Default | Purpose |
+|---|---|---|
+| `PACK` | Required | `base_pack` or `joint_feature_pack` |
+| `--preset` | `full` | `full`, `train_before`, or `train_after` split |
+| `--method` | All in the pack | Feature method/combination; e.g. `SCM`, joint `RBD_ELM_SCM` |
+| `--network` | All five families | `complex_CNN`, `real_CNN`, `ResNet18`, `ResNet50`, or `GRNN` |
+| `--fusion` | Joint preset: `block_rms` | Joint only; `block_rms` or `raw_concat` |
 
-Specifying only the pack selects `validate --suite experiment`: 15 models for
-`base_pack`, or 35 for `joint_feature_pack` with `block_rms` by default. Pack
-options such as `--config`, `--detach`, and joint `--fusion` apply to that full
-plan. Explicit `validate` still defaults to `smoke`; add `METHOD ARCH` to run
-one model. `--help` lists commands without launching work.
+**Pack alone starts the full experiment.** Omitted filters select all methods
+or networks. Bundled presets use 100 neural epochs and five-fold GRNN sigma
+search; GRNN has no epochs or optimizer. Epochs/seed and other advanced settings
+belong in a complete TOML passed with `--config`, instead of `--preset`.
 
-Bundled defaults: the complete 4500 s S5 VLA recording (window starts 0–4499 s),
-100 neural epochs, A5000-tuned batch size 64, seed 2026, and CUDA. Each GRNN uses
-five-fold sigma search. The full_interleaved 4:1 split is a within-record baseline; independent
-time/track generalization and accuracy acceptance require separate experiments.
-See the [command guide](doc/workflows/remote-validation.md) for options,
-validation suites, background runs, and failure recovery; see
-[command defaults](doc/workflows/command-defaults.md) for all settings.
+Remote runs start immediately, print a descriptive task ID, follow status/logs,
+and fetch results on completion. Once launched, they survive disconnection;
+Ctrl-C stops local monitoring. Use `status --run ID` and `fetch --run ID` to
+recover results. Task IDs include pack, split, method, network, joint fusion,
+and a unique suffix. `--help` shows syntax without launching work.
 
-## Find Results
+See [commands and options](doc/workflows/remote-validation.md),
+[configuration defaults](doc/workflows/command-defaults.md), and
+[pack contracts](doc/packs/README.md) before changing an experiment.
 
-Foreground runs retrieve results automatically when they finish:
+## Results and Source
 
-| Location | Contents |
+| Path | Contents |
 |---|---|
-| `output/data/<run_id>/` | Logs, reports, prediction CSVs, history, and provenance |
-| `output/figure/<run_id>/` | PDF figures |
-| Remote run's `project/outputs/` | Datasets, model checkpoints, and GRNN references |
-
-For figure meanings and manual plotting, see
-[result visualization](doc/workflows/result-visualization.md).
-
-## Project Layout
-
-| Path | Purpose |
-|---|---|
-| `scripts/run.sh`, `run.py`, `pack_cli.py`, `packs.py` | Thin shell launcher, pack routing, shared argument contract, and registry |
-| `scripts/base_pack/` | Original generation, independent RBD/ELM/SCM models, GRNN, workflow, and plots |
-| `scripts/joint_feature_pack/` | Joint feature inputs, existing model families, and independent experiment workflow |
+| `output/data/<run_id>/` | Retrieved logs, reports, prediction CSVs, and history |
+| `output/figure/<run_id>/` | Retrieved PDF figures |
+| Remote run's `project/outputs/` | Datasets, checkpoints, and GRNN references |
+| `scripts/<pack>/` | Pack-specific generation, networks, workflow, and visualization |
+| `scripts/pack_cli.py`, `scripts/packs.py` | Shared public command contract and pack registry |
 | `Origindata/` | Original inputs; excluded from Git |
 | `simulation/` | Propagation model inputs |
-| `doc/` | Workflow guides, data contracts, method references, and `packs/` experiment descriptions |
-| `pyproject.toml`, `uv.lock` | Dependency specifications and frozen versions |
+| `pyproject.toml`, `uv.lock` | Frozen numerical dependencies |
 
-Use the [documentation index](doc/README.md) to find a guide by task.
-[Project progress](doc/overview/project-progress.md) records verified scope
-and remaining scientific work.
+Use the [documentation index](doc/README.md) for detailed guides.
+[Project progress](doc/overview/project-progress.md) separates recorded pipeline
+checks from scientific validation; a PASS run alone does not establish
+accuracy or cross-track generalization.

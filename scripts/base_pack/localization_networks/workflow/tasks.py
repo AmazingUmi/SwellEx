@@ -3,8 +3,11 @@ from __future__ import annotations
 
 from scripts.base_pack.localization_networks.grnn.bindings import METHODS, model_name, validate_method
 
+from scripts.packs import NETWORKS
+from scripts.run_identity import validate_filters
+
 SUITES = ("quick", "smoke", "experiment", "selected")
-ARCHITECTURES = ("complex_CNN", "real_CNN", "ResNet18", "ResNet50", "GRNN")
+ARCHITECTURES = NETWORKS
 _PACKAGES = {"RBD": "rbd", "ELM": "elm", "SCM": "scm"}
 _MODELS = {
     "complex_CNN": "complex_cnn_range",
@@ -53,7 +56,10 @@ def model_plan(suite: str, selection: dict | None = None) -> list[dict]:
     if not isinstance(suite, str) or suite not in SUITES:
         raise ValueError(f"Unknown execution suite: {suite}")
     if suite == "selected":
-        return [validate_selection(selection)]
+        filters = validate_filters("base_pack", selection)
+        methods = (filters["method"],) if filters["method"] else METHODS
+        networks = (filters["network"],) if filters["network"] else ARCHITECTURES
+        return [resolve_selection(method, network) for method in methods for network in networks]
     if selection is not None:
         raise ValueError("Selection is allowed only for the selected suite")
     if suite == "quick":

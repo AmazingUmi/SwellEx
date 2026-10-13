@@ -111,11 +111,11 @@ class ResultsTests(unittest.TestCase):
     def select_report(self, *, grnn=False):
         selection = resolve_selection("RBD_ELM_SCM", "GRNN" if grnn else "complex_CNN")
         self.report.update(suite="selected",
-                           purpose="configured_single_model_without_accuracy_acceptance_threshold",
-                           selection=selection)
+                           purpose="configured_model_selection_without_accuracy_acceptance_threshold",
+                           selection={"method": selection["method"], "network": selection["architecture"]})
         self.report["metrics"] = [row for row in self.report["metrics"]
                                   if row["method"] == selection["method"] and row["model"] == selection["model"]]
-        self.report["model_plan"] = model_plan("selected", selection)
+        self.report["model_plan"] = model_plan("selected", self.report["selection"])
         self.save_report()
 
     def test_selected_neural_run_acceptance_and_render(self):
@@ -151,6 +151,21 @@ class ResultsTests(unittest.TestCase):
         self.assertEqual(len(manifest["models"]), 1)
         self.assertEqual(manifest["purpose"], self.report["purpose"])
 
+    def test_network_filter_accepts_all_methods_and_rejects_partial_or_duplicate_metrics(self):
+        selection = {"method": None, "network": "GRNN"}
+        plan = model_plan("selected", selection)
+        self.report.update(suite="selected", selection=selection, model_plan=plan,
+                           purpose="configured_model_selection_without_accuracy_acceptance_threshold")
+        self.populate_plan(plan)
+        self.save_report()
+        self.assertEqual(len(load_run(self.run).models), len(plan))
+        metrics = list(self.report["metrics"])
+        for invalid in (metrics[:-1], metrics[:-1] + [metrics[0]]):
+            self.report["metrics"] = invalid
+            self.save_report()
+            with self.assertRaises(ValueError):
+                load_run(self.run)
+
     def test_selected_missing_or_tampered_selection_rejected(self):
         self.select_report()
         canonical = dict(self.report["selection"])
@@ -175,7 +190,7 @@ class ResultsTests(unittest.TestCase):
         self.report["metrics"].append(extra)
         self.save_report()
         for models in (None, ["RBD/joint_complex_cnn_range"]):
-            with self.subTest(models=models), self.assertRaisesRegex(ValueError, "exactly one metric"):
+            with self.subTest(models=models), self.assertRaisesRegex(ValueError, "complete filtered plan"):
                 load_run(self.run, models)
 
     def test_selected_tampered_purpose_rejected(self):
