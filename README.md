@@ -1,30 +1,31 @@
 # SwellEx Range Regression
 
-Predict source range (km) from SwellEx-96 VLA recordings using Python-generated
-HDF5 features and CNN/ResNet or GRNN regressors.
+Predict source range (km) from SwellEx-96 VLA recordings.
 
-| Feature | Representation |
+## Common Commands
+
+Run from the **local project root**. Experiments execute on `haiqin`.
+Choose the command for your task; the launch commands below are alternatives.
+
+| Task | Command |
 |---|---|
-| RBD | Beamformer-derived equivalent Green estimates |
-| ELM | Element-pair least-squares frequency ratios, excluding the diagonal |
-| SCM | Normalized spatial covariance entries, including the diagonal |
+| Start all 35 joint models, train before / test after | `./scripts/run.sh joint_feature_pack --preset train_before` |
+| Start all 15 base models, train before / test after | `./scripts/run.sh base_pack --preset train_before` |
+| Check a joint run's status | `./scripts/run.sh joint_feature_pack status --run 'RUN_ID'` |
+| Fetch a joint run's results | `./scripts/run.sh joint_feature_pack fetch --run 'RUN_ID'` |
+| Show help without starting a run | `./scripts/run.sh joint_feature_pack --help` |
 
-## Quick Start
+Replace `RUN_ID` with the **complete ID printed after `Run:` at launch**.
+For a base run, use `base_pack` in status/fetch. These commands identify an
+existing run; do not add `--preset`, `--method`, or `--network`.
 
-Edit locally; generation, numerical tests, training, prediction, and plotting
-run on SSH host `haiqin`. Local commands need uv, Python 3.11+, Git, SSH, and
-rsync. MATLAB source is a static reference.
+Launch follows progress and fetches results on completion. Once the remote
+worker has started, disconnection or Ctrl-C stops only local monitoring.
+Manual fetch retrieves what is available now; if the run is still active,
+fetch again after completion. Reports/CSVs/logs go to `output/data/<run_id>/`;
+figures go to `output/figure/<run_id>/`. HDF5/checkpoints remain on haiqin.
 
-```bash
-# All 15 base models: range_overlap, train before / test after closest approach
-./scripts/run.sh base_pack --preset train_before
-
-# One model, including generation, prediction, figures, and retrieval
-./scripts/run.sh base_pack --preset train_before --method SCM --network ResNet18
-
-# All 35 joint models with the same split
-./scripts/run.sh joint_feature_pack --preset train_before
-```
+## Choose an Experiment
 
 | Parameter | Default | Purpose |
 |---|---|---|
@@ -39,15 +40,19 @@ or networks. Bundled presets use 100 neural epochs and five-fold GRNN sigma
 search; GRNN has no epochs or optimizer. Epochs/seed and other advanced settings
 belong in a complete TOML passed with `--config`, instead of `--preset`.
 
-Remote runs start immediately, print a descriptive task ID, follow status/logs,
-and fetch results on completion. Once launched, they survive disconnection;
-Ctrl-C stops local monitoring. Use `status --run ID` and `fetch --run ID` to
-recover results. Task IDs include pack, split, method, network, joint fusion,
-and a unique suffix. `--help` shows syntax without launching work.
-
 See [commands and options](doc/workflows/remote-validation.md),
 [configuration defaults](doc/workflows/command-defaults.md), and
 [pack contracts](doc/packs/README.md) before changing an experiment.
+
+To run one model instead of the complete pack:
+
+```bash
+./scripts/run.sh base_pack --preset train_before --method SCM --network ResNet18
+```
+
+Local prerequisites: uv, Python 3.11+, Git, SSH, and rsync. Edit locally;
+generation, numerical tests, training, prediction, and plotting run on haiqin.
+MATLAB source is a static reference.
 
 ## Results and Source
 

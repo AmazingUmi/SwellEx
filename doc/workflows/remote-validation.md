@@ -1,35 +1,44 @@
 # Run Models and Validation on haiqin
 
-Run commands from the local project root. Edit source/configuration locally;
-generation, numerical tests, training, prediction, and plotting run on `haiqin`.
-Local prerequisites: uv, Python 3.11+, Git, SSH, and rsync. The dispatcher uses
-the standard library; remote computation uses the [frozen environment](remote-environment.md).
+## Common Commands
 
-## Common Experiments
+Run from the **local project root**. Launch commands are alternatives; choose the
+pack and split you want. Replace `RUN_ID` with the complete ID printed after
+`Run:` at launch.
 
-```bash
-# All 15 base models, range_overlap: train before / test after closest approach
-./scripts/run.sh base_pack --preset train_before
+| Task | Command |
+|---|---|
+| All 35 joint models, train before / test after | `./scripts/run.sh joint_feature_pack --preset train_before` |
+| All 15 base models, train before / test after | `./scripts/run.sh base_pack --preset train_before` |
+| All 35 joint models, train after / test before | `./scripts/run.sh joint_feature_pack --preset train_after` |
+| Check joint task status | `./scripts/run.sh joint_feature_pack status --run 'RUN_ID'` |
+| Fetch joint results | `./scripts/run.sh joint_feature_pack fetch --run 'RUN_ID'` |
+| Check base task status | `./scripts/run.sh base_pack status --run 'RUN_ID'` |
+| Fetch base results | `./scripts/run.sh base_pack fetch --run 'RUN_ID'` |
+| Show help without starting a run | `./scripts/run.sh joint_feature_pack --help` |
 
-# All 35 joint models for the same split
-./scripts/run.sh joint_feature_pack --preset train_before
+**Status/fetch need only the launching pack and run ID.** Do not add `--preset`,
+`--method`, `--network`, or `--fusion`. If a custom configuration changes the
+remote host/workspace, also supply the same `--config PATH`.
 
-# One method with all five networks; or one network with all methods
-./scripts/run.sh base_pack --preset train_before --method SCM
-./scripts/run.sh base_pack --preset train_before --network GRNN
+Launching starts remote work, follows status/logs, and fetches results when done.
+Once the worker has started, disconnection or Ctrl-C stops only local monitoring;
+a temporary monitoring connection failure retries automatically. Interruption
+before launch completes can prevent startup; use the printed ID to check.
+Manual fetch retrieves available files once and does not wait for completion.
+If status is still running, fetch again after the task finishes.
 
-# One model
-./scripts/run.sh base_pack --preset train_before --method SCM --network ResNet18
+| Retrieved files | Local directory |
+|---|---|
+| Reports, prediction CSVs, training history, and logs | `output/data/<run_id>/` |
+| PDF figures | `output/figure/<run_id>/` |
 
-# Joint comparison with a different fusion condition
-./scripts/run.sh joint_feature_pack --preset train_before --fusion raw_concat
-```
+HDF5/checkpoints/GRNN references stay on haiqin. Detailed status meanings and ID
+format are in [Task ID, Status, and Fetch](#task-id-status-and-fetch).
 
-Every remote experiment starts immediately, follows status and new logs, and
-fetches results on completion. A temporary monitoring connection failure retries
-automatically. Once launched, the remote worker survives client disconnection;
-Ctrl-C stops only local monitoring (exit 130). Before launch completes, interruption
-can prevent the worker from starting. The printed ID lets you check what happened.
+Edit source/configuration locally. Generation, numerical tests, training,
+prediction, and plotting run on haiqin. Local prerequisites: uv, Python 3.11+,
+Git, SSH, and rsync. Remote computation uses the [frozen environment](remote-environment.md).
 
 ## Experiment Parameters
 
@@ -59,6 +68,17 @@ Names are case-sensitive; unknown, repeated, incomplete, or misplaced arguments
 fail. Old positional `METHOD ARCH`, `--epochs`, `--seed`, `--detach`, and
 `--dry-run` are removed from the shell interface. Use `--help` to inspect syntax
 without launching a run.
+
+### Select Methods, Networks, or Fusion
+
+Each row starts a separate experiment. Omitted method/network filters select all.
+
+| Task | Command |
+|---|---|
+| SCM with all five networks | `./scripts/run.sh base_pack --preset train_before --method SCM` |
+| GRNN with all base methods | `./scripts/run.sh base_pack --preset train_before --network GRNN` |
+| One SCM ResNet18 model | `./scripts/run.sh base_pack --preset train_before --method SCM --network ResNet18` |
+| Joint full plan with raw concatenation | `./scripts/run.sh joint_feature_pack --preset train_before --fusion raw_concat` |
 
 ### Advanced Configuration
 
@@ -92,6 +112,10 @@ with overlapping distances; 0–59 s is unsuitable.
 
 ## Task ID, Status, and Fetch
 
+Use the complete [status/fetch commands at the top of this page](#common-commands).
+The pack must match the original task. `PASS` means complete; `FAIL` means the
+run failed and its logs should be fetched for diagnosis.
+
 The launcher prints `Run:` before remote preparation and saves the request locally.
 New IDs describe the effective split and selection, including custom TOML settings:
 
@@ -108,16 +132,6 @@ collisions between otherwise identical submissions. Epochs, seed, suite, full
 configuration, and source identity remain in the request/manifest. Workers reject
 IDs inconsistent with the frozen parameters. Status/fetch reject old-format and
 cross-pack IDs; existing historical results remain on disk.
-
-```bash
-RUN_ID='<exact ID printed at launch>'
-./scripts/run.sh base_pack status --run "$RUN_ID"
-./scripts/run.sh base_pack fetch --run "$RUN_ID"
-```
-
-Use the launching pack and the same `--config PATH` if it changes the remote
-host/workspace. Fetch retrieves available results once; it does not wait for a
-running task. For an interrupted monitor, query status and fetch again after completion.
 
 | Status | Meaning | Status command exit code |
 |---|---|---|

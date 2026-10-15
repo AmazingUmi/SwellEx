@@ -1,8 +1,23 @@
 # Documentation Index
 
-Choose a guide by the task you want to perform. Use
-[project progress](overview/project-progress.md) for verified capabilities
-and remaining scientific work.
+## Common Commands
+
+Run from the **local project root**. Choose one launch command for the desired pack.
+
+| Task | Command |
+|---|---|
+| Start all joint models with train-before / test-after split | `./scripts/run.sh joint_feature_pack --preset train_before` |
+| Start all base models with the same split | `./scripts/run.sh base_pack --preset train_before` |
+| Check joint task status | `./scripts/run.sh joint_feature_pack status --run 'RUN_ID'` |
+| Fetch joint results | `./scripts/run.sh joint_feature_pack fetch --run 'RUN_ID'` |
+
+Replace `RUN_ID` with the full ID printed after `Run:`. For base tasks, replace
+`joint_feature_pack` with `base_pack` in status/fetch; no preset is needed.
+Results: `output/data/<run_id>/` and `output/figure/<run_id>/`.
+See the [command guide](workflows/remote-validation.md#common-commands) for
+selection/defaults and [status details](workflows/remote-validation.md#task-id-status-and-fetch)
+for recovery. Use [project progress](overview/project-progress.md) for verified
+capabilities and remaining scientific work.
 
 ## Experiment Packs
 
@@ -19,7 +34,8 @@ explicitly identify the joint pack. Pack-specific differences belong in `packs/`
 
 | Task | Guide |
 |---|---|
-| Run all train-before models, select methods/networks, or recover a run | [Shell commands and remote workflow](workflows/remote-validation.md) |
+| Run all train-before models or select methods/networks | [Shell commands and remote workflow](workflows/remote-validation.md) |
+| Check task status or fetch results after disconnection | [Status and fetch commands](workflows/remote-validation.md#task-id-status-and-fetch) |
 | Check TOML parameters, defaults, and constraints | [Configuration defaults](workflows/command-defaults.md) |
 | Enter a frozen remote run or inspect runtime files | [Frozen environment and run files](workflows/remote-environment.md) |
 | Train, resume, or predict with a neural model manually | [Training and prediction](workflows/training-and-prediction.md) |
