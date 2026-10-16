@@ -10,11 +10,14 @@ pack and split you want. Replace `RUN_ID` with the complete ID printed after
 |---|---|
 | All 35 joint models, train before / test after | `./scripts/run.sh joint_feature_pack --preset train_before` |
 | All 15 base models, train before / test after | `./scripts/run.sh base_pack --preset train_before` |
+| All 18 data-scale models, train before / test after | `./scripts/run.sh data_scale_pack --preset train_before` |
 | All 35 joint models, train after / test before | `./scripts/run.sh joint_feature_pack --preset train_after` |
 | Check joint task status | `./scripts/run.sh joint_feature_pack status --run 'RUN_ID'` |
 | Fetch joint results | `./scripts/run.sh joint_feature_pack fetch --run 'RUN_ID'` |
 | Check base task status | `./scripts/run.sh base_pack status --run 'RUN_ID'` |
 | Fetch base results | `./scripts/run.sh base_pack fetch --run 'RUN_ID'` |
+| Check a data-scale child or whole study | `./scripts/run.sh data_scale_pack status --run 'RUN_ID'` |
+| Fetch data-scale child or study results | `./scripts/run.sh data_scale_pack fetch --run 'RUN_ID'` |
 | Show help without starting a run | `./scripts/run.sh joint_feature_pack --help` |
 
 **Status/fetch need only the launching pack and run ID.** Do not add `--preset`,
@@ -28,10 +31,20 @@ before launch completes can prevent startup; use the printed ID to check.
 Manual fetch retrieves available files once and does not wait for completion.
 If status is still running, fetch again after the task finishes.
 
+Data-scale `study` and `budget-study` launches return after starting a remote
+coordinator. The whole matrix continues on haiqin without the local computer.
+Use its printed study ID with the same `status`/`fetch` commands; repeat the
+original matrix launch to recover it without rerunning completed children.
+See the [budget study commands](../packs/data-scale-budget-study.md#run-and-recover).
+
 | Retrieved files | Local directory |
 |---|---|
 | Reports, prediction CSVs, training history, and logs | `output/data/<run_id>/` |
 | PDF figures | `output/figure/<run_id>/` |
+
+For a registered data-scale study, child deliveries are grouped under
+`output/{data,figure}/<study_id>/children/<run_id>/`. Both whole-study and direct
+child fetch use this location once the study ledger has been retrieved locally.
 
 HDF5/checkpoints/GRNN references stay on haiqin. Detailed status meanings and ID
 format are in [Task ID, Status, and Fetch](#task-id-status-and-fetch).
@@ -48,16 +61,18 @@ Git, SSH, and rsync. Remote computation uses the [frozen environment](remote-env
 
 | Parameter | Default | Values and purpose |
 |---|---|---|
-| `PACK` | Required | `base_pack`: 3 feature methods; `joint_feature_pack`: 7 feature combinations |
+| `PACK` | Required | `base_pack`: 3 methods; `joint_feature_pack`: 7 combinations; `data_scale_pack`: 3 methods with scalable complex CNNs |
 | `--preset` | `full` | `full`: four train windows then one test; `train_before`: range-overlap before→after; `train_after`: after→before |
 | `--method` | All methods in the pack | Base: `RBD`, `ELM`, `SCM`. Joint also supports `RBD_ELM`, `RBD_SCM`, `ELM_SCM`, `RBD_ELM_SCM` |
-| `--network` | All five families | `complex_CNN`, `real_CNN`, `ResNet18`, `ResNet50`, `GRNN` |
+| `--network` | All in the pack | Base/joint: `complex_CNN`, `real_CNN`, `ResNet18`, `ResNet50`, `GRNN`. Data scale: see its [network choices](../packs/data-scale-pack.md#network-family) |
 | `--fusion` | Joint TOML's value; bundled `block_rms` | Joint only: `block_rms` or `raw_concat` |
 
 Omitting either filter selects all values of that dimension. Pack alone runs its
-full experiment with the `full` preset: 15 base or 35 joint models. Bundled
+full experiment with the `full` preset: 15 base, 35 joint or 18 data-scale models. Bundled
 presets use full S5 candidate coverage, 100 neural epochs, and five-fold GRNN
 sigma search. GRNN builds references without epochs or an optimizer.
+Data scale has no GRNN; its [configuration and capacity rule](../packs/data-scale-pack.md#training-count-and-capacity-rule)
+control training fractions and pre-training architecture selection.
 
 `train_before` and `train_after` use `range_overlap`: up to 800 s per candidate
 side, a 15 s central gap, and a shared distance interval selected using both
@@ -65,9 +80,9 @@ sides' true ranges. Side counts may differ. “All models” does not mean all
 recorded windows are retained. See the [split contract](../datasets/hdf5-datasets-and-splits.md#train-and-test-splits).
 
 Names are case-sensitive; unknown, repeated, incomplete, or misplaced arguments
-fail. Old positional `METHOD ARCH`, `--epochs`, `--seed`, `--detach`, and
-`--dry-run` are removed from the shell interface. Use `--help` to inspect syntax
-without launching a run.
+fail. Old positional `METHOD ARCH`, `--epochs`, `--seed`, and `--detach` are
+removed from the shell interface. `--dry-run` is accepted only by data-scale
+`budget-study`. Use `--help` to inspect syntax without launching a run.
 
 ### Select Methods, Networks, or Fusion
 
@@ -126,12 +141,19 @@ UTC timestamp-pack-split-method-network[-fusion]-random suffix
 20261013T120000Z-joint-after-all-GRNN-block_rms-a1b2c3d4
 ```
 
-`base`/`joint` identify the pack; `full`/`before`/`after` identify the split;
+`base`/`joint`/`scale` identify the pack; `full`/`before`/`after` identify the split;
 `all` denotes an omitted filter. The eight hexadecimal random characters avoid
 collisions between otherwise identical submissions. Epochs, seed, suite, full
 configuration, and source identity remain in the request/manifest. Workers reject
 IDs inconsistent with the frozen parameters. Status/fetch reject old-format and
 cross-pack IDs; existing historical results remain on disk.
+
+Data-scale matrices additionally register a study ID such as
+`scm-capacity-budget-study-v2`. Its remote registry verifies pack, frozen plan,
+source and child identities before status, fetch or recovery. Study IDs are not
+filesystem paths. Malformed or cross-pack child IDs are rejected rather than
+treated as study names. Study status checks coordinator liveness and remote child
+reports instead of trusting a local ledger's last `RUNNING` entry.
 
 | Status | Meaning | Status command exit code |
 |---|---|---|
@@ -153,16 +175,20 @@ terminal exports if completion occurs during retrieval.
 |---|---|
 | `check` | Check SSH, repository, raw inputs, and uv; does not test CUDA. Optional `--config` |
 | `validate` | Default `--suite smoke`; also accepts `quick` or `experiment`, `--preset` or `--config`, `--no-cache`, and joint `--fusion` |
-| `status --run RUN_ID` | Query a run; optional `--config` |
-| `fetch --run RUN_ID` | Retrieve and verify available results; optional `--config` |
+| `status --run RUN_ID` | Query a run, or a registered data-scale study; optional `--config` |
+| `fetch --run RUN_ID` | Retrieve and verify available run/study results; optional `--config` |
 | `local-grnn` | Explicit local CPU exception; base only. See [local GRNN](standalone-grnn.md#local-cpu-range-overlap-computation) |
+| `study --plan PATH [--study-dir PATH]` | Data scale only: start/recover a detached haiqin data-size/seed coordinator; see [matrix studies](../packs/data-scale-pack.md#data-size-matrix) |
+| `budget-study --plan PATH [--study-dir PATH] [--dry-run]` | Data scale only: start/recover a detached haiqin controlled-budget coordinator, or inspect its plan without launching; see [budget protocol](../packs/data-scale-budget-study.md) |
 
 `quick` checks runtime, CLI/model/loader contracts, numerical oracles, and
 workflow/plot tests. `smoke` adds generation, complex CNN + GRNN per method,
 prediction, a resume check, and figures (6 base / 14 joint models).
-`experiment` runs all five families. **Smoke does not shorten configured intervals
+For base/joint, `experiment` runs all five families. **Smoke does not shorten configured intervals
 or epochs.** Experiments with a method/network filter omit global quick/numerical
 and resume checks, while still checking data, predictions, and delivery.
+For data scale, smoke uses auto + original baseline for each method (6 models),
+and experiment uses all six choices (18). Quick covers all registered sizes.
 
 ## Results and Failures
 

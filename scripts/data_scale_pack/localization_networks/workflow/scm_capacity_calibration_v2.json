@@ -1,0 +1,1149 @@
+{
+  "schema_version": 1,
+  "kind": "validation-only-capacity-calibration",
+  "policy_id": "validation-calibrated-v2",
+  "created_at": "2026-10-15T14:53:04.791620+00:00",
+  "method": "SCM",
+  "base_channels": 16,
+  "development_seeds": [
+    2026,
+    2027,
+    2028
+  ],
+  "policy": {
+    "reference_samples": 900,
+    "exponent": 0.9
+  },
+  "source": {
+    "analysis": {
+      "path": "/mnt/SDD/project/SwellEx_validation/studies/scm-capacity-study-v1/analysis/study-results.json",
+      "size": 17530614,
+      "sha256": "4e57beb5df11a208ab96f0a97584d6575b13fbdf227637a8ed37dd1fb31f1c13"
+    },
+    "analysis_manifest": {
+      "path": "/mnt/SDD/project/SwellEx_validation/studies/scm-capacity-study-v1/analysis/manifest.json",
+      "size": 110162,
+      "sha256": "75ea95ec48ac91fc36eafdceb830be7f1deda57d23959379860ac8a4ff13334e"
+    },
+    "study": {
+      "path": "/mnt/SDD/project/SwellEx_validation/studies/scm-capacity-study-v1/study.json",
+      "size": 84179,
+      "sha256": "b5250a7c759ef22406f78dd714f69c3d5f88041a7bb32089bc13bccb6712c366"
+    },
+    "study_id": "scm-capacity-study-v1",
+    "training_source_sha256": "0aeaaaa8f95f68ac7a6d42b34a70e3fe6b1414cf2bc1208a6eab1c07e5fd301e",
+    "training_plan_sha256": "48f81c0296cc084cec3d1119cce236937f0ac39d3e716288febff62df3765440"
+  },
+  "projection_sha256": "714ce9f9691d79ff21b075ec98065edda4492870faf63f3235e7b371f16c0b03",
+  "projection": [
+    {
+      "seed": 2026,
+      "train_count": 337,
+      "profile": "small",
+      "validation_rmse_km": 1.142284437554765,
+      "parameter_count": 51153,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-36fd98b6",
+      "train_fraction": 0.125
+    },
+    {
+      "seed": 2026,
+      "train_count": 337,
+      "profile": "medium",
+      "validation_rmse_km": 1.2279507669547083,
+      "parameter_count": 69745,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-36fd98b6",
+      "train_fraction": 0.125
+    },
+    {
+      "seed": 2026,
+      "train_count": 337,
+      "profile": "large",
+      "validation_rmse_km": 1.2579499521702715,
+      "parameter_count": 148481,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-36fd98b6",
+      "train_fraction": 0.125
+    },
+    {
+      "seed": 2026,
+      "train_count": 337,
+      "profile": "xlarge",
+      "validation_rmse_km": 1.268294770660858,
+      "parameter_count": 241121,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-36fd98b6",
+      "train_fraction": 0.125
+    },
+    {
+      "seed": 2026,
+      "train_count": 675,
+      "profile": "small",
+      "validation_rmse_km": 0.7062677171148418,
+      "parameter_count": 51153,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-363aade1",
+      "train_fraction": 0.25
+    },
+    {
+      "seed": 2026,
+      "train_count": 675,
+      "profile": "medium",
+      "validation_rmse_km": 0.7497646517513926,
+      "parameter_count": 69745,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-363aade1",
+      "train_fraction": 0.25
+    },
+    {
+      "seed": 2026,
+      "train_count": 675,
+      "profile": "large",
+      "validation_rmse_km": 0.8299880190543769,
+      "parameter_count": 148481,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-363aade1",
+      "train_fraction": 0.25
+    },
+    {
+      "seed": 2026,
+      "train_count": 675,
+      "profile": "xlarge",
+      "validation_rmse_km": 0.8825494387427469,
+      "parameter_count": 241121,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-363aade1",
+      "train_fraction": 0.25
+    },
+    {
+      "seed": 2026,
+      "train_count": 1350,
+      "profile": "small",
+      "validation_rmse_km": 0.5750034894814319,
+      "parameter_count": 51153,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-046d31f0",
+      "train_fraction": 0.5
+    },
+    {
+      "seed": 2026,
+      "train_count": 1350,
+      "profile": "medium",
+      "validation_rmse_km": 0.5689331248649451,
+      "parameter_count": 69745,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-046d31f0",
+      "train_fraction": 0.5
+    },
+    {
+      "seed": 2026,
+      "train_count": 1350,
+      "profile": "large",
+      "validation_rmse_km": 0.6098979126818508,
+      "parameter_count": 148481,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-046d31f0",
+      "train_fraction": 0.5
+    },
+    {
+      "seed": 2026,
+      "train_count": 1350,
+      "profile": "xlarge",
+      "validation_rmse_km": 0.6382531994783319,
+      "parameter_count": 241121,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-046d31f0",
+      "train_fraction": 0.5
+    },
+    {
+      "seed": 2026,
+      "train_count": 2700,
+      "profile": "small",
+      "validation_rmse_km": 0.40358829857339507,
+      "parameter_count": 51153,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-6fe3871b",
+      "train_fraction": 1.0
+    },
+    {
+      "seed": 2026,
+      "train_count": 2700,
+      "profile": "medium",
+      "validation_rmse_km": 0.38082252611710093,
+      "parameter_count": 69745,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-6fe3871b",
+      "train_fraction": 1.0
+    },
+    {
+      "seed": 2026,
+      "train_count": 2700,
+      "profile": "large",
+      "validation_rmse_km": 0.36693800486813793,
+      "parameter_count": 148481,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-6fe3871b",
+      "train_fraction": 1.0
+    },
+    {
+      "seed": 2026,
+      "train_count": 2700,
+      "profile": "xlarge",
+      "validation_rmse_km": 0.3889718046615553,
+      "parameter_count": 241121,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-6fe3871b",
+      "train_fraction": 1.0
+    },
+    {
+      "seed": 2027,
+      "train_count": 337,
+      "profile": "small",
+      "validation_rmse_km": 1.1255359380915633,
+      "parameter_count": 51153,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-cc1a34dd",
+      "train_fraction": 0.125
+    },
+    {
+      "seed": 2027,
+      "train_count": 337,
+      "profile": "medium",
+      "validation_rmse_km": 1.251167420634638,
+      "parameter_count": 69745,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-cc1a34dd",
+      "train_fraction": 0.125
+    },
+    {
+      "seed": 2027,
+      "train_count": 337,
+      "profile": "large",
+      "validation_rmse_km": 1.2933556812197402,
+      "parameter_count": 148481,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-cc1a34dd",
+      "train_fraction": 0.125
+    },
+    {
+      "seed": 2027,
+      "train_count": 337,
+      "profile": "xlarge",
+      "validation_rmse_km": 1.3605774434429598,
+      "parameter_count": 241121,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-cc1a34dd",
+      "train_fraction": 0.125
+    },
+    {
+      "seed": 2027,
+      "train_count": 675,
+      "profile": "small",
+      "validation_rmse_km": 0.9069684538714785,
+      "parameter_count": 51153,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-af2e633d",
+      "train_fraction": 0.25
+    },
+    {
+      "seed": 2027,
+      "train_count": 675,
+      "profile": "medium",
+      "validation_rmse_km": 0.9692869452562511,
+      "parameter_count": 69745,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-af2e633d",
+      "train_fraction": 0.25
+    },
+    {
+      "seed": 2027,
+      "train_count": 675,
+      "profile": "large",
+      "validation_rmse_km": 1.0947779506086683,
+      "parameter_count": 148481,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-af2e633d",
+      "train_fraction": 0.25
+    },
+    {
+      "seed": 2027,
+      "train_count": 675,
+      "profile": "xlarge",
+      "validation_rmse_km": 1.1250361829990694,
+      "parameter_count": 241121,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-af2e633d",
+      "train_fraction": 0.25
+    },
+    {
+      "seed": 2027,
+      "train_count": 1350,
+      "profile": "small",
+      "validation_rmse_km": 0.5686956472823502,
+      "parameter_count": 51153,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-4023cef6",
+      "train_fraction": 0.5
+    },
+    {
+      "seed": 2027,
+      "train_count": 1350,
+      "profile": "medium",
+      "validation_rmse_km": 0.5677776482173019,
+      "parameter_count": 69745,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-4023cef6",
+      "train_fraction": 0.5
+    },
+    {
+      "seed": 2027,
+      "train_count": 1350,
+      "profile": "large",
+      "validation_rmse_km": 0.5721702637996879,
+      "parameter_count": 148481,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-4023cef6",
+      "train_fraction": 0.5
+    },
+    {
+      "seed": 2027,
+      "train_count": 1350,
+      "profile": "xlarge",
+      "validation_rmse_km": 0.6199795343668495,
+      "parameter_count": 241121,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-4023cef6",
+      "train_fraction": 0.5
+    },
+    {
+      "seed": 2027,
+      "train_count": 2700,
+      "profile": "small",
+      "validation_rmse_km": 0.4048395592064333,
+      "parameter_count": 51153,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-f00e3561",
+      "train_fraction": 1.0
+    },
+    {
+      "seed": 2027,
+      "train_count": 2700,
+      "profile": "medium",
+      "validation_rmse_km": 0.3934185927600519,
+      "parameter_count": 69745,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-f00e3561",
+      "train_fraction": 1.0
+    },
+    {
+      "seed": 2027,
+      "train_count": 2700,
+      "profile": "large",
+      "validation_rmse_km": 0.37222190263048055,
+      "parameter_count": 148481,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-f00e3561",
+      "train_fraction": 1.0
+    },
+    {
+      "seed": 2027,
+      "train_count": 2700,
+      "profile": "xlarge",
+      "validation_rmse_km": 0.36446711885989874,
+      "parameter_count": 241121,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-f00e3561",
+      "train_fraction": 1.0
+    },
+    {
+      "seed": 2028,
+      "train_count": 337,
+      "profile": "small",
+      "validation_rmse_km": 1.2450270096845195,
+      "parameter_count": 51153,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-07906aca",
+      "train_fraction": 0.125
+    },
+    {
+      "seed": 2028,
+      "train_count": 337,
+      "profile": "medium",
+      "validation_rmse_km": 1.1817514772708777,
+      "parameter_count": 69745,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-07906aca",
+      "train_fraction": 0.125
+    },
+    {
+      "seed": 2028,
+      "train_count": 337,
+      "profile": "large",
+      "validation_rmse_km": 1.2607365555378491,
+      "parameter_count": 148481,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-07906aca",
+      "train_fraction": 0.125
+    },
+    {
+      "seed": 2028,
+      "train_count": 337,
+      "profile": "xlarge",
+      "validation_rmse_km": 1.677642090242549,
+      "parameter_count": 241121,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-07906aca",
+      "train_fraction": 0.125
+    },
+    {
+      "seed": 2028,
+      "train_count": 675,
+      "profile": "small",
+      "validation_rmse_km": 0.7387052887419132,
+      "parameter_count": 51153,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-082cf5d5",
+      "train_fraction": 0.25
+    },
+    {
+      "seed": 2028,
+      "train_count": 675,
+      "profile": "medium",
+      "validation_rmse_km": 0.8275259430906035,
+      "parameter_count": 69745,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-082cf5d5",
+      "train_fraction": 0.25
+    },
+    {
+      "seed": 2028,
+      "train_count": 675,
+      "profile": "large",
+      "validation_rmse_km": 0.8600948839648039,
+      "parameter_count": 148481,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-082cf5d5",
+      "train_fraction": 0.25
+    },
+    {
+      "seed": 2028,
+      "train_count": 675,
+      "profile": "xlarge",
+      "validation_rmse_km": 0.8788795810750614,
+      "parameter_count": 241121,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-082cf5d5",
+      "train_fraction": 0.25
+    },
+    {
+      "seed": 2028,
+      "train_count": 1350,
+      "profile": "small",
+      "validation_rmse_km": 0.5799565816630782,
+      "parameter_count": 51153,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-33d8e60a",
+      "train_fraction": 0.5
+    },
+    {
+      "seed": 2028,
+      "train_count": 1350,
+      "profile": "medium",
+      "validation_rmse_km": 0.5792046213177663,
+      "parameter_count": 69745,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-33d8e60a",
+      "train_fraction": 0.5
+    },
+    {
+      "seed": 2028,
+      "train_count": 1350,
+      "profile": "large",
+      "validation_rmse_km": 0.6105580637541105,
+      "parameter_count": 148481,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-33d8e60a",
+      "train_fraction": 0.5
+    },
+    {
+      "seed": 2028,
+      "train_count": 1350,
+      "profile": "xlarge",
+      "validation_rmse_km": 0.6238563313321636,
+      "parameter_count": 241121,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-33d8e60a",
+      "train_fraction": 0.5
+    },
+    {
+      "seed": 2028,
+      "train_count": 2700,
+      "profile": "small",
+      "validation_rmse_km": 0.4310182633706325,
+      "parameter_count": 51153,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-b9f3ed5e",
+      "train_fraction": 1.0
+    },
+    {
+      "seed": 2028,
+      "train_count": 2700,
+      "profile": "medium",
+      "validation_rmse_km": 0.39248002049038544,
+      "parameter_count": 69745,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-b9f3ed5e",
+      "train_fraction": 1.0
+    },
+    {
+      "seed": 2028,
+      "train_count": 2700,
+      "profile": "large",
+      "validation_rmse_km": 0.3672968525303158,
+      "parameter_count": 148481,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-b9f3ed5e",
+      "train_fraction": 1.0
+    },
+    {
+      "seed": 2028,
+      "train_count": 2700,
+      "profile": "xlarge",
+      "validation_rmse_km": 0.3598705697841979,
+      "parameter_count": 241121,
+      "run_id": "20261015T100632Z-scale-full-SCM-all-b9f3ed5e",
+      "train_fraction": 1.0
+    }
+  ],
+  "objective": {
+    "name": "equal-N-weighted mean relative validation-RMSE regret",
+    "formula": "mean_N(mean_seed(validation_rmse[N, policy(N)]) / min_profile mean_seed(validation_rmse[N, profile]) - 1)",
+    "N_weights": "equal",
+    "validation_checkpoint": "first minimum validation RMSE of each original training run",
+    "oracle_profiles": [
+      "small",
+      "medium",
+      "large",
+      "xlarge"
+    ],
+    "test_metrics_used": false
+  },
+  "grid": {
+    "reference_samples": [
+      600,
+      700,
+      800,
+      900,
+      1000,
+      1100,
+      1200,
+      1300,
+      1400,
+      1500,
+      1600,
+      1700,
+      1800
+    ],
+    "exponents": [
+      0.25,
+      0.3,
+      0.35,
+      0.4,
+      0.45,
+      0.5,
+      0.55,
+      0.6,
+      0.65,
+      0.7,
+      0.75,
+      0.8,
+      0.85,
+      0.9,
+      0.95,
+      1.0,
+      1.05,
+      1.1,
+      1.15,
+      1.2,
+      1.25,
+      1.3,
+      1.35,
+      1.4,
+      1.45,
+      1.5
+    ],
+    "candidate_count": 338,
+    "original_rule_included": true,
+    "candidate_scores": {
+      "path": "candidate-scores.csv",
+      "sha256": "309508558883e93e6794fd3d2a61d04aceef1bb78b0fe7c6589807c15f6e9ce4"
+    }
+  },
+  "tie_rule": {
+    "score_absolute_tolerance": 1e-12,
+    "order": [
+      "retain scores within tolerance of global minimum",
+      "lowest mean parameter count over N",
+      "within each identical N-to-profile mapping: largest minimum absolute log distance to a tier threshold",
+      "lowest exponent",
+      "lowest reference_samples"
+    ],
+    "threshold_profiles": [
+      "medium",
+      "large",
+      "xlarge"
+    ],
+    "threshold_formula": "reference_samples * (P_profile / P_medium) ** (1 / exponent)",
+    "margin_formula": "min over observed N and three tier thresholds of abs(log(N / threshold))"
+  },
+  "assignments": [
+    {
+      "train_count": 337,
+      "profile": "small",
+      "parameter_count": 51153,
+      "mean_validation_rmse_km": 1.170949128443616,
+      "oracle_profile": "small",
+      "oracle_mean_validation_rmse_km": 1.170949128443616,
+      "relative_regret": 0.0
+    },
+    {
+      "train_count": 675,
+      "profile": "small",
+      "parameter_count": 51153,
+      "mean_validation_rmse_km": 0.7839804865760778,
+      "oracle_profile": "small",
+      "oracle_mean_validation_rmse_km": 0.7839804865760778,
+      "relative_regret": 0.0
+    },
+    {
+      "train_count": 1350,
+      "profile": "medium",
+      "parameter_count": 69745,
+      "mean_validation_rmse_km": 0.5719717981333378,
+      "oracle_profile": "medium",
+      "oracle_mean_validation_rmse_km": 0.5719717981333378,
+      "relative_regret": 0.0
+    },
+    {
+      "train_count": 2700,
+      "profile": "large",
+      "parameter_count": 148481,
+      "mean_validation_rmse_km": 0.3688189200096448,
+      "oracle_profile": "large",
+      "oracle_mean_validation_rmse_km": 0.3688189200096448,
+      "relative_regret": 0.0
+    }
+  ],
+  "score": 0.0,
+  "mean_parameter_count": 80133.0,
+  "threshold_margin": 0.25904421046276926,
+  "thresholds": {
+    "medium": 900.0000000000001,
+    "large": 2083.8300330913826,
+    "xlarge": 3571.268163579728
+  },
+  "original_rule": {
+    "policy": {
+      "reference_samples": 600,
+      "exponent": 0.5
+    },
+    "score": 0.03430539764541546,
+    "mean_parameter_count": 65097.0,
+    "threshold_margin": 0.007145143993337655,
+    "thresholds": {
+      "medium": 600.0,
+      "large": 2719.36097488901,
+      "xlarge": 7171.25499532182
+    },
+    "assignments": [
+      {
+        "train_count": 337,
+        "profile": "small",
+        "parameter_count": 51153,
+        "mean_validation_rmse_km": 1.170949128443616,
+        "oracle_profile": "small",
+        "oracle_mean_validation_rmse_km": 1.170949128443616,
+        "relative_regret": 0.0
+      },
+      {
+        "train_count": 675,
+        "profile": "medium",
+        "parameter_count": 69745,
+        "mean_validation_rmse_km": 0.8488591800327491,
+        "oracle_profile": "small",
+        "oracle_mean_validation_rmse_km": 0.7839804865760778,
+        "relative_regret": 0.08275549528027115
+      },
+      {
+        "train_count": 1350,
+        "profile": "medium",
+        "parameter_count": 69745,
+        "mean_validation_rmse_km": 0.5719717981333378,
+        "oracle_profile": "medium",
+        "oracle_mean_validation_rmse_km": 0.5719717981333378,
+        "relative_regret": 0.0
+      },
+      {
+        "train_count": 2700,
+        "profile": "medium",
+        "parameter_count": 69745,
+        "mean_validation_rmse_km": 0.3889070464558461,
+        "oracle_profile": "large",
+        "oracle_mean_validation_rmse_km": 0.3688189200096448,
+        "relative_regret": 0.05446609530139068
+      }
+    ]
+  },
+  "leave_one_seed_out": [
+    {
+      "held_out_seed": 2026,
+      "fit_seeds": [
+        2027,
+        2028
+      ],
+      "policy": {
+        "reference_samples": 1000,
+        "exponent": 1.5
+      },
+      "fit_score": 0.0,
+      "fit_assignments": [
+        {
+          "train_count": 337,
+          "profile": "small",
+          "parameter_count": 51153,
+          "mean_validation_rmse_km": 1.1852814738880415,
+          "oracle_profile": "small",
+          "oracle_mean_validation_rmse_km": 1.1852814738880415,
+          "relative_regret": 0.0
+        },
+        {
+          "train_count": 675,
+          "profile": "small",
+          "parameter_count": 51153,
+          "mean_validation_rmse_km": 0.8228368713066958,
+          "oracle_profile": "small",
+          "oracle_mean_validation_rmse_km": 0.8228368713066958,
+          "relative_regret": 0.0
+        },
+        {
+          "train_count": 1350,
+          "profile": "medium",
+          "parameter_count": 69745,
+          "mean_validation_rmse_km": 0.5734911347675341,
+          "oracle_profile": "medium",
+          "oracle_mean_validation_rmse_km": 0.5734911347675341,
+          "relative_regret": 0.0
+        },
+        {
+          "train_count": 2700,
+          "profile": "xlarge",
+          "parameter_count": 241121,
+          "mean_validation_rmse_km": 0.3621688443220483,
+          "oracle_profile": "xlarge",
+          "oracle_mean_validation_rmse_km": 0.3621688443220483,
+          "relative_regret": 0.0
+        }
+      ],
+      "held_out": {
+        "policy": {
+          "reference_samples": 1000,
+          "exponent": 1.5
+        },
+        "score": 0.015011936281535743,
+        "mean_parameter_count": 103293.0,
+        "threshold_margin": 0.16628300725166412,
+        "thresholds": {
+          "medium": 999.9999999999998,
+          "large": 1654.900435040903,
+          "xlarge": 2286.377679277918
+        },
+        "assignments": [
+          {
+            "train_count": 337,
+            "profile": "small",
+            "parameter_count": 51153,
+            "mean_validation_rmse_km": 1.142284437554765,
+            "oracle_profile": "small",
+            "oracle_mean_validation_rmse_km": 1.142284437554765,
+            "relative_regret": 0.0
+          },
+          {
+            "train_count": 675,
+            "profile": "small",
+            "parameter_count": 51153,
+            "mean_validation_rmse_km": 0.7062677171148418,
+            "oracle_profile": "small",
+            "oracle_mean_validation_rmse_km": 0.7062677171148418,
+            "relative_regret": 0.0
+          },
+          {
+            "train_count": 1350,
+            "profile": "medium",
+            "parameter_count": 69745,
+            "mean_validation_rmse_km": 0.5689331248649451,
+            "oracle_profile": "medium",
+            "oracle_mean_validation_rmse_km": 0.5689331248649451,
+            "relative_regret": 0.0
+          },
+          {
+            "train_count": 2700,
+            "profile": "xlarge",
+            "parameter_count": 241121,
+            "mean_validation_rmse_km": 0.3889718046615553,
+            "oracle_profile": "large",
+            "oracle_mean_validation_rmse_km": 0.36693800486813793,
+            "relative_regret": 0.06004774512614297
+          }
+        ]
+      },
+      "held_out_original_rule": {
+        "policy": {
+          "reference_samples": 600,
+          "exponent": 0.5
+        },
+        "score": 0.02485647747416231,
+        "mean_parameter_count": 65097.0,
+        "threshold_margin": 0.007145143993337655,
+        "thresholds": {
+          "medium": 600.0,
+          "large": 2719.36097488901,
+          "xlarge": 7171.25499532182
+        },
+        "assignments": [
+          {
+            "train_count": 337,
+            "profile": "small",
+            "parameter_count": 51153,
+            "mean_validation_rmse_km": 1.142284437554765,
+            "oracle_profile": "small",
+            "oracle_mean_validation_rmse_km": 1.142284437554765,
+            "relative_regret": 0.0
+          },
+          {
+            "train_count": 675,
+            "profile": "medium",
+            "parameter_count": 69745,
+            "mean_validation_rmse_km": 0.7497646517513926,
+            "oracle_profile": "small",
+            "oracle_mean_validation_rmse_km": 0.7062677171148418,
+            "relative_regret": 0.06158703503288976
+          },
+          {
+            "train_count": 1350,
+            "profile": "medium",
+            "parameter_count": 69745,
+            "mean_validation_rmse_km": 0.5689331248649451,
+            "oracle_profile": "medium",
+            "oracle_mean_validation_rmse_km": 0.5689331248649451,
+            "relative_regret": 0.0
+          },
+          {
+            "train_count": 2700,
+            "profile": "medium",
+            "parameter_count": 69745,
+            "mean_validation_rmse_km": 0.38082252611710093,
+            "oracle_profile": "large",
+            "oracle_mean_validation_rmse_km": 0.36693800486813793,
+            "relative_regret": 0.037838874863759475
+          }
+        ]
+      }
+    },
+    {
+      "held_out_seed": 2027,
+      "fit_seeds": [
+        2026,
+        2028
+      ],
+      "policy": {
+        "reference_samples": 900,
+        "exponent": 0.9
+      },
+      "fit_score": 0.0,
+      "fit_assignments": [
+        {
+          "train_count": 337,
+          "profile": "small",
+          "parameter_count": 51153,
+          "mean_validation_rmse_km": 1.1936557236196421,
+          "oracle_profile": "small",
+          "oracle_mean_validation_rmse_km": 1.1936557236196421,
+          "relative_regret": 0.0
+        },
+        {
+          "train_count": 675,
+          "profile": "small",
+          "parameter_count": 51153,
+          "mean_validation_rmse_km": 0.7224865029283776,
+          "oracle_profile": "small",
+          "oracle_mean_validation_rmse_km": 0.7224865029283776,
+          "relative_regret": 0.0
+        },
+        {
+          "train_count": 1350,
+          "profile": "medium",
+          "parameter_count": 69745,
+          "mean_validation_rmse_km": 0.5740688730913557,
+          "oracle_profile": "medium",
+          "oracle_mean_validation_rmse_km": 0.5740688730913557,
+          "relative_regret": 0.0
+        },
+        {
+          "train_count": 2700,
+          "profile": "large",
+          "parameter_count": 148481,
+          "mean_validation_rmse_km": 0.36711742869922687,
+          "oracle_profile": "large",
+          "oracle_mean_validation_rmse_km": 0.36711742869922687,
+          "relative_regret": 0.0
+        }
+      ],
+      "held_out": {
+        "policy": {
+          "reference_samples": 900,
+          "exponent": 0.9
+        },
+        "score": 0.0053192615803311916,
+        "mean_parameter_count": 80133.0,
+        "threshold_margin": 0.25904421046276926,
+        "thresholds": {
+          "medium": 900.0000000000001,
+          "large": 2083.8300330913826,
+          "xlarge": 3571.268163579728
+        },
+        "assignments": [
+          {
+            "train_count": 337,
+            "profile": "small",
+            "parameter_count": 51153,
+            "mean_validation_rmse_km": 1.1255359380915633,
+            "oracle_profile": "small",
+            "oracle_mean_validation_rmse_km": 1.1255359380915633,
+            "relative_regret": 0.0
+          },
+          {
+            "train_count": 675,
+            "profile": "small",
+            "parameter_count": 51153,
+            "mean_validation_rmse_km": 0.9069684538714785,
+            "oracle_profile": "small",
+            "oracle_mean_validation_rmse_km": 0.9069684538714785,
+            "relative_regret": 0.0
+          },
+          {
+            "train_count": 1350,
+            "profile": "medium",
+            "parameter_count": 69745,
+            "mean_validation_rmse_km": 0.5677776482173019,
+            "oracle_profile": "medium",
+            "oracle_mean_validation_rmse_km": 0.5677776482173019,
+            "relative_regret": 0.0
+          },
+          {
+            "train_count": 2700,
+            "profile": "large",
+            "parameter_count": 148481,
+            "mean_validation_rmse_km": 0.37222190263048055,
+            "oracle_profile": "xlarge",
+            "oracle_mean_validation_rmse_km": 0.36446711885989874,
+            "relative_regret": 0.021277046321324766
+          }
+        ]
+      },
+      "held_out_original_rule": {
+        "policy": {
+          "reference_samples": 600,
+          "exponent": 0.5
+        },
+        "score": 0.03703645931732197,
+        "mean_parameter_count": 65097.0,
+        "threshold_margin": 0.007145143993337655,
+        "thresholds": {
+          "medium": 600.0,
+          "large": 2719.36097488901,
+          "xlarge": 7171.25499532182
+        },
+        "assignments": [
+          {
+            "train_count": 337,
+            "profile": "small",
+            "parameter_count": 51153,
+            "mean_validation_rmse_km": 1.1255359380915633,
+            "oracle_profile": "small",
+            "oracle_mean_validation_rmse_km": 1.1255359380915633,
+            "relative_regret": 0.0
+          },
+          {
+            "train_count": 675,
+            "profile": "medium",
+            "parameter_count": 69745,
+            "mean_validation_rmse_km": 0.9692869452562511,
+            "oracle_profile": "small",
+            "oracle_mean_validation_rmse_km": 0.9069684538714785,
+            "relative_regret": 0.06871075958459238
+          },
+          {
+            "train_count": 1350,
+            "profile": "medium",
+            "parameter_count": 69745,
+            "mean_validation_rmse_km": 0.5677776482173019,
+            "oracle_profile": "medium",
+            "oracle_mean_validation_rmse_km": 0.5677776482173019,
+            "relative_regret": 0.0
+          },
+          {
+            "train_count": 2700,
+            "profile": "medium",
+            "parameter_count": 69745,
+            "mean_validation_rmse_km": 0.3934185927600519,
+            "oracle_profile": "xlarge",
+            "oracle_mean_validation_rmse_km": 0.36446711885989874,
+            "relative_regret": 0.07943507768469549
+          }
+        ]
+      }
+    },
+    {
+      "held_out_seed": 2028,
+      "fit_seeds": [
+        2026,
+        2027
+      ],
+      "policy": {
+        "reference_samples": 900,
+        "exponent": 0.9
+      },
+      "fit_score": 0.0,
+      "fit_assignments": [
+        {
+          "train_count": 337,
+          "profile": "small",
+          "parameter_count": 51153,
+          "mean_validation_rmse_km": 1.133910187823164,
+          "oracle_profile": "small",
+          "oracle_mean_validation_rmse_km": 1.133910187823164,
+          "relative_regret": 0.0
+        },
+        {
+          "train_count": 675,
+          "profile": "small",
+          "parameter_count": 51153,
+          "mean_validation_rmse_km": 0.8066180854931602,
+          "oracle_profile": "small",
+          "oracle_mean_validation_rmse_km": 0.8066180854931602,
+          "relative_regret": 0.0
+        },
+        {
+          "train_count": 1350,
+          "profile": "medium",
+          "parameter_count": 69745,
+          "mean_validation_rmse_km": 0.5683553865411235,
+          "oracle_profile": "medium",
+          "oracle_mean_validation_rmse_km": 0.5683553865411235,
+          "relative_regret": 0.0
+        },
+        {
+          "train_count": 2700,
+          "profile": "large",
+          "parameter_count": 148481,
+          "mean_validation_rmse_km": 0.36957995374930924,
+          "oracle_profile": "large",
+          "oracle_mean_validation_rmse_km": 0.36957995374930924,
+          "relative_regret": 0.0
+        }
+      ],
+      "held_out": {
+        "policy": {
+          "reference_samples": 900,
+          "exponent": 0.9
+        },
+        "score": 0.01854495991577826,
+        "mean_parameter_count": 80133.0,
+        "threshold_margin": 0.25904421046276926,
+        "thresholds": {
+          "medium": 900.0000000000001,
+          "large": 2083.8300330913826,
+          "xlarge": 3571.268163579728
+        },
+        "assignments": [
+          {
+            "train_count": 337,
+            "profile": "small",
+            "parameter_count": 51153,
+            "mean_validation_rmse_km": 1.2450270096845195,
+            "oracle_profile": "medium",
+            "oracle_mean_validation_rmse_km": 1.1817514772708777,
+            "relative_regret": 0.05354385725818567
+          },
+          {
+            "train_count": 675,
+            "profile": "small",
+            "parameter_count": 51153,
+            "mean_validation_rmse_km": 0.7387052887419132,
+            "oracle_profile": "small",
+            "oracle_mean_validation_rmse_km": 0.7387052887419132,
+            "relative_regret": 0.0
+          },
+          {
+            "train_count": 1350,
+            "profile": "medium",
+            "parameter_count": 69745,
+            "mean_validation_rmse_km": 0.5792046213177663,
+            "oracle_profile": "medium",
+            "oracle_mean_validation_rmse_km": 0.5792046213177663,
+            "relative_regret": 0.0
+          },
+          {
+            "train_count": 2700,
+            "profile": "large",
+            "parameter_count": 148481,
+            "mean_validation_rmse_km": 0.3672968525303158,
+            "oracle_profile": "xlarge",
+            "oracle_mean_validation_rmse_km": 0.3598705697841979,
+            "relative_regret": 0.020635982404927367
+          }
+        ]
+      },
+      "held_out_original_rule": {
+        "policy": {
+          "reference_samples": 600,
+          "exponent": 0.5
+        },
+        "score": 0.06609913114422844,
+        "mean_parameter_count": 65097.0,
+        "threshold_margin": 0.007145143993337655,
+        "thresholds": {
+          "medium": 600.0,
+          "large": 2719.36097488901,
+          "xlarge": 7171.25499532182
+        },
+        "assignments": [
+          {
+            "train_count": 337,
+            "profile": "small",
+            "parameter_count": 51153,
+            "mean_validation_rmse_km": 1.2450270096845195,
+            "oracle_profile": "medium",
+            "oracle_mean_validation_rmse_km": 1.1817514772708777,
+            "relative_regret": 0.05354385725818567
+          },
+          {
+            "train_count": 675,
+            "profile": "medium",
+            "parameter_count": 69745,
+            "mean_validation_rmse_km": 0.8275259430906035,
+            "oracle_profile": "small",
+            "oracle_mean_validation_rmse_km": 0.7387052887419132,
+            "relative_regret": 0.12023828135840264
+          },
+          {
+            "train_count": 1350,
+            "profile": "medium",
+            "parameter_count": 69745,
+            "mean_validation_rmse_km": 0.5792046213177663,
+            "oracle_profile": "medium",
+            "oracle_mean_validation_rmse_km": 0.5792046213177663,
+            "relative_regret": 0.0
+          },
+          {
+            "train_count": 2700,
+            "profile": "medium",
+            "parameter_count": 69745,
+            "mean_validation_rmse_km": 0.39248002049038544,
+            "oracle_profile": "xlarge",
+            "oracle_mean_validation_rmse_km": 0.3598705697841979,
+            "relative_regret": 0.09061438596032545
+          }
+        ]
+      }
+    }
+  ],
+  "bounds": {
+    "observed_train_counts": [
+      337,
+      675,
+      1350,
+      2700
+    ],
+    "train_count_min": 337,
+    "train_count_max": 2700,
+    "reference_samples_min": 600,
+    "reference_samples_max": 1800,
+    "exponent_min": 0.25,
+    "exponent_max": 1.5
+  },
+  "limitations": [
+    "Development validation calibration; this is not independent confirmation of predictive performance.",
+    "Same-record full_interleaved windows are temporally correlated and do not establish cross-environment generalization.",
+    "Leave-one-development-seed-out results are descriptive sensitivity analyses, not confidence intervals or significance tests.",
+    "Seed changes include split and optimizer randomness; three seeds are not three independent environments.",
+    "Only the four fixed base-16 profiles are eligible; auto and baseline observations never enter fitting.",
+    "Candidate grid and four observed training counts bound this calibration; interpolation or extrapolation is unvalidated.",
+    "Matched fixed-profile observations used to evaluate a policy are reused observations, not additional training replicates.",
+    "The default training-count rule is unchanged; applying this artifact requires an explicit separately frozen evaluation plan."
+  ],
+  "implementation": [
+    {
+      "path": "/mnt/SDD/project/SwellEx_validation/calibrations/scm-capacity-calibration-v2-run2/project/scripts/data_scale_pack/localization_networks/workflow/calibration.py",
+      "sha256": "10afbe9ef24b3da19f294b5b48fe791f67e2f790bda57438077ccb30e6139c05"
+    },
+    {
+      "path": "/mnt/SDD/project/SwellEx_validation/calibrations/scm-capacity-calibration-v2-run2/project/scripts/data_scale_pack/localization_networks/common/scaling.py",
+      "sha256": "eb5ce7d361bcd55197f575a62daf78c104a8893f720157d0da516529d02478f7"
+    }
+  ]
+}

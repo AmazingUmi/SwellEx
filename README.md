@@ -11,6 +11,7 @@ Choose the command for your task; the launch commands below are alternatives.
 |---|---|
 | Start all 35 joint models, train before / test after | `./scripts/run.sh joint_feature_pack --preset train_before` |
 | Start all 15 base models, train before / test after | `./scripts/run.sh base_pack --preset train_before` |
+| Compare automatic CNN capacity with fixed sizes (18 models) | `./scripts/run.sh data_scale_pack --preset train_before` |
 | Check a joint run's status | `./scripts/run.sh joint_feature_pack status --run 'RUN_ID'` |
 | Fetch a joint run's results | `./scripts/run.sh joint_feature_pack fetch --run 'RUN_ID'` |
 | Show help without starting a run | `./scripts/run.sh joint_feature_pack --help` |
@@ -29,16 +30,18 @@ figures go to `output/figure/<run_id>/`. HDF5/checkpoints remain on haiqin.
 
 | Parameter | Default | Purpose |
 |---|---|---|
-| `PACK` | Required | `base_pack` or `joint_feature_pack` |
+| `PACK` | Required | `base_pack`, `joint_feature_pack`, or `data_scale_pack` |
 | `--preset` | `full` | `full`, `train_before`, or `train_after` split |
 | `--method` | All in the pack | Feature method/combination; e.g. `SCM`, joint `RBD_ELM_SCM` |
-| `--network` | All five families | `complex_CNN`, `real_CNN`, `ResNet18`, `ResNet50`, or `GRNN` |
+| `--network` | All in the pack | Base/joint: five families. Data scale: auto, four fixed sizes and original complex CNN baseline |
 | `--fusion` | Joint preset: `block_rms` | Joint only; `block_rms` or `raw_concat` |
 
 **Pack alone starts the full experiment.** Omitted filters select all methods
 or networks. Bundled presets use 100 neural epochs and five-fold GRNN sigma
 search; GRNN has no epochs or optimizer. Epochs/seed and other advanced settings
 belong in a complete TOML passed with `--config`, instead of `--preset`.
+The [data scale pack](doc/packs/data-scale-pack.md) selects capacity before
+training using an uncalibrated count rule; it has no GRNN or fusion.
 
 See [commands and options](doc/workflows/remote-validation.md),
 [configuration defaults](doc/workflows/command-defaults.md), and

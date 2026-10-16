@@ -8,11 +8,12 @@ Range regression on SwellEx-96 VLA data. Python generates RBD/ELM/SCM HDF5
 features; independent PyTorch packages train CNN/ResNet regressors. Standalone
 RBD/ELM/SCM GRNN uses `build`/`predict`, with no epochs or optimizer. The original
 scheme lives in `base_pack`; joint-feature experiments live in
-`joint_feature_pack`. The public entry requires `./scripts/run.sh PACK ...`.
+`joint_feature_pack`; training-count capacity experiments live in `data_scale_pack`.
+The public entry requires `./scripts/run.sh PACK ...`.
 PACK alone starts its full experiment and follows progress; disconnection does
 not stop a launched worker. Select with `--preset`, `--method`, and `--network`
 (joint also accepts `--fusion`); use `--help` without launching work.
-Keep shell argument rules in `scripts/pack_cli.py`, shared by both packs.
+Keep shell argument rules in `scripts/pack_cli.py`, shared by all packs.
 
 Edit code/configuration/docs locally. Run data generation, numerical tests,
 training, prediction, and plotting on SSH host `haiqin`. Use the frozen uv
@@ -54,6 +55,11 @@ inside a sandbox, recheck outside it before changing drivers/packages.
   Joint generation requires aligned Ns=1 samples, physical axes, and sources.
 - Keep pack, feature combination, and fusion identity in run/artifact metadata.
   Never silently reuse a checkpoint/reference or fetch a run for another pack.
+- Data scale chooses capacity only from valid unique optimizer-training rows
+  after validation splitting/subsampling. Freeze resolved structure before
+  training, persist its policy/count/parameter metadata, and restore it unchanged
+  for prediction/resume. Repeated blocks never add downsampling; the default
+  rule is uncalibrated. This pack has no GRNN or feature fusion.
 - Preserve `DatasetBundle`: `train_dataset`, `val_dataset`, `train_idx`,
   `val_idx`, `train_labels`, `input_shape`, `split_mode`, `source_paths`.
   Its `input_signature` compares frequency, element/depth, and pair axes.
@@ -64,7 +70,9 @@ inside a sandbox, recheck outside it before changing drivers/packages.
   artifacts by mtime through `common/paths.py:latest_time_suffixed_path`.
 - Update `pyproject.toml` and `uv.lock` together. Local delivery is
   `output/data/<run_id>/` for logs/tables/reports and `output/figure/<run_id>/`
-  for figures; remote intermediate artifacts use the run's `outputs/`.
+  for figures. Data-scale study children use
+  `output/{data,figure}/<study_id>/children/<run_id>/`; independent runs keep
+  their own top-level directory. Remote intermediate artifacts use the run's `outputs/`.
 
 ## Git and Required Reading
 

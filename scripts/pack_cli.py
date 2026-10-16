@@ -1,4 +1,4 @@
-"""One strict, standard-library-only public command contract for both packs."""
+"""One strict, standard-library-only public command contract for all packs."""
 from __future__ import annotations
 
 import argparse
@@ -33,6 +33,8 @@ class PackArgumentParser(argparse.ArgumentParser):
             "status": {"--config", "--run"},
             "fetch": {"--config", "--run"},
             "local-grnn": {"--preset", "--config", "--method", "--python", "--data"},
+            "study": {"--plan", "--study-dir"},
+            "budget-study": {"--plan", "--study-dir", "--dry-run"},
         }[command]
         invalid = seen - allowed
         if invalid:
@@ -41,6 +43,8 @@ class PackArgumentParser(argparse.ArgumentParser):
             self.error(f"{command} requires --run")
         if command == "local-grnn" and (result.method is None or result.python is None):
             self.error("local-grnn requires --method and --python")
+        if command in {"study", "budget-study"} and result.plan is None:
+            self.error(f"{command} requires --plan")
         return result
 
 
@@ -49,6 +53,8 @@ def make_pack_parser(pack_name: str, default_config: Path,
     pack = get_pack(pack_name)
     if tuple(methods) != pack.methods:
         raise ValueError(f"{pack_name} methods differ from the pack registry")
+    if tuple(architectures) != pack.networks:
+        raise ValueError(f"{pack_name} networks differ from the pack registry")
     parser = PackArgumentParser(
         prog=f"./scripts/run.sh {pack_name}", allow_abbrev=False,
         description="Start immediately, follow progress, and fetch results. The remote task survives disconnection.",
@@ -57,6 +63,8 @@ def make_pack_parser(pack_name: str, default_config: Path,
     commands = ["check", "validate", "status", "fetch"]
     if pack.local_grnn:
         commands.append("local-grnn")
+    if pack_name == "data_scale_pack":
+        commands.extend(("study", "budget-study"))
     parser.add_argument("command", nargs="?", choices=commands, help="Maintenance command; omit to run an experiment")
     experiment = parser.add_argument_group("Experiment selection")
     source = experiment.add_mutually_exclusive_group()
@@ -69,10 +77,16 @@ def make_pack_parser(pack_name: str, default_config: Path,
     maintenance = parser.add_argument_group("Maintenance")
     maintenance.add_argument("--suite", choices=("quick", "smoke", "experiment"), default="smoke", help="validate only (default: smoke)")
     maintenance.add_argument("--no-cache", action="store_true", help="Regenerate feature datasets")
-    maintenance.add_argument("--run", metavar="RUN_ID", help="Required for status/fetch")
+    maintenance.add_argument("--run", metavar="RUN_ID", help=(
+        "Required for status/fetch; data_scale_pack also accepts the study ID printed at launch"
+        if pack_name == "data_scale_pack" else "Required for status/fetch"))
     if pack.local_grnn:
         maintenance.add_argument("--python", type=Path, help="local-grnn: existing CPU interpreter")
         maintenance.add_argument("--data", type=Path, help="local-grnn: matching dataset to reuse")
+    if pack_name == "data_scale_pack":
+        maintenance.add_argument("--plan", type=Path, help="study/budget-study: complete frozen JSON matrix plan; launch its coordinator on haiqin and return")
+        maintenance.add_argument("--study-dir", type=Path, help="study/budget-study: local output/data directory naming the remote study; import an existing frozen ledger or resume that study")
+        maintenance.add_argument("--dry-run", action="store_true", help="budget-study: validate and print the matrix without SSH or training")
     parser.set_defaults(config_dir=default_config.parent)
     return parser
 

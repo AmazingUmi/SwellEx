@@ -12,6 +12,9 @@ Joint experiments own corresponding modules under `scripts/joint_feature_pack/`;
 their neural entry is `localization_networks/joint/main.py`. Read the
 [joint feature contract](../packs/joint-feature-pack.md) before changing fusion
 loaders or fitted preprocessing. Keep joint-only changes out of the base pack.
+Training-count capacity changes belong in `scripts/data_scale_pack/`; see its
+[resolved architecture contract](../packs/data-scale-pack.md#artifacts-and-calibration).
+The shared pack registry declares each pack's accepted network families.
 
 | Directory | Responsibility | Entry point |
 |---|---|---|

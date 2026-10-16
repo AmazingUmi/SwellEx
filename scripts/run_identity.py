@@ -5,12 +5,13 @@ from datetime import datetime, timezone
 import re
 import uuid
 
-from scripts.packs import NETWORKS, get_pack
+from scripts.packs import ALL_NETWORKS, PACKS, get_pack
 
 _METHOD = r"(?:all|RBD|ELM|SCM|RBD_ELM|RBD_SCM|ELM_SCM|RBD_ELM_SCM)"
-_NETWORK = "(?:all|" + "|".join(NETWORKS) + ")"
+_NETWORK = "(?:all|" + "|".join(ALL_NETWORKS) + ")"
+_PACK = "|".join(re.escape(pack.tag) for pack in PACKS.values())
 RUN_ID = re.compile(
-    rf"(?P<time>[0-9]{{8}}T[0-9]{{6}}Z)-(?P<pack>base|joint)-"
+    rf"(?P<time>[0-9]{{8}}T[0-9]{{6}}Z)-(?P<pack>{_PACK})-"
     rf"(?P<split>full|before|after)-(?P<method>{_METHOD})-(?P<network>{_NETWORK})"
     rf"(?:-(?P<fusion>block_rms|raw_concat))?-(?P<token>[a-f0-9]{{8}})"
 )
@@ -23,7 +24,7 @@ def validate_filters(pack_name: str, selection: object) -> dict:
     method, network = selection["method"], selection["network"]
     if method is not None and (not isinstance(method, str) or method not in pack.methods):
         raise ValueError("Invalid method filter")
-    if network is not None and (not isinstance(network, str) or network not in NETWORKS):
+    if network is not None and (not isinstance(network, str) or network not in pack.networks):
         raise ValueError("Invalid network filter")
     if method is None and network is None:
         raise ValueError("A selected experiment requires a method or network filter")
@@ -31,7 +32,7 @@ def validate_filters(pack_name: str, selection: object) -> dict:
 
 
 def identity_fields(pack_name: str, config: dict, selection: dict | None = None) -> dict:
-    get_pack(pack_name)
+    pack = get_pack(pack_name)
     selected = validate_filters(pack_name, selection) if selection is not None else {"method": None, "network": None}
     dataset = config["dataset"]
     strategy = dataset["split_strategy"]
@@ -40,8 +41,8 @@ def identity_fields(pack_name: str, config: dict, selection: dict | None = None)
     split = "full" if strategy == "full_interleaved" else dataset["train_side"]
     if split not in {"full", "before", "after"}:
         raise ValueError("Invalid split side for run ID")
-    fusion = config["fusion"]["mode"] if pack_name == "joint_feature_pack" else None
-    return {"pack": "base" if pack_name == "base_pack" else "joint", "split": split,
+    fusion = config["fusion"]["mode"] if pack.fusion_modes else None
+    return {"pack": pack.tag, "split": split,
             "method": selected["method"] or "all", "network": selected["network"] or "all", "fusion": fusion}
 
 
@@ -51,12 +52,14 @@ def parse_run_id(run_id: str, pack_name: str | None = None) -> dict:
         raise ValueError("Invalid run ID; use the descriptive ID printed at launch")
     fields = match.groupdict()
     datetime.strptime(fields["time"], "%Y%m%dT%H%M%SZ")
-    actual_pack = "base_pack" if fields["pack"] == "base" else "joint_feature_pack"
+    actual_pack = next(pack.name for pack in PACKS.values() if pack.tag == fields["pack"])
     pack = get_pack(actual_pack)
     if pack_name is not None and actual_pack != pack_name:
         raise ValueError("Run ID pack mismatch")
     if fields["method"] != "all" and fields["method"] not in pack.methods:
         raise ValueError("Run ID method does not belong to pack")
+    if fields["network"] != "all" and fields["network"] not in pack.networks:
+        raise ValueError("Run ID network does not belong to pack")
     if (pack.fusion_modes and fields["fusion"] not in pack.fusion_modes) or (not pack.fusion_modes and fields["fusion"] is not None):
         raise ValueError("Run ID fusion does not belong to pack")
     return fields

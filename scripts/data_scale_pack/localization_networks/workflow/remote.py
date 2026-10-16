@@ -1,0 +1,474 @@
+#!/usr/bin/env python3
+"""Dispatch isolated data-scale experiments on haiqin; stdlib only."""
+from __future__ import annotations
+
+import argparse
+from datetime import datetime, timezone
+import hashlib
+import json
+from pathlib import Path, PurePosixPath
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
+import uuid
+
+PROJECT = Path(__file__).resolve().parents[4]
+if str(PROJECT) not in sys.path:
+    sys.path.insert(0, str(PROJECT))
+from scripts.data_scale_pack.localization_networks.workflow.config import load_config, validate_config
+from scripts.run_identity import make_run_id, parse_run_id, validate_filters, validate_run_identity
+from scripts.run_monitor import LOG_PROGRESS_CODE, RemoteConnectionError, follow
+from scripts.data_scale_pack.localization_networks.workflow.tasks import ARCHITECTURES, METHODS, model_plan
+
+DEFAULT_CONFIG = Path(__file__).with_name("haiqin_full_interleaved.toml")
+PACK = "data_scale_pack"
+LOCAL_RUNS = PROJECT / "output" / "data"
+LOCAL_FIGURES = PROJECT / "output" / "figure"
+SSH_OPTIONS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"]
+SOURCE_ROOTS = {"scripts", "simulation", "doc"}
+SOURCE_FILES = {"README.md", "AGENTS.md", ".gitignore", ".gitattributes", "pyproject.toml", "uv.lock", ".python-version"}
+EXCLUDED = {"output", "outputs", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".DS_Store"}
+TERMINAL = {"PASS", "FAIL"}
+
+
+def dump(path: Path, value: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_suffix(path.suffix + ".tmp")
+    temp.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temp.replace(path)
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def source_paths(project: Path = PROJECT) -> list[Path]:
+    proc = subprocess.run(["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"], cwd=project, check=True, capture_output=True)
+    paths = []
+    for raw in sorted(set(proc.stdout.split(b"\0")) - {b""}):
+        name = raw.decode("utf-8")
+        rel = Path(name)
+        if rel.is_absolute() or ".." in rel.parts:
+            raise ValueError(f"Unsafe source path: {name}")
+        if rel.parts[0] not in SOURCE_ROOTS and name not in SOURCE_FILES:
+            continue
+        if any(part in EXCLUDED or part.startswith("._") for part in rel.parts) or rel.suffix in {".pyc", ".pyo", ".asv"} or rel.name.endswith("~"):
+            continue
+        path = project / rel
+        if path.is_symlink() or any(parent.is_symlink() for parent in path.parents if parent != project and project in parent.parents):
+            raise ValueError(f"Symlink source files are not supported: {name}")
+        if path.exists() and path.is_file():
+            paths.append(rel)
+    if Path("scripts/data_scale_pack/localization_networks/workflow/worker.py") not in paths:
+        raise ValueError("Snapshot does not contain the remote worker")
+    return paths
+
+
+def freeze_source(stage: Path, config: dict, run_id: str, suite: str, project: Path = PROJECT, *, selection: dict | None = None) -> dict:
+    model_plan(suite, selection)  # Validate the complete selection before any side effects.
+    inventory = []
+    for rel in source_paths(project):
+        dest = stage / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(project / rel, dest)
+        shutil.copymode(project / rel, dest)
+        inventory.append({"path": rel.as_posix(), "size": dest.stat().st_size, "sha256": sha256(dest)})
+    digest = hashlib.sha256(json.dumps(inventory, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=project, check=True, capture_output=True, text=True).stdout.strip()
+    dirty = subprocess.run(["git", "status", "--porcelain=1"], cwd=project, check=True, capture_output=True, text=True).stdout.splitlines()
+    manifest = {"schema_version": 1, "pack": PACK, "run_id": run_id, "suite": suite, "created_at": datetime.now(timezone.utc).isoformat(), "git_head": head, "git_status": dirty, "source_sha256": digest, "files": inventory, "config_sha256": hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()}
+    if suite in {"selected", "budget"}:
+        manifest["selection"] = dict(selection)
+    return manifest
+
+
+def remote_python(config: dict, code: str, payload: dict | None = None) -> dict:
+    remote = config["remote"]
+    command = shlex.join([remote["base_python"], "-c", code])
+    proc = subprocess.run(["ssh", *SSH_OPTIONS, remote["host"], command], input=json.dumps(payload or {}), text=True, capture_output=True)
+    if proc.returncode:
+        error = RemoteConnectionError if proc.returncode == 255 else RuntimeError
+        raise error(f"SSH command failed ({proc.returncode}): {proc.stderr.strip() or proc.stdout.strip()}")
+    try:
+        return json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Expected remote JSON, received: {proc.stdout[:1000]}") from exc
+
+
+CHECK_CODE = '''import json, pathlib, sys, subprocess
+p=json.load(sys.stdin); r=p['remote']; root=pathlib.Path(r['repository']); raw=root/'Origindata'
+uv=pathlib.Path(r['uv']); result={'repository':str(root),'repository_exists':root.is_dir(),'origindata_exists':raw.is_dir(),'base_python':sys.version.split()[0],'uv_exists':uv.is_file()}
+if result['uv_exists']: result['uv_version']=subprocess.check_output([str(uv),'--version'],text=True).strip()
+result['status']='PASS' if all([result['repository_exists'],result['origindata_exists'],result['uv_exists']]) else 'FAIL'
+print(json.dumps(result))'''
+
+INIT_CODE = '''import json, pathlib, sys, shutil
+p=json.load(sys.stdin); workspace=pathlib.Path(p['workspace']); run=workspace/'runs'/p['run_id']; raw=pathlib.Path(p['repository'])/'Origindata'
+if workspace.resolve()!=workspace: raise ValueError('Workspace may not contain symlink components')
+if not raw.is_dir(): raise ValueError('Remote original data directory is absent')
+run.mkdir(parents=True, exist_ok=False)
+def write(name, value):
+    path=run/name; temporary=path.with_suffix(path.suffix+'.tmp'); temporary.write_text(json.dumps(value)); temporary.replace(path)
+write('dispatch.json', {'token':p['dispatch_token']})
+write('report.json', p['report'])
+try:
+    for name in ['project','logs','reports','export']: (run/name).mkdir()
+    for name in ['data','figure']: (run/'export'/name).mkdir()
+    for name in ['manifest.json','request.json','generation_config.json']: write(name,p[name])
+    (run/'project'/'Origindata').symlink_to(raw, target_is_directory=True)
+    for name in ['report.json','manifest.json','request.json','generation_config.json']: shutil.copyfile(run/name,run/'export'/'data'/name)
+except BaseException as error:
+    failure={**p['report'],'status':'FAIL','exit_code':1,'error':f'Remote initialization failed: {type(error).__name__}: {error}'}
+    write('report.json',failure)
+    (run/'export'/'data').mkdir(parents=True,exist_ok=True)
+    (run/'export'/'figure').mkdir(parents=True,exist_ok=True)
+    for name in ['report.json','manifest.json','request.json','generation_config.json']:
+        if (run/name).is_file(): shutil.copyfile(run/name,run/'export'/'data'/name)
+    raise
+print(json.dumps({'run_dir':str(run)}))'''
+
+DISPATCH_FAILURE_CODE = '''import json, pathlib, sys, shutil, fcntl
+p=json.load(sys.stdin); run=pathlib.Path(p['run_dir']); marker=run/'dispatch.json'
+if not marker.is_file() or json.loads(marker.read_text()).get('token')!=p['dispatch_token']:
+    print(json.dumps({'marked':False,'reason':'Run was not created by this dispatch'})); sys.exit(0)
+lock=(run/'dispatch.lock').open('a'); fcntl.flock(lock,fcntl.LOCK_EX)
+report=run/'report.json'; current=json.loads(report.read_text()) if report.is_file() else {'status':'STARTING'}
+if (run/'launch.json').exists() or current.get('status')!='STARTING':
+    print(json.dumps({'marked':False,'report':current})); sys.exit(0)
+failure=p['report']; temporary=report.with_suffix('.json.tmp'); temporary.write_text(json.dumps(failure)); temporary.replace(report)
+export=run/'export'/'data'; export.mkdir(parents=True,exist_ok=True)
+(run/'export'/'figure').mkdir(parents=True,exist_ok=True)
+for name in ['report.json','manifest.json','request.json','generation_config.json']:
+    if (run/name).is_file(): shutil.copyfile(run/name,export/name)
+print(json.dumps({'marked':True,'report':failure}))'''
+
+START_CODE = '''import json, pathlib, sys, subprocess, os, fcntl, hashlib
+p=json.load(sys.stdin); run=pathlib.Path(p['run_dir']); project=run/'project'
+lock=(run/'dispatch.lock').open('a'); fcntl.flock(lock,fcntl.LOCK_EX)
+for n in ['manifest.json','request.json','generation_config.json']: (project/n).replace(run/n)
+lock_hash=hashlib.sha256((project/'uv.lock').read_bytes()).hexdigest()
+venv=pathlib.Path(p['workspace'])/'environments'/lock_hash/'.venv'
+worker_env={**os.environ,'PYTHONUNBUFFERED':'1','PYTHONDONTWRITEBYTECODE':'1','UV_PROJECT_ENVIRONMENT':str(venv),'UV_CACHE_DIR':str(pathlib.Path(p['workspace'])/'uv_cache'),'UV_PYTHON_DOWNLOADS':'never'}
+with (run/'logs'/'worker.log').open('ab') as log:
+    child=subprocess.Popen([p['uv'],'run','--frozen','--python',p['base_python'],'--project',str(project),'python','-B',str(project/'scripts/data_scale_pack/localization_networks/workflow/worker.py'),'--run-dir',str(run)],cwd=project,stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT,start_new_session=True,env=worker_env)
+identity={'pid':child.pid,'boot_id':pathlib.Path('/proc/sys/kernel/random/boot_id').read_text().strip(),'start_ticks':pathlib.Path(f'/proc/{child.pid}/stat').read_text().split()[21]}
+launch=run/'launch.json'; temporary=run/'launch.json.tmp'; temporary.write_text(json.dumps(identity)); temporary.replace(launch)
+print(json.dumps({'run_dir':str(run),**identity}))'''
+
+STATUS_CODE = '''import json, pathlib, sys
+p=json.load(sys.stdin); run=pathlib.Path(p['run_dir']); report=run/'report.json'
+if not run.is_dir(): raise FileNotFoundError(str(run))
+result=json.loads(report.read_text()) if report.exists() else {'run_id':run.name,'status':'STARTING','checks':[]}
+launch=run/'launch.json'
+if result['status'] not in ['PASS','FAIL'] and launch.exists():
+    ident=json.loads(launch.read_text()); proc=pathlib.Path(f"/proc/{ident['pid']}/stat")
+    alive=False
+    try:
+        parts=proc.read_text().split(); alive=parts[2]!='Z' and parts[21]==ident['start_ticks'] and pathlib.Path('/proc/sys/kernel/random/boot_id').read_text().strip()==ident['boot_id']
+    except FileNotFoundError: pass
+    if not alive: result.update(status='FAIL',exit_code=1,error='Remote worker stopped without a terminal report; inspect logs/worker.log')
+print(json.dumps(result))'''
+
+
+def run_dir(config: dict, run_id: str) -> str:
+    parse_run_id(run_id, PACK)
+    return f"{config['remote']['workspace']}/runs/{run_id}"
+
+
+def status(config: dict, run_id: str) -> dict:
+    report = remote_python(config, STATUS_CODE, {"run_dir": run_dir(config, run_id)})
+    if report.get("pack") != PACK or report.get("run_id") != run_id:
+        raise ValueError(f"Run identity mismatch: expected {PACK}/{run_id}")
+    return report
+
+
+def progress(config: dict, run_id: str, offsets: dict) -> dict:
+    code = STATUS_CODE.replace("print(json.dumps(result))", LOG_PROGRESS_CODE)
+    update = remote_python(config, code, {"run_dir": run_dir(config, run_id), "offsets": offsets})
+    report = update["report"]
+    if report.get("pack") != PACK or report.get("run_id") != run_id:
+        raise ValueError(f"Run identity mismatch: expected {PACK}/{run_id}")
+    return update
+
+
+def follow_run(config: dict, run_id: str, *, max_connection_failures: int | None = None) -> int:
+    if max_connection_failures is not None and (type(max_connection_failures) is not int or max_connection_failures < 1):
+        raise ValueError("max_connection_failures must be a positive integer")
+    failures = {"progress": 0, "fetch": 0}
+
+    def bounded_call(kind, operation):
+        try:
+            result = operation()
+        except (RemoteConnectionError, OSError) as exc:
+            failures[kind] += 1
+            if max_connection_failures is not None and failures[kind] >= max_connection_failures:
+                raise RuntimeError(f"{kind} failed {failures[kind]} consecutive times; re-enter the study to follow {run_id}") from exc
+            raise
+        failures[kind] = 0
+        return result
+
+    return follow(run_id, progress=lambda offsets: bounded_call("progress", lambda: progress(config, run_id, offsets)),
+                  fetch=lambda: bounded_call("fetch", lambda: fetch(config, run_id)), summarize=summarize)
+
+
+def summarize(report: dict) -> None:
+    print(f"{report['run_id']}: {report['status']}", flush=True)
+    for row in report.get("checks", []):
+        print(f"  {row['status']:8s} {row['name']}" + (f": {row['detail']}" if row.get("detail") else ""), flush=True)
+    if report.get("error"):
+        print(report["error"], file=sys.stderr)
+
+
+def verify_visualization_delivery(local: Path, figures: Path, run_id: str) -> dict | None:
+    """Verify only artifacts covered by the renderer's existing manifest."""
+    manifest_path = local / "reports/visualization/manifest.json"
+    if manifest_path.is_symlink():
+        raise ValueError("External visualization delivery manifest")
+    if not manifest_path.exists():
+        return None
+    if not manifest_path.resolve().is_relative_to(local.resolve()):
+        raise ValueError("External visualization delivery manifest")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if (not isinstance(manifest, dict) or type(manifest.get("schema_version")) is not int
+            or manifest["schema_version"] != 1 or manifest.get("run_id") != run_id
+            or manifest.get("status") != "PASS" or not isinstance(manifest.get("files"), list)
+            or not manifest["files"]):
+        raise ValueError("Invalid visualization delivery manifest")
+    roots = {"data": local / "reports/visualization", "figure": figures}
+    seen = set()
+    for item in manifest["files"]:
+        if not isinstance(item, dict) or item.get("group") not in roots or not isinstance(item.get("path"), str):
+            raise ValueError("Invalid visualization delivery file")
+        rel = PurePosixPath(item["path"])
+        identity = (item["group"], item["path"])
+        if (rel.is_absolute() or ".." in rel.parts or not rel.parts
+                or str(rel) != item["path"] or identity in seen):
+            raise ValueError(f"Unsafe or duplicate visualization delivery path: {item['path']}")
+        seen.add(identity)
+        if (type(item.get("size")) is not int or item["size"] < 0
+                or not isinstance(item.get("sha256"), str)
+                or not re.fullmatch(r"[a-f0-9]{64}", item["sha256"])):
+            raise ValueError("Invalid visualization delivery size/hash")
+        root = roots[item["group"]]
+        path = root / str(rel)
+        if (not path.is_file() or path.is_symlink() or not path.resolve().is_relative_to(root.resolve())
+                or path.stat().st_size != item["size"] or sha256(path) != item["sha256"]):
+            raise ValueError(f"Visualization delivery hash mismatch or external file: {item['group']}/{rel}")
+    return {"schema_version": 1, "status": "PASS", "run_id": run_id,
+            "scope": "visualization_manifest_files", "files_verified": len(seen),
+            "manifest_sha256": sha256(manifest_path)}
+
+
+def local_paths(run_id: str, *, config: dict | None = None) -> tuple[Path, Path]:
+    """Group registered study children under their owner for every local operation."""
+    parse_run_id(run_id, PACK)
+    owners = []
+    for path in sorted(LOCAL_RUNS.glob("*/study.json")):
+        ledger = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(ledger, dict) or ledger.get("pack") != PACK:
+            continue
+        children = ledger.get("children", [])
+        if not any(isinstance(child, dict) and child.get("run_id") == run_id for child in children):
+            continue
+        if (path.is_symlink() or path.parent.is_symlink()
+                or ledger.get("study_id") != path.parent.name
+                or sum(child.get("run_id") == run_id for child in children) != 1):
+            raise ValueError("Invalid local study ownership")
+        if config is not None and ledger["plan"]["base_config"]["remote"] != config["remote"]:
+            raise ValueError("Remote endpoint differs from local study owner")
+        owners.append(path.parent.name)
+    if len(owners) > 1:
+        raise ValueError(f"Child belongs to multiple local studies: {run_id}")
+    relative = Path(owners[0]) / "children" / run_id if owners else Path(run_id)
+    paths = []
+    for root in (LOCAL_RUNS, LOCAL_FIGURES):
+        path = root / relative
+        for part in (path, *path.parents):
+            if part == root:
+                break
+            if part.is_symlink():
+                raise ValueError(f"Symlink local delivery path: {part}")
+        if owners and ((root / run_id).exists() or (root / run_id).is_symlink()):
+            raise ValueError(f"Ungrouped study child; move {root / run_id} to {path} before retrieval")
+        paths.append(path)
+    return tuple(paths)
+
+
+def fetch(config: dict, run_id: str) -> dict:
+    initial_report = status(config, run_id)
+    local, figures = local_paths(run_id, config=config)
+    local.mkdir(parents=True, exist_ok=True)
+    figures.mkdir(parents=True, exist_ok=True)
+    dump(local / "report.json", initial_report)
+    # Copy only the worker's explicit small-artifact export; HDF5/PT are excluded there.
+    def retrieve_export():
+        for kind, destination in (("data", local), ("figure", figures)):
+            source = f"{config['remote']['host']}:{run_dir(config, run_id)}/export/{kind}/"
+            proc = subprocess.run(["rsync", "-rlt", "--checksum", "-e", shlex.join(["ssh", *SSH_OPTIONS]), source, str(destination) + "/"], capture_output=True, text=True)
+            if proc.returncode:
+                error = RemoteConnectionError if proc.returncode in {10, 12, 30, 35, 255} else RuntimeError
+                raise error(f"Result {kind} retrieval failed: {proc.stderr.strip()}")
+    retrieve_export()
+    # Live/crashed workers may not have exported anything yet; always retain logs.
+    proc = subprocess.run(["rsync", "-rlt", "--checksum", "-e", shlex.join(["ssh", *SSH_OPTIONS]), f"{config['remote']['host']}:{run_dir(config, run_id)}/logs/", str(local / "logs") + "/"], capture_output=True, text=True)
+    if proc.returncode:
+        error = RemoteConnectionError if proc.returncode in {10, 12, 30, 35, 255} else RuntimeError
+        raise error(f"Log retrieval failed: {proc.stderr.strip()}")
+    report = status(config, run_id)
+    # Once terminal, export is immutable. If completion occurred during the
+    # transfer, retrieve it again before reporting or verifying that completion.
+    if initial_report["status"] not in TERMINAL and report["status"] in TERMINAL:
+        retrieve_export()
+    dump(local / "report.json", report)
+    if report["status"] in TERMINAL:
+        try:
+            verification = verify_visualization_delivery(local, figures, run_id)
+            if (verification is None and report["status"] == "PASS"
+                    and report.get("suite") in {"selected", "smoke", "experiment", "budget"}):
+                raise ValueError("Completed model run is missing its visualization delivery manifest")
+        except (ValueError, OSError, KeyError, TypeError) as exc:
+            dump(local / "delivery-verification.json", {"schema_version": 1, "status": "FAIL", "run_id": run_id,
+                                                       "scope": "visualization_manifest_files", "error": str(exc)})
+            raise
+        if verification is not None:
+            dump(local / "delivery-verification.json", verification)
+    print(f"Results: {local}")
+    print(f"Figures: {figures}")
+    return report
+
+
+def dispatch(config: dict, suite: str, no_cache: bool, *, selection: dict | None = None,
+             run_id: str | None = None, expected_source_sha256: str | None = None,
+             max_connection_failures: int | None = None) -> int:
+    config = validate_config(config)
+    model_plan(suite, selection)  # Validate the complete selection before any side effects.
+    if suite == "budget" and (not config["training"].get("controlled_batches", False) or "calibration" not in config):
+        raise ValueError("Budget suite requires controlled batches and frozen calibration provenance")
+    if config["training"].get("controlled_batches", False) and suite in {"smoke", "experiment"}:
+        raise ValueError("Controlled budgets require the budget suite or an explicit selected pilot; legacy resume validation is not a controlled-budget operation")
+    run_id = make_run_id(PACK, config, selection) if run_id is None else run_id
+    validate_run_identity(run_id, PACK, config, selection)
+    if expected_source_sha256 is not None and not re.fullmatch(r"[a-f0-9]{64}", expected_source_sha256):
+        raise ValueError("expected_source_sha256 must be a SHA256 digest")
+    if max_connection_failures is not None and (type(max_connection_failures) is not int or max_connection_failures < 1):
+        raise ValueError("max_connection_failures must be a positive integer")
+    remote = config["remote"]
+    remote_dir = run_dir(config, run_id)
+    request = {"schema_version": 1, "pack": PACK, "run_id": run_id, "suite": suite, "config": config, "use_cache": not no_cache}
+    if suite in {"selected", "budget"}:
+        request["selection"] = dict(selection)
+    generation_config = {"schema_version": 1, "dataset": config["dataset"], "rbd": config["rbd"], "result_path": "outputs/validation/generation_result.json"}
+    local, _ = local_paths(run_id, config=config)
+    dispatch_token = uuid.uuid4().hex
+    starting = {"schema_version": 1, "pack": PACK, "run_id": run_id, "suite": suite, "status": "STARTING", "started_at": datetime.now(timezone.utc).isoformat(), "checks": [], "remote_run_dir": remote_dir}
+    if suite in {"selected", "budget"}:
+        starting["selection"] = dict(selection)
+    # A collision never overwrites an earlier run or its evidence.
+    local.mkdir(parents=True, exist_ok=False)
+    dump(local / "request.json", request)
+    dump(local / "generation_config.json", generation_config)
+    dump(local / "dispatch.json", {"token": dispatch_token})
+    dump(local / "report.json", starting)
+    print(f"Run: {run_id}", flush=True)
+    with tempfile.TemporaryDirectory(prefix="swellex-source-") as temp:
+        stage = Path(temp)
+        init_attempted = False
+        try:
+            manifest = freeze_source(stage, config, run_id, suite, selection=selection) if suite in {"selected", "budget"} else freeze_source(stage, config, run_id, suite)
+            if expected_source_sha256 is not None and manifest["source_sha256"] != expected_source_sha256:
+                raise ValueError("Source changed since the study was frozen; child was not launched")
+            dump(local / "manifest.json", manifest)
+            dump(stage / "manifest.json", manifest)
+            dump(stage / "request.json", request)
+            dump(stage / "generation_config.json", generation_config)
+            preflight = remote_python(config, CHECK_CODE, config)
+            dump(local / "preflight.json", preflight)
+            if preflight["status"] != "PASS":
+                raise RuntimeError(f"Remote environment check failed: {preflight}")
+            init_attempted = True
+            initialized = remote_python(config, INIT_CODE, {"workspace": remote["workspace"], "repository": remote["repository"], "run_id": run_id, "dispatch_token": dispatch_token, "report": starting, "manifest.json": manifest, "request.json": request, "generation_config.json": generation_config})
+            if initialized["run_dir"] != remote_dir:
+                raise RuntimeError("Remote initialization returned an unexpected path")
+            proc = subprocess.run(["rsync", "-rltp", "-e", shlex.join(["ssh", *SSH_OPTIONS]), str(stage) + "/", f"{remote['host']}:{remote_dir}/project/"], capture_output=True, text=True)
+            if proc.returncode:
+                raise RuntimeError(f"Source transfer failed: {proc.stderr.strip()}")
+            launched = remote_python(config, START_CODE, {"run_dir": remote_dir, "base_python": remote["base_python"], "uv": remote["uv"], "workspace": remote["workspace"]})
+            dump(local / "launch.json", launched)
+        except BaseException as exc:
+            failure = {**starting, "status": "FAIL", "exit_code": 130 if isinstance(exc, KeyboardInterrupt) else 1, "finished_at": datetime.now(timezone.utc).isoformat(), "error": f"Dispatch failed: {type(exc).__name__}: {exc}"}
+            dump(local / "report.json", failure)
+            if init_attempted:
+                try:
+                    result = remote_python(config, DISPATCH_FAILURE_CODE, {"run_dir": remote_dir, "dispatch_token": dispatch_token, "report": failure})
+                    # An ambiguous SSH launch failure may leave a healthy
+                    # worker running; never overwrite its authoritative report.
+                    failure["remote_recovery"] = result
+                except Exception as recovery:
+                    failure["remote_recovery_error"] = f"{type(recovery).__name__}: {recovery}"
+                dump(local / "report.json", failure)
+            print(f"Dispatch evidence: {local}", file=sys.stderr)
+            raise
+    if max_connection_failures is None:
+        return follow_run(config, run_id)
+    return follow_run(config, run_id, max_connection_failures=max_connection_failures)
+
+
+def validate(config: dict, suite: str, no_cache: bool) -> int:
+    if suite not in {"quick", "smoke", "experiment"}:
+        raise ValueError("Validation suite must be quick, smoke, or experiment")
+    return dispatch(config, suite, no_cache)
+
+
+def selected_run(config: dict, method: str | None, network: str | None, no_cache: bool) -> int:
+    selection = validate_filters(PACK, {"method": method, "network": network})
+    return dispatch(config, "selected", no_cache, selection=selection)
+
+
+def make_parser() -> argparse.ArgumentParser:
+    from scripts.pack_cli import make_pack_parser
+    return make_pack_parser(PACK, DEFAULT_CONFIG, METHODS, ARCHITECTURES)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = make_parser().parse_args(argv)
+    try:
+        if args.command in {"study", "budget-study"}:
+            from scripts.data_scale_pack.localization_networks.workflow.study_remote import run_study
+            return run_study(args.plan, study_dir=args.study_dir, dry_run=args.dry_run,
+                             kind="budget" if args.command == "budget-study" else "scale")
+        from scripts.pack_cli import config_path
+        path = config_path(args).resolve()
+        config = load_config(path)
+        if args.command == "check":
+            result = remote_python(config, CHECK_CODE, config)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0 if result["status"] == "PASS" else 1
+        if args.command == "validate":
+            return validate(config, args.suite, args.no_cache)
+        if args.command is None:
+            if args.method is not None or args.network is not None:
+                return selected_run(config, args.method, args.network, args.no_cache)
+            return dispatch(config, "experiment", args.no_cache)
+        from scripts.data_scale_pack.localization_networks.workflow import study_remote
+        if study_remote.is_study_id(args.run):
+            report = (study_remote.status(config, args.run) if args.command == "status"
+                      else study_remote.fetch(config, args.run))
+            study_remote.summarize(report)
+        else:
+            report = status(config, args.run) if args.command == "status" else fetch(config, args.run)
+            summarize(report)
+        return 0 if report["status"] == "PASS" else (1 if report["status"] == "FAIL" else 2)
+    except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

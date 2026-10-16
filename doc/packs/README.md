@@ -7,11 +7,13 @@ A pack owns generation, input representation, models, workflow, and plots under
 |---|---|---|---|
 | [base_pack](#base-pack) | `RBD`, `ELM`, `SCM` | 6 / 15 | None |
 | [joint_feature_pack](joint-feature-pack.md) | Three singles, three pairs, and the three-way combination | 14 / 35 | `block_rms` (default) or `raw_concat` |
+| [data_scale_pack](data-scale-pack.md) | `RBD`, `ELM`, `SCM` | 6 / 18 | None; training-count-selected complex CNN and fixed controls |
 
-Both support `complex_CNN`, `real_CNN`, `ResNet18`, `ResNet50`, and standalone
+Base and joint support `complex_CNN`, `real_CNN`, `ResNet18`, `ResNet50`, and standalone
 `GRNN`. A full joint plan evaluates one fusion mode. Pack and model names are
 case-sensitive. Commands, option tables, and examples are maintained in the
-[command guide](../workflows/remote-validation.md).
+[command guide](../workflows/remote-validation.md). Data scale supports six
+complex CNN choices described in its [pack contract](data-scale-pack.md).
 
 ## Base Pack
 

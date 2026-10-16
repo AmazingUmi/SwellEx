@@ -12,7 +12,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from scripts.packs import PACKS, NETWORKS, get_pack
+from scripts.packs import PACKS, get_pack
 from scripts.run import PROJECT, main
 from scripts.run_identity import make_run_id, parse_run_id, validate_run_identity
 
@@ -22,7 +22,7 @@ class PackRoutingTests(unittest.TestCase):
         for pack in PACKS.values():
             remote = import_module(pack.dispatcher)
             for preset, split, side in [('full','full_interleaved','before'),('train_before','range_overlap','before'),('train_after','range_overlap','after')]:
-                for method, network in [(None,None), (pack.methods[-1],None), (None,'GRNN'), (pack.methods[-1],'ResNet18')]:
+                for method, network in [(None,None), (pack.methods[-1],None), (None,pack.networks[-1]), (pack.methods[-1],'ResNet18' if 'ResNet18' in pack.networks else pack.networks[1])]:
                     args=[pack.name,'--preset',preset]
                     if method: args += ['--method',method]
                     if network: args += ['--network',network]
@@ -33,9 +33,9 @@ class PackRoutingTests(unittest.TestCase):
                     self.assertEqual(config['training']['epochs'],100)
                     selection=dispatch.call_args.kwargs.get('selection')
                     plan=remote.model_plan(suite,selection)
-                    self.assertEqual(len(plan),(1 if method else len(pack.methods))*(1 if network else len(NETWORKS)))
+                    self.assertEqual(len(plan),(1 if method else len(pack.methods))*(1 if network else len(pack.networks)))
                     self.assertEqual({job['method'] for job in plan}, {method} if method else set(pack.methods))
-                    self.assertEqual({job['architecture'] for job in plan}, {network} if network else set(NETWORKS))
+                    self.assertEqual({job['architecture'] for job in plan}, {network} if network else set(pack.networks))
                     self.assertFalse(no_cache)
 
     def test_custom_config_and_fusion_override(self):
@@ -83,10 +83,11 @@ class PackRoutingTests(unittest.TestCase):
                 with patch.object(remote,'dispatch',return_value=0) as dispatch:
                     self.assertEqual(main([pack.name,*args]),0)
                 self.assertEqual(dispatch.call_args.args[1],suite)
+            run_id=make_run_id(pack.name,remote.load_config(remote.DEFAULT_CONFIG))
             for command in ('status','fetch'):
-                with patch.object(remote,command,return_value={'run_id':'id','status':'PASS'}) as action, patch('sys.stdout',io.StringIO()):
-                    self.assertEqual(main([pack.name,command,'--run','id']),0)
-                self.assertEqual(action.call_args.args[1],'id')
+                with patch.object(remote,command,return_value={'run_id':run_id,'status':'PASS'}) as action, patch('sys.stdout',io.StringIO()):
+                    self.assertEqual(main([pack.name,command,'--run',run_id]),0)
+                self.assertEqual(action.call_args.args[1],run_id)
 
     def test_imports_do_not_load_numerical_dependencies(self):
         code="""import importlib.abc,sys
@@ -108,7 +109,7 @@ class RunIdentityTests(unittest.TestCase):
             for side in ('before','after'):
                 cfg=remote.load_config(remote.DEFAULT_CONFIG)
                 cfg['dataset'].update(split_strategy='range_overlap',train_side=side)
-                for selection in (None, {'method':pack.methods[-1],'network':None}, {'method':None,'network':'GRNN'}):
+                for selection in (None, {'method':pack.methods[-1],'network':None}, {'method':None,'network':pack.networks[-1]}):
                     run=make_run_id(pack.name,cfg,selection)
                     fields=parse_run_id(run,pack.name)
                     self.assertEqual(fields['split'],side)

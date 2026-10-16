@@ -26,9 +26,11 @@ capabilities and remaining scientific work.
 | Choose a pack and understand ownership | [Pack index](packs/README.md) |
 | Run the preserved independent-feature scheme | [Base pack](packs/README.md#base-pack) |
 | Compare joint inputs with existing architectures | [Joint feature pack](packs/joint-feature-pack.md) |
+| Choose complex CNN capacity from training sample count | [Data scale pack](packs/data-scale-pack.md) |
+| Calibrate capacity thresholds and compare equal optimizer updates | [SCM controlled-budget study](packs/data-scale-budget-study.md) |
 
 The workflow and method references below describe `base_pack` unless they
-explicitly identify the joint pack. Pack-specific differences belong in `packs/`.
+explicitly identify another pack. Pack-specific differences belong in `packs/`.
 
 ## Workflows
 

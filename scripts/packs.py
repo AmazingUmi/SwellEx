@@ -5,6 +5,9 @@ from dataclasses import dataclass
 
 
 NETWORKS = ("complex_CNN", "real_CNN", "ResNet18", "ResNet50", "GRNN")
+SCALE_NETWORKS = ("complex_CNN", "complex_CNN_small", "complex_CNN_medium",
+                  "complex_CNN_large", "complex_CNN_xlarge", "complex_CNN_baseline")
+ALL_NETWORKS = tuple(dict.fromkeys((*NETWORKS, *SCALE_NETWORKS)))
 
 
 @dataclass(frozen=True)
@@ -13,6 +16,8 @@ class Pack:
     methods: tuple[str, ...]
     fusion_modes: tuple[str, ...] = ()
     local_grnn: bool = False
+    networks: tuple[str, ...] = NETWORKS
+    tag: str = ""
 
     @property
     def dispatcher(self) -> str:
@@ -20,10 +25,12 @@ class Pack:
 
 
 PACKS = {
-    "base_pack": Pack("base_pack", ("RBD", "ELM", "SCM"), local_grnn=True),
+    "base_pack": Pack("base_pack", ("RBD", "ELM", "SCM"), local_grnn=True, tag="base"),
     "joint_feature_pack": Pack("joint_feature_pack", (
         "RBD", "ELM", "SCM", "RBD_ELM", "RBD_SCM", "ELM_SCM", "RBD_ELM_SCM",
-    ), fusion_modes=("raw_concat", "block_rms")),
+    ), fusion_modes=("raw_concat", "block_rms"), tag="joint"),
+    "data_scale_pack": Pack("data_scale_pack", ("RBD", "ELM", "SCM"),
+                            networks=SCALE_NETWORKS, tag="scale"),
 }
 
 
