@@ -5,6 +5,8 @@ Tables below describe the complete
 validated by [workflow/config.py](../../scripts/base_pack/localization_networks/workflow/config.py).
 They are workflow settings, not direct Python CLI defaults. Joint presets
 use the same numerical defaults and require an additional `[fusion]` table.
+`MoE_learn` uses a separate short `demo` preset and staged-training schema;
+its [pack guide](../packs/moe-learn.md) defines those defaults.
 
 Copy the selected pack's preset, edit existing fields, and pass `--config PATH`.
 Unknown or missing tables/fields fail. Epochs and seed are configured here; the

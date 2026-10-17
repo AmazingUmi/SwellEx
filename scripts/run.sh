@@ -12,4 +12,4 @@ PROJECT_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 cd "$PROJECT_ROOT"
 
 # Keep every argument intact, including pack-specific config paths with spaces.
-exec uv run --no-project --python python3 python -B scripts/run.py "$@"
+exec uv run --no-config --no-project --python python3 python -B scripts/run.py "$@"

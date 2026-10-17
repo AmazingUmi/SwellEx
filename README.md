@@ -13,6 +13,9 @@ Choose the command for your task; the launch commands below are alternatives.
 | Start all 15 base models, train before / test after | `./scripts/run.sh base_pack --preset train_before` |
 | Compare automatic CNN capacity with fixed sizes (18 models) | `./scripts/run.sh data_scale_pack --preset train_before` |
 | Check residual MoE architecture on synthetic CUDA inputs | `./scripts/run.sh MoE_data_scale validate --suite quick` |
+| Run the two-stage continual MoE demo | `./scripts/run.sh MoE_learn` |
+| Inspect the continual MoE demo without launching | `./scripts/run.sh MoE_learn --dry-run` |
+| Check continual MoE contracts on synthetic CUDA inputs | `./scripts/run.sh MoE_learn validate --suite quick` |
 | Inspect the RBD+SCM data-size × expert-count matrix | `./scripts/run.sh MoE_data_scale study --plan scripts/MoE_data_scale/localization_networks/workflow/rbd_scm_expert_study_v1.json --dry-run` |
 | Check / fetch a MoE run | `./scripts/run.sh MoE_data_scale status --run 'RUN_ID'` / `./scripts/run.sh MoE_data_scale fetch --run 'RUN_ID'` |
 | Check a joint run's status | `./scripts/run.sh joint_feature_pack status --run 'RUN_ID'` |
@@ -27,20 +30,21 @@ Launch follows progress and fetches results on completion. Once the remote
 worker has started, disconnection or Ctrl-C stops only local monitoring.
 Manual fetch retrieves what is available now; if the run is still active,
 fetch again after completion. Reports/CSVs/logs go to `output/data/<run_id>/`;
-figures go to `output/figure/<run_id>/`. HDF5/checkpoints remain on haiqin.
+figures go to `output/figure/<run_id>/`. HDF5/checkpoints remain on haiqin,
+except the small `MoE_learn` demo checkpoint, which is also fetched with its report.
 
 ## Choose an Experiment
 
 | Parameter | Default | Purpose |
 |---|---|---|
-| `PACK` | Required | `base_pack`, `joint_feature_pack`, `data_scale_pack`, or `MoE_data_scale` |
-| `--preset` | `full` | `full`, `train_before`, or `train_after` split |
+| `PACK` | Required | `base_pack`, `joint_feature_pack`, `data_scale_pack`, `MoE_data_scale`, or `MoE_learn` |
+| `--preset` | `full`; `demo` for MoE_learn | Other packs: `full`, `train_before`, or `train_after`; MoE_learn: `demo` |
 | `--method` | All in the pack | Feature method/combination; e.g. `SCM`, joint `RBD_ELM_SCM` |
 | `--network` | All in the pack | Base/joint: five families. Data scale: auto, four fixed sizes and original complex CNN baseline |
 | `--fusion` | Joint preset: `block_rms` | Joint only; `block_rms` or `raw_concat` |
 
-**Pack alone starts the full experiment.** Omitted filters select all methods
-or networks. Bundled presets use 100 neural epochs and five-fold GRNN sigma
+**Pack alone starts its configured experiment; MoE_learn starts a small demo.**
+Omitted filters select all methods or networks. Other packs' bundled presets use 100 neural epochs and five-fold GRNN sigma
 search; GRNN has no epochs or optimizer. Epochs/seed and other advanced settings
 belong in a complete TOML passed with `--config`, instead of `--preset`.
 The [data scale pack](doc/packs/data-scale-pack.md) selects capacity before
@@ -49,6 +53,10 @@ The [MoE pack](doc/packs/moe-data-scale.md) instead varies residual expert count
 Its RBD+SCM matrix contains four training fractions × four expert counts × three
 seeds; the pack guide provides launch/recovery commands. `validate --suite quick`
 checks structure without a data-size run.
+The [continual MoE demo](doc/packs/moe-learn.md) learns in stages, adapts existing
+experts at a lower learning rate, and validates adaptation or growth candidates.
+Its configuration controls replay and stage ordering; its short run is an
+engineering check, not evidence that expansion improves accuracy.
 
 See [commands and options](doc/workflows/remote-validation.md),
 [configuration defaults](doc/workflows/command-defaults.md), and

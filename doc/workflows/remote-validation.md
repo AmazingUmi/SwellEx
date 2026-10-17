@@ -12,6 +12,8 @@ pack and split you want. Replace `RUN_ID` with the complete ID printed after
 | All 15 base models, train before / test after | `./scripts/run.sh base_pack --preset train_before` |
 | All 18 data-scale models, train before / test after | `./scripts/run.sh data_scale_pack --preset train_before` |
 | Synthetic residual MoE architecture check | `./scripts/run.sh MoE_data_scale validate --suite quick` |
+| Continual MoE real-data demo | `./scripts/run.sh MoE_learn` |
+| Preview the continual MoE demo without SSH | `./scripts/run.sh MoE_learn --dry-run` |
 | Check a MoE task | `./scripts/run.sh MoE_data_scale status --run 'RUN_ID'` |
 | Fetch MoE run/study reports | `./scripts/run.sh MoE_data_scale fetch --run 'RUN_ID'` |
 | All 35 joint models, train after / test before | `./scripts/run.sh joint_feature_pack --preset train_after` |
@@ -49,7 +51,8 @@ For a registered data-scale or MoE study, child deliveries are grouped under
 `output/{data,figure}/<study_id>/children/<run_id>/`. Both whole-study and direct
 child fetch use this location once the study ledger has been retrieved locally.
 
-HDF5/checkpoints/GRNN references stay on haiqin. Detailed status meanings and ID
+HDF5/checkpoints/GRNN references stay on haiqin, except the small MoE_learn demo
+checkpoint, which is also delivered with its report. Detailed status meanings and ID
 format are in [Task ID, Status, and Fetch](#task-id-status-and-fetch).
 
 Edit source/configuration locally. Generation, numerical tests, training,
@@ -82,6 +85,10 @@ training or plotting; use that command for the initial architecture check.
 The [MoE RBD+SCM matrix](../packs/moe-data-scale.md#rbdscm-data-size-matrix)
 uses fixed `block_rms` and 48 data-size/expert-count/seed cells; it does not accept
 a `--fusion` override.
+`MoE_learn` instead defaults to `--preset demo`, one `RBD_SCM` /
+`complex_MoE_learn` staged model on a short interval. It supports the same
+check/validate/status/fetch workflow, plus a local `--dry-run`. See its
+[demo configuration and evidence limits](../packs/moe-learn.md).
 
 `train_before` and `train_after` use `range_overlap`: up to 800 s per candidate
 side, a 15 s central gap, and a shared distance interval selected using both
@@ -91,7 +98,7 @@ recorded windows are retained. See the [split contract](../datasets/hdf5-dataset
 Names are case-sensitive; unknown, repeated, incomplete, or misplaced arguments
 fail. Old positional `METHOD ARCH`, `--epochs`, `--seed`, and `--detach` are
 removed from the shell interface. `--dry-run` is accepted by data-scale
-`budget-study` and MoE `study`. Use `--help` to inspect syntax without launching a run.
+`budget-study`, MoE `study`, and MoE_learn demo launches. Use `--help` to inspect syntax without launching a run.
 
 ### Select Methods, Networks, or Fusion
 
@@ -150,7 +157,7 @@ UTC timestamp-pack-split-method-network[-fusion]-random suffix
 20261013T120000Z-joint-after-all-GRNN-block_rms-a1b2c3d4
 ```
 
-`base`/`joint`/`scale`/`moe` identify the pack; `full`/`before`/`after` identify the split;
+`base`/`joint`/`scale`/`moe`/`moelearn` identify the pack; `full`/`before`/`after` identify the split;
 `all` denotes an omitted filter. The eight hexadecimal random characters avoid
 collisions between otherwise identical submissions. Epochs, seed, suite, full
 configuration, and source identity remain in the request/manifest. Workers reject

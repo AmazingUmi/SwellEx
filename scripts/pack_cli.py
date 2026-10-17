@@ -12,6 +12,7 @@ PRESETS = {
     "train_before": "haiqin_range_overlap_train_before.toml",
     "train_after": "haiqin_range_overlap_train_after.toml",
 }
+MOE_LEARN_PRESETS = {"demo": "haiqin_demo.toml"}
 
 
 class PackArgumentParser(argparse.ArgumentParser):
@@ -37,6 +38,8 @@ class PackArgumentParser(argparse.ArgumentParser):
             "budget-study": {"--plan", "--study-dir", "--dry-run"},
         }[command]
         if command == "study" and self.pack_name == "MoE_data_scale":
+            allowed = allowed | {"--dry-run"}
+        if self.pack_name == "MoE_learn" and command in {None, "validate"}:
             allowed = allowed | {"--dry-run"}
         invalid = seen - allowed
         if invalid:
@@ -73,7 +76,9 @@ def make_pack_parser(pack_name: str, default_config: Path,
     parser.add_argument("command", nargs="?", choices=commands, help="Maintenance command; omit to run an experiment")
     experiment = parser.add_argument_group("Experiment selection")
     source = experiment.add_mutually_exclusive_group()
-    source.add_argument("--preset", choices=tuple(PRESETS), help="Bundled dataset preset (default: full)")
+    presets = MOE_LEARN_PRESETS if pack_name == "MoE_learn" else PRESETS
+    default_preset = "demo" if pack_name == "MoE_learn" else "full"
+    source.add_argument("--preset", choices=tuple(presets), help=f"Bundled dataset preset (default: {default_preset})")
     source.add_argument("--config", type=Path, help="Complete custom TOML; mutually exclusive with --preset")
     experiment.add_argument("--method", choices=methods, help="Feature selection (default: all)")
     experiment.add_argument("--network", choices=architectures, help="Network family (default: all)")
@@ -94,9 +99,13 @@ def make_pack_parser(pack_name: str, default_config: Path,
         maintenance.add_argument("--plan", type=Path, help=f"{matrix_commands}: complete frozen JSON matrix plan; launch its coordinator on haiqin and return")
         maintenance.add_argument("--study-dir", type=Path, help=f"{matrix_commands}: local output/data directory naming the remote study; import an existing frozen ledger or resume that study")
         maintenance.add_argument("--dry-run", action="store_true", help=f"{dry_command}: validate and print the matrix without SSH or training")
-    parser.set_defaults(config_dir=default_config.parent)
+    if pack_name == "MoE_learn":
+        maintenance.add_argument("--dry-run", action="store_true", help="Validate and print the demo plan without SSH or training")
+    parser.set_defaults(config_dir=default_config.parent, preset_files=presets, default_preset=default_preset)
     return parser
 
 
 def config_path(args: argparse.Namespace) -> Path:
-    return args.config if args.config is not None else args.config_dir / PRESETS[args.preset or "full"]
+    presets = getattr(args, "preset_files", PRESETS)
+    default = getattr(args, "default_preset", "full")
+    return args.config if args.config is not None else args.config_dir / presets[args.preset or default]

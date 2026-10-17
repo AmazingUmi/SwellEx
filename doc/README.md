@@ -9,6 +9,7 @@ Run from the **local project root**. Choose one launch command for the desired p
 | Start all joint models with train-before / test-after split | `./scripts/run.sh joint_feature_pack --preset train_before` |
 | Start all base models with the same split | `./scripts/run.sh base_pack --preset train_before` |
 | Check residual MoE structure using synthetic CUDA inputs | `./scripts/run.sh MoE_data_scale validate --suite quick` |
+| Run the continual MoE two-stage demo | `./scripts/run.sh MoE_learn` |
 | Inspect the RBD+SCM MoE matrix without running it | `./scripts/run.sh MoE_data_scale study --plan scripts/MoE_data_scale/localization_networks/workflow/rbd_scm_expert_study_v1.json --dry-run` |
 | Check joint task status | `./scripts/run.sh joint_feature_pack status --run 'RUN_ID'` |
 | Fetch joint results | `./scripts/run.sh joint_feature_pack fetch --run 'RUN_ID'` |
@@ -30,6 +31,7 @@ capabilities and remaining scientific work.
 | Compare joint inputs with existing architectures | [Joint feature pack](packs/joint-feature-pack.md) |
 | Choose complex CNN capacity from training sample count | [Data scale pack](packs/data-scale-pack.md) |
 | Configure RBD+SCM data size × residual MoE expert count | [MoE data scale pack](packs/moe-data-scale.md) |
+| Configure staged learning, replay, and candidate expert growth | [MoE learn demo](packs/moe-learn.md) |
 | Calibrate capacity thresholds and compare equal optimizer updates | [SCM controlled-budget study](packs/data-scale-budget-study.md) |
 
 The workflow and method references below describe `base_pack` unless they

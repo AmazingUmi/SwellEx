@@ -9,6 +9,7 @@ A pack owns generation, input representation, models, workflow, and plots under
 | [joint_feature_pack](joint-feature-pack.md) | Three singles, three pairs, and the three-way combination | 14 / 35 | `block_rms` (default) or `raw_concat` |
 | [data_scale_pack](data-scale-pack.md) | `RBD`, `ELM`, `SCM` | 6 / 18 | None; training-count-selected complex CNN and fixed controls |
 | [MoE_data_scale](moe-data-scale.md) | `RBD`, `ELM`, `SCM`, `RBD_SCM` | 8 / 20 | Fixed `block_rms` for RBD_SCM; variable expert count |
+| [MoE_learn](moe-learn.md) | `RBD_SCM` | One staged demo | Stage-one-fitted `block_rms`; validated expert growth |
 
 Base and joint support `complex_CNN`, `real_CNN`, `ResNet18`, `ResNet50`, and standalone
 `GRNN`. A full joint plan evaluates one fusion mode. Pack and model names are
@@ -19,6 +20,9 @@ MoE has an auto model and fixed E1/E2/E4/E8 models. Use its
 `validate --suite quick` command for an architecture-only check, or its
 [RBD+SCM matrix](moe-data-scale.md#rbdscm-data-size-matrix) for four data sizes
 by four expert counts with three seeds.
+`MoE_learn` is an independent continual-learning demo with a single
+`complex_MoE_learn` network and a `demo` preset. It does not run the expert-count
+matrix; see its guide for replay, stage ordering, and validation limits.
 
 ## Base Pack
 

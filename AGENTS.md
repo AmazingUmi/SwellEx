@@ -11,8 +11,9 @@ scheme lives in `base_pack`; joint-feature experiments live in
 `joint_feature_pack`; training-count capacity experiments live in `data_scale_pack`.
 Residual MoE expert-count experiments live in `MoE_data_scale`; its quick
 validation uses synthetic inputs and does not launch a data-size matrix.
+Continual expert-growth demos live in `MoE_learn`; its default preset is `demo`.
 The public entry requires `./scripts/run.sh PACK ...`.
-PACK alone starts its full experiment and follows progress; disconnection does
+PACK alone starts its configured experiment (a small demo for MoE_learn) and follows progress; disconnection does
 not stop a launched worker. Select with `--preset`, `--method`, and `--network`
 (joint also accepts `--fusion`); use `--help` without launching work.
 Keep shell argument rules in `scripts/pack_cli.py`, shared by all packs.
@@ -72,6 +73,22 @@ inside a sandbox, recheck outside it before changing drivers/packages.
   fit scales only after retaining the optimizer-training subset and persist them
   for validation/prediction/resume. MoE matrices use fixed E1/E2/E4/E8 and nested
   training subsets, fixed validation within each seed, and one shared test set.
+- MoE_learn fixes stage-one block RMS, target statistics and shared frontend.
+  At each later stage, all existing experts adapt with a positive old-expert
+  learning rate smaller than the new-expert rate; the router has its own rate.
+  Warmup trains the new expert directly, then joint adaptation uses separate
+  old/new/router groups. A new expert becomes old at the next stage. Persist
+  rates, optimizer groups and update statistics. Deployment checkpoints use
+  inference freezing; candidate training re-enables expert gradients.
+  Adaptation and growth candidates start from independent deployment copies.
+  Current validation and a pooled historical guard select candidates; report
+  each historical stage because the pooled guard can conceal its regression.
+  Test data never selects actions. Replay and historical validation are
+  separate permissions. The demo has no automatic pruning or retention guarantee.
+  `distance_holdout` reserves an entire after-side distance group for test and
+  excludes that interval from all before/after training and validation. Fit
+  preprocessing only after those exclusions; persist excluded-before identities.
+  Keep this distinct from `range_bins`, which only groups after-stage additions.
 - Preserve `DatasetBundle`: `train_dataset`, `val_dataset`, `train_idx`,
   `val_idx`, `train_labels`, `input_shape`, `split_mode`, `source_paths`.
   Its `input_signature` compares frequency, element/depth, and pair axes.

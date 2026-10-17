@@ -21,6 +21,10 @@ defines the identity shortcuts, routing diagnostics and architecture-only checks
 Its `rbd_scm/` method uses `input_features` and aligned RBD+SCM blocks with fixed
 `block_rms`; fit preprocessing after training subsampling. Its separate `study`
 coordinator freezes data-size/expert-count/seed cells and resumes without redispatch.
+Continual expert growth lives in `scripts/MoE_learn/`; its
+[demo contract](../packs/moe-learn.md) fixes preprocessing and the shared frontend,
+uses separate learning rates for old experts, new experts and the router, and
+validates separate candidate models before replacing the current one.
 
 | Directory | Responsibility | Entry point |
 |---|---|---|

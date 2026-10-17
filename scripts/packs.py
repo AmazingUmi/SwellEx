@@ -8,7 +8,8 @@ NETWORKS = ("complex_CNN", "real_CNN", "ResNet18", "ResNet50", "GRNN")
 SCALE_NETWORKS = ("complex_CNN", "complex_CNN_small", "complex_CNN_medium",
                   "complex_CNN_large", "complex_CNN_xlarge", "complex_CNN_baseline")
 MOE_NETWORKS = ("complex_MoE", "complex_MoE_e1", "complex_MoE_e2", "complex_MoE_e4", "complex_MoE_e8")
-ALL_NETWORKS = tuple(dict.fromkeys((*NETWORKS, *SCALE_NETWORKS, *MOE_NETWORKS)))
+MOE_LEARN_NETWORKS = ("complex_MoE_learn",)
+ALL_NETWORKS = tuple(dict.fromkeys((*NETWORKS, *SCALE_NETWORKS, *MOE_NETWORKS, *MOE_LEARN_NETWORKS)))
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,8 @@ PACKS = {
                             networks=SCALE_NETWORKS, tag="scale"),
     "MoE_data_scale": Pack("MoE_data_scale", ("RBD", "ELM", "SCM", "RBD_SCM"),
                            networks=MOE_NETWORKS, tag="moe"),
+    "MoE_learn": Pack("MoE_learn", ("RBD_SCM",), networks=MOE_LEARN_NETWORKS,
+                      tag="moelearn"),
 }
 
 

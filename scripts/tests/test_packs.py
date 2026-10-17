@@ -16,10 +16,12 @@ from scripts.packs import PACKS, get_pack
 from scripts.run import PROJECT, main
 from scripts.run_identity import make_run_id, parse_run_id, validate_run_identity
 
+LEGACY_PACKS = tuple(pack for pack in PACKS.values() if pack.name != "MoE_learn")
+
 
 class PackRoutingTests(unittest.TestCase):
     def test_presets_and_independent_model_filters(self):
-        for pack in PACKS.values():
+        for pack in LEGACY_PACKS:
             remote = import_module(pack.dispatcher)
             for preset, split, side in [('full','full_interleaved','before'),('train_before','range_overlap','before'),('train_after','range_overlap','after')]:
                 for method, network in [(None,None), (pack.methods[-1],None), (None,pack.networks[-1]), (pack.methods[-1],'ResNet18' if 'ResNet18' in pack.networks else pack.networks[1])]:
@@ -39,7 +41,7 @@ class PackRoutingTests(unittest.TestCase):
                     self.assertFalse(no_cache)
 
     def test_custom_config_and_fusion_override(self):
-        for pack in PACKS.values():
+        for pack in LEGACY_PACKS:
             remote=import_module(pack.dispatcher)
             with tempfile.TemporaryDirectory() as tmp:
                 path=Path(tmp)/'custom config; $(literal).toml'
@@ -61,6 +63,8 @@ class PackRoutingTests(unittest.TestCase):
         for pack in PACKS.values():
             remote=import_module(pack.dispatcher)
             for args in invalid:
+                if pack.name == "MoE_learn" and args == ['--dry-run']:
+                    continue  # Its bounded demo supports a stdlib-only dry run.
                 with self.subTest(pack=pack.name,args=args), patch.object(remote,'dispatch') as dispatch, patch.object(remote,'remote_python') as ssh, patch('sys.stderr',io.StringIO()), self.assertRaises(SystemExit):
                     main([pack.name,*args])
                 dispatch.assert_not_called(); ssh.assert_not_called()

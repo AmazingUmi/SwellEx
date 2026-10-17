@@ -1,0 +1,73 @@
+# Entire far distance group excluded from learning on both sides; test on after only.
+# Fixed after-side holdout is reporting only; single-seed 30-epoch experiment.
+schema_version = 1
+
+[remote]
+host = "haiqin"
+repository = "/mnt/SDD/project/SwellEx"
+workspace = "/mnt/SDD/project/SwellEx_validation"
+base_python = "/home/yiyang-lu/miniforge3/envs/pytorch/bin/python"
+uv = "/mnt/SDD/project/SwellEx_validation/runtime_profile/tools/uv-0.12.19/uv-x86_64-unknown-linux-gnu/uv"
+
+[validation]
+device = "cuda"
+seed = 2026
+threads = 4
+quick_timeout_s = 900
+generation_timeout_s = 1800
+training_timeout_s = 7200
+
+[dataset]
+event_name = "S5"
+fs = 1500
+segment_start_s = 0
+segment_end_s = 4499
+segment_duration_s = 1.0
+segment_step_s = 1.0
+num_snapshots_per_segment = 1
+snapshot_overlap_count = 0
+frequency_selection_modes = ["deep", "shallow"]
+split_strategy = "range_overlap"
+train_test_ratio = [4, 1]
+train_side = "before"
+half_duration_s = 800
+gap_s = 15
+test_step_s = 1
+manual_dataset_variant_tag = "moe_learn_before_then_after"
+stage_mode = "distance_holdout"
+distance_edges_km = [0.90, 1.32, 1.74, 2.16]
+heldout_group = 3
+val_fraction = 0.2
+
+[rbd]
+beam_selection = "best"
+frequency_estimation = "selected"
+use_plane_wave = false
+normalize_spectrum = false
+
+[training]
+initial_epochs = 30
+adapt_epochs = 30
+warmup_epochs = 30
+batch_size = 8
+base_channels = 16
+learning_rate = 0.001
+old_expert_learning_rate = 0.0001
+new_expert_learning_rate = 0.001
+router_learning_rate = 0.001
+seed = 2026
+weight_decay = 0.0001
+
+[continual]
+stages = 3
+initial_experts = 2
+max_experts = 4
+replay_mode = "full"
+replay_size = 0
+history_validation = true
+
+[controller]
+min_relative_gain = 0.01
+max_old_relative_regression = 0.05
+novelty_threshold = 3.0
+balance_loss_weight = 0.01
