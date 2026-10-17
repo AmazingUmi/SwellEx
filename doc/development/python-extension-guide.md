@@ -15,6 +15,12 @@ loaders or fitted preprocessing. Keep joint-only changes out of the base pack.
 Training-count capacity changes belong in `scripts/data_scale_pack/`; see its
 [resolved architecture contract](../packs/data-scale-pack.md#artifacts-and-calibration).
 The shared pack registry declares each pack's accepted network families.
+Residual expert-count models belong to `scripts/MoE_data_scale/`, with the
+user-selected canonical pack spelling. Its [MoE contract](../packs/moe-data-scale.md)
+defines the identity shortcuts, routing diagnostics and architecture-only checks.
+Its `rbd_scm/` method uses `input_features` and aligned RBD+SCM blocks with fixed
+`block_rms`; fit preprocessing after training subsampling. Its separate `study`
+coordinator freezes data-size/expert-count/seed cells and resumes without redispatch.
 
 | Directory | Responsibility | Entry point |
 |---|---|---|

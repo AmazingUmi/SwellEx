@@ -11,6 +11,9 @@ pack and split you want. Replace `RUN_ID` with the complete ID printed after
 | All 35 joint models, train before / test after | `./scripts/run.sh joint_feature_pack --preset train_before` |
 | All 15 base models, train before / test after | `./scripts/run.sh base_pack --preset train_before` |
 | All 18 data-scale models, train before / test after | `./scripts/run.sh data_scale_pack --preset train_before` |
+| Synthetic residual MoE architecture check | `./scripts/run.sh MoE_data_scale validate --suite quick` |
+| Check a MoE task | `./scripts/run.sh MoE_data_scale status --run 'RUN_ID'` |
+| Fetch MoE run/study reports | `./scripts/run.sh MoE_data_scale fetch --run 'RUN_ID'` |
 | All 35 joint models, train after / test before | `./scripts/run.sh joint_feature_pack --preset train_after` |
 | Check joint task status | `./scripts/run.sh joint_feature_pack status --run 'RUN_ID'` |
 | Fetch joint results | `./scripts/run.sh joint_feature_pack fetch --run 'RUN_ID'` |
@@ -31,7 +34,7 @@ before launch completes can prevent startup; use the printed ID to check.
 Manual fetch retrieves available files once and does not wait for completion.
 If status is still running, fetch again after the task finishes.
 
-Data-scale `study` and `budget-study` launches return after starting a remote
+Data-scale `study`/`budget-study` and MoE `study` launches return after starting a remote
 coordinator. The whole matrix continues on haiqin without the local computer.
 Use its printed study ID with the same `status`/`fetch` commands; repeat the
 original matrix launch to recover it without rerunning completed children.
@@ -42,7 +45,7 @@ See the [budget study commands](../packs/data-scale-budget-study.md#run-and-reco
 | Reports, prediction CSVs, training history, and logs | `output/data/<run_id>/` |
 | PDF figures | `output/figure/<run_id>/` |
 
-For a registered data-scale study, child deliveries are grouped under
+For a registered data-scale or MoE study, child deliveries are grouped under
 `output/{data,figure}/<study_id>/children/<run_id>/`. Both whole-study and direct
 child fetch use this location once the study ledger has been retrieved locally.
 
@@ -61,18 +64,24 @@ Git, SSH, and rsync. Remote computation uses the [frozen environment](remote-env
 
 | Parameter | Default | Values and purpose |
 |---|---|---|
-| `PACK` | Required | `base_pack`: 3 methods; `joint_feature_pack`: 7 combinations; `data_scale_pack`: 3 methods with scalable complex CNNs |
+| `PACK` | Required | `base_pack`: 3 methods; `joint_feature_pack`: 7 combinations; `data_scale_pack`: 3 methods with scalable complex CNNs; `MoE_data_scale`: RBD/ELM/SCM/RBD_SCM with residual MoE experts |
 | `--preset` | `full` | `full`: four train windows then one test; `train_before`: range-overlap before→after; `train_after`: after→before |
 | `--method` | All methods in the pack | Base: `RBD`, `ELM`, `SCM`. Joint also supports `RBD_ELM`, `RBD_SCM`, `ELM_SCM`, `RBD_ELM_SCM` |
 | `--network` | All in the pack | Base/joint: `complex_CNN`, `real_CNN`, `ResNet18`, `ResNet50`, `GRNN`. Data scale: see its [network choices](../packs/data-scale-pack.md#network-family) |
 | `--fusion` | Joint TOML's value; bundled `block_rms` | Joint only: `block_rms` or `raw_concat` |
 
 Omitting either filter selects all values of that dimension. Pack alone runs its
-full experiment with the `full` preset: 15 base, 35 joint or 18 data-scale models. Bundled
+full experiment with the `full` preset: 15 base, 35 joint, 18 data-scale or 20 MoE models. Bundled
 presets use full S5 candidate coverage, 100 neural epochs, and five-fold GRNN
 sigma search. GRNN builds references without epochs or an optimizer.
 Data scale has no GRNN; its [configuration and capacity rule](../packs/data-scale-pack.md#training-count-and-capacity-rule)
 control training fractions and pre-training architecture selection.
+MoE uses its [own expert-count contract](../packs/moe-data-scale.md). Its quick
+suite checks synthetic CUDA inputs without raw-data generation, experiment
+training or plotting; use that command for the initial architecture check.
+The [MoE RBD+SCM matrix](../packs/moe-data-scale.md#rbdscm-data-size-matrix)
+uses fixed `block_rms` and 48 data-size/expert-count/seed cells; it does not accept
+a `--fusion` override.
 
 `train_before` and `train_after` use `range_overlap`: up to 800 s per candidate
 side, a 15 s central gap, and a shared distance interval selected using both
@@ -81,8 +90,8 @@ recorded windows are retained. See the [split contract](../datasets/hdf5-dataset
 
 Names are case-sensitive; unknown, repeated, incomplete, or misplaced arguments
 fail. Old positional `METHOD ARCH`, `--epochs`, `--seed`, and `--detach` are
-removed from the shell interface. `--dry-run` is accepted only by data-scale
-`budget-study`. Use `--help` to inspect syntax without launching a run.
+removed from the shell interface. `--dry-run` is accepted by data-scale
+`budget-study` and MoE `study`. Use `--help` to inspect syntax without launching a run.
 
 ### Select Methods, Networks, or Fusion
 
@@ -141,7 +150,7 @@ UTC timestamp-pack-split-method-network[-fusion]-random suffix
 20261013T120000Z-joint-after-all-GRNN-block_rms-a1b2c3d4
 ```
 
-`base`/`joint`/`scale` identify the pack; `full`/`before`/`after` identify the split;
+`base`/`joint`/`scale`/`moe` identify the pack; `full`/`before`/`after` identify the split;
 `all` denotes an omitted filter. The eight hexadecimal random characters avoid
 collisions between otherwise identical submissions. Epochs, seed, suite, full
 configuration, and source identity remain in the request/manifest. Workers reject
@@ -175,10 +184,10 @@ terminal exports if completion occurs during retrieval.
 |---|---|
 | `check` | Check SSH, repository, raw inputs, and uv; does not test CUDA. Optional `--config` |
 | `validate` | Default `--suite smoke`; also accepts `quick` or `experiment`, `--preset` or `--config`, `--no-cache`, and joint `--fusion` |
-| `status --run RUN_ID` | Query a run, or a registered data-scale study; optional `--config` |
+| `status --run RUN_ID` | Query a run, or a registered data-scale/MoE study; optional `--config` |
 | `fetch --run RUN_ID` | Retrieve and verify available run/study results; optional `--config` |
 | `local-grnn` | Explicit local CPU exception; base only. See [local GRNN](standalone-grnn.md#local-cpu-range-overlap-computation) |
-| `study --plan PATH [--study-dir PATH]` | Data scale only: start/recover a detached haiqin data-size/seed coordinator; see [matrix studies](../packs/data-scale-pack.md#data-size-matrix) |
+| `study --plan PATH [--study-dir PATH]` | Start/recover a detached haiqin matrix: [data scale](../packs/data-scale-pack.md#data-size-matrix) or [MoE](../packs/moe-data-scale.md#rbdscm-data-size-matrix); MoE also accepts `--dry-run` |
 | `budget-study --plan PATH [--study-dir PATH] [--dry-run]` | Data scale only: start/recover a detached haiqin controlled-budget coordinator, or inspect its plan without launching; see [budget protocol](../packs/data-scale-budget-study.md) |
 
 `quick` checks runtime, CLI/model/loader contracts, numerical oracles, and

@@ -9,6 +9,8 @@ features; independent PyTorch packages train CNN/ResNet regressors. Standalone
 RBD/ELM/SCM GRNN uses `build`/`predict`, with no epochs or optimizer. The original
 scheme lives in `base_pack`; joint-feature experiments live in
 `joint_feature_pack`; training-count capacity experiments live in `data_scale_pack`.
+Residual MoE expert-count experiments live in `MoE_data_scale`; its quick
+validation uses synthetic inputs and does not launch a data-size matrix.
 The public entry requires `./scripts/run.sh PACK ...`.
 PACK alone starts its full experiment and follows progress; disconnection does
 not stop a launched worker. Select with `--preset`, `--method`, and `--network`
@@ -60,6 +62,16 @@ inside a sandbox, recheck outside it before changing drivers/packages.
   training, persist its policy/count/parameter metadata, and restore it unchanged
   for prediction/resume. Repeated blocks never add downsampling; the default
   rule is uncalibrated. This pack has no GRNN or feature fusion.
+- MoE data scale fixes the shared frontend and each independent expert's
+  structure; only expert count and router output dimension vary. Experts use
+  constant-width identity residual connections and GroupNorm. Preserve sparse
+  Top-2 dispatch without dropping samples, the E1 bypass, and separate routing
+  loss/diagnostics from regression metrics. Freeze expert count before training;
+  prediction must restore it. Quick validation is synthetic CUDA evidence only.
+  `RBD_SCM` concatenates RBD then SCM feature rows with fixed `block_rms`;
+  fit scales only after retaining the optimizer-training subset and persist them
+  for validation/prediction/resume. MoE matrices use fixed E1/E2/E4/E8 and nested
+  training subsets, fixed validation within each seed, and one shared test set.
 - Preserve `DatasetBundle`: `train_dataset`, `val_dataset`, `train_idx`,
   `val_idx`, `train_labels`, `input_shape`, `split_mode`, `source_paths`.
   Its `input_signature` compares frequency, element/depth, and pair axes.
@@ -70,7 +82,7 @@ inside a sandbox, recheck outside it before changing drivers/packages.
   artifacts by mtime through `common/paths.py:latest_time_suffixed_path`.
 - Update `pyproject.toml` and `uv.lock` together. Local delivery is
   `output/data/<run_id>/` for logs/tables/reports and `output/figure/<run_id>/`
-  for figures. Data-scale study children use
+  for figures. Data-scale and MoE study children use
   `output/{data,figure}/<study_id>/children/<run_id>/`; independent runs keep
   their own top-level directory. Remote intermediate artifacts use the run's `outputs/`.
 

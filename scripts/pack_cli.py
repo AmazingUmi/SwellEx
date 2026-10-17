@@ -36,6 +36,8 @@ class PackArgumentParser(argparse.ArgumentParser):
             "study": {"--plan", "--study-dir"},
             "budget-study": {"--plan", "--study-dir", "--dry-run"},
         }[command]
+        if command == "study" and self.pack_name == "MoE_data_scale":
+            allowed = allowed | {"--dry-run"}
         invalid = seen - allowed
         if invalid:
             self.error(f"{command or 'experiment'} does not accept {', '.join(sorted(invalid))}")
@@ -60,11 +62,14 @@ def make_pack_parser(pack_name: str, default_config: Path,
         description="Start immediately, follow progress, and fetch results. The remote task survives disconnection.",
         epilog="Omit --method or --network to select all. Epochs and seed belong in the complete TOML configuration.",
     )
+    parser.pack_name = pack_name
     commands = ["check", "validate", "status", "fetch"]
     if pack.local_grnn:
         commands.append("local-grnn")
+    if pack_name in {"data_scale_pack", "MoE_data_scale"}:
+        commands.append("study")
     if pack_name == "data_scale_pack":
-        commands.extend(("study", "budget-study"))
+        commands.append("budget-study")
     parser.add_argument("command", nargs="?", choices=commands, help="Maintenance command; omit to run an experiment")
     experiment = parser.add_argument_group("Experiment selection")
     source = experiment.add_mutually_exclusive_group()
@@ -78,15 +83,17 @@ def make_pack_parser(pack_name: str, default_config: Path,
     maintenance.add_argument("--suite", choices=("quick", "smoke", "experiment"), default="smoke", help="validate only (default: smoke)")
     maintenance.add_argument("--no-cache", action="store_true", help="Regenerate feature datasets")
     maintenance.add_argument("--run", metavar="RUN_ID", help=(
-        "Required for status/fetch; data_scale_pack also accepts the study ID printed at launch"
-        if pack_name == "data_scale_pack" else "Required for status/fetch"))
+        "Required for status/fetch; matrix packs also accept the study ID printed at launch"
+        if pack_name in {"data_scale_pack", "MoE_data_scale"} else "Required for status/fetch"))
     if pack.local_grnn:
         maintenance.add_argument("--python", type=Path, help="local-grnn: existing CPU interpreter")
         maintenance.add_argument("--data", type=Path, help="local-grnn: matching dataset to reuse")
-    if pack_name == "data_scale_pack":
-        maintenance.add_argument("--plan", type=Path, help="study/budget-study: complete frozen JSON matrix plan; launch its coordinator on haiqin and return")
-        maintenance.add_argument("--study-dir", type=Path, help="study/budget-study: local output/data directory naming the remote study; import an existing frozen ledger or resume that study")
-        maintenance.add_argument("--dry-run", action="store_true", help="budget-study: validate and print the matrix without SSH or training")
+    if pack_name in {"data_scale_pack", "MoE_data_scale"}:
+        matrix_commands = "study" if pack_name == "MoE_data_scale" else "study/budget-study"
+        dry_command = "study" if pack_name == "MoE_data_scale" else "budget-study"
+        maintenance.add_argument("--plan", type=Path, help=f"{matrix_commands}: complete frozen JSON matrix plan; launch its coordinator on haiqin and return")
+        maintenance.add_argument("--study-dir", type=Path, help=f"{matrix_commands}: local output/data directory naming the remote study; import an existing frozen ledger or resume that study")
+        maintenance.add_argument("--dry-run", action="store_true", help=f"{dry_command}: validate and print the matrix without SSH or training")
     parser.set_defaults(config_dir=default_config.parent)
     return parser
 
