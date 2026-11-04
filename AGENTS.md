@@ -16,12 +16,12 @@ The public entry requires `./scripts/run.sh PACK ...`.
 PACK alone starts its configured experiment (a small demo for MoE_learn) and follows progress; disconnection does
 not stop a launched worker. Select with `--preset`, `--method`, and `--network`
 (joint also accepts `--fusion`); use `--help` without launching work.
-Keep shell argument rules in `scripts/pack_cli.py`, shared by all packs.
+Keep shell argument rules in `scripts/remote_workflow/pack_cli.py`, shared by all packs.
 
 Edit code/configuration/docs locally. Run data generation, numerical tests,
 training, prediction, and plotting on SSH host `haiqin`. Use the frozen uv
-environment; keep `scripts/base_pack/data_processing/matlab_reference/` static and do
-not execute MATLAB. Follow [remote validation](doc/workflows/remote-validation.md)
+environment; keep `scripts/data_processing/matlab_reference/` static and do
+not execute MATLAB. Follow [remote validation](doc/remote_workflow/remote-validation.md)
 for environment setup and command scope. From the local project root:
 
 ```bash
@@ -35,10 +35,13 @@ inside a sandbox, recheck outside it before changing drivers/packages.
 
 ## Architecture Contracts
 
-- Code roots are `scripts/<pack>/data_processing/`,
-  `scripts/<pack>/localization_networks/`, and `scripts/<pack>/visualization/`.
-  Use canonical `scripts.<pack>.localization_networks.*` imports within the
-  selected pack; do not add compatibility aliases for the removed roots.
+- Code roots are `scripts/data_processing/`, `scripts/network_training/`, and
+  `scripts/remote_workflow/` (each organized internally by `common/` and
+  `<pack>/`). Use canonical `scripts.data_processing.*`,
+  `scripts.network_training.*`, and `scripts.remote_workflow.*` imports; do not
+  add compatibility aliases for removed roots, and preserve strict layer
+  isolation (`data_processing` never imports PyTorch/matplotlib/training/workflow;
+  `network_training` consumes HDF5 only and never imports `scipy`/`Origindata`/`remote_workflow`).
   Shared network logic belongs in each pack's `common/`; method-specific layouts
   stay in their packages. Reuse `common/h5_utils.py` for paths and splits.
 - Method packages are `rbd/`, `elm/`, `scm/`, and standalone `grnn/`, each with
@@ -112,14 +115,14 @@ write detailed Chinese commit messages. Push only when requested.
 
 Before changing sensitive areas, read:
 
-- [HDF5 datasets and splits](doc/datasets/hdf5-datasets-and-splits.md):
+- [HDF5 datasets and splits](doc/data_processing/hdf5-datasets-and-splits.md):
   generation, windows, frequency selection, and stored fields.
-- [Python extension guide](doc/development/python-extension-guide.md):
+- [Python extension guide](doc/network_training/python-extension-guide.md):
   loaders, model registration, and interface constraints.
-- [Workflow guides](doc/README.md#workflows): execution and result contracts.
-- [Project progress](doc/overview/project-progress.md): verified scope and gaps.
-- [Experiment packs](doc/packs/README.md): pack ownership, commands, and joint
-  feature comparison contracts.
+- [Workflow guides](doc/README.md#remote-workflow): execution and result contracts.
+- [Project progress](doc/project-progress.md): verified scope and gaps.
+- [Experiment packs](doc/README.md#experiment-packs): cross-layer pack ownership,
+  commands, and joint feature comparison contracts.
 
 Keep the language of the document being edited. Check current source and
 reports before stating behavior or scientific validation claims.

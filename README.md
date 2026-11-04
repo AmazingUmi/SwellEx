@@ -1,91 +1,47 @@
 # SwellEx Range Regression
 
-Predict source range (km) from SwellEx-96 VLA recordings.
+Predict source range (km) from SwellEx-96 VLA recordings using RBD, ELM, and SCM complex features.
 
-## Common Commands
+## Quick Start
 
-Run from the **local project root**. Experiments execute on `haiqin`.
-Choose the command for your task; the launch commands below are alternatives.
+Run from the **local project root**; generation, training, prediction, and plotting execute on `haiqin`.
 
 | Task | Command |
 |---|---|
-| Start all 35 joint models, train before / test after | `./scripts/run.sh joint_feature_pack --preset train_before` |
-| Start all 15 base models, train before / test after | `./scripts/run.sh base_pack --preset train_before` |
-| Compare automatic CNN capacity with fixed sizes (18 models) | `./scripts/run.sh data_scale_pack --preset train_before` |
-| Check residual MoE architecture on synthetic CUDA inputs | `./scripts/run.sh MoE_data_scale validate --suite quick` |
-| Run the two-stage continual MoE demo | `./scripts/run.sh MoE_learn` |
-| Inspect the continual MoE demo without launching | `./scripts/run.sh MoE_learn --dry-run` |
-| Check continual MoE contracts on synthetic CUDA inputs | `./scripts/run.sh MoE_learn validate --suite quick` |
-| Inspect the RBD+SCM data-size × expert-count matrix | `./scripts/run.sh MoE_data_scale study --plan scripts/MoE_data_scale/localization_networks/workflow/rbd_scm_expert_study_v1.json --dry-run` |
-| Check / fetch a MoE run | `./scripts/run.sh MoE_data_scale status --run 'RUN_ID'` / `./scripts/run.sh MoE_data_scale fetch --run 'RUN_ID'` |
-| Check a joint run's status | `./scripts/run.sh joint_feature_pack status --run 'RUN_ID'` |
-| Fetch a joint run's results | `./scripts/run.sh joint_feature_pack fetch --run 'RUN_ID'` |
-| Show help without starting a run | `./scripts/run.sh joint_feature_pack --help` |
+| Run all 15 base models (`train_before`) | `./scripts/run.sh base_pack --preset train_before` |
+| Run all 35 joint models (`train_before`, `block_rms`) | `./scripts/run.sh joint_feature_pack --preset train_before` |
+| Run all 18 scalable CNN models (`train_before`) | `./scripts/run.sh data_scale_pack --preset train_before` |
+| Check residual MoE contracts on synthetic CUDA | `./scripts/run.sh MoE_data_scale validate --suite quick` |
+| Preview the RBD+SCM MoE data-size × expert matrix | `./scripts/run.sh MoE_data_scale study --plan scripts/remote_workflow/MoE_data_scale/rbd_scm_expert_study_v1.json --dry-run` |
+| Run or dry-run the continual MoE demo | `./scripts/run.sh MoE_learn` / `./scripts/run.sh MoE_learn --dry-run` |
+| Run one selected model | `./scripts/run.sh base_pack --preset train_before --method SCM --network ResNet18` |
+| Query status / fetch results of a run or study | `./scripts/run.sh PACK status --run 'RUN_ID'` / `./scripts/run.sh PACK fetch --run 'RUN_ID'` |
+| Inspect pack options without launching work | `./scripts/run.sh PACK --help` |
 
-Replace `RUN_ID` with the **complete ID printed after `Run:` at launch**.
-For a base run, use `base_pack` in status/fetch. These commands identify an
-existing run; do not add `--preset`, `--method`, or `--network`.
+Replace `PACK` and `RUN_ID` with the launching pack and the complete ID printed after `Run:`. Do not pass `--preset`, `--method`, `--network`, or `--fusion` to `status`/`fetch`. Disconnection stops local monitoring only; remote workers continue on `haiqin`.
 
-Launch follows progress and fetches results on completion. Once the remote
-worker has started, disconnection or Ctrl-C stops only local monitoring.
-Manual fetch retrieves what is available now; if the run is still active,
-fetch again after completion. Reports/CSVs/logs go to `output/data/<run_id>/`;
-figures go to `output/figure/<run_id>/`. HDF5/checkpoints remain on haiqin,
-except the small `MoE_learn` demo checkpoint, which is also fetched with its report.
+## Experiment Selection
 
-## Choose an Experiment
-
-| Parameter | Default | Purpose |
+| Option | Default | Scope |
 |---|---|---|
-| `PACK` | Required | `base_pack`, `joint_feature_pack`, `data_scale_pack`, `MoE_data_scale`, or `MoE_learn` |
-| `--preset` | `full`; `demo` for MoE_learn | Other packs: `full`, `train_before`, or `train_after`; MoE_learn: `demo` |
-| `--method` | All in the pack | Feature method/combination; e.g. `SCM`, joint `RBD_ELM_SCM` |
-| `--network` | All in the pack | Base/joint: five families. Data scale: auto, four fixed sizes and original complex CNN baseline |
-| `--fusion` | Joint preset: `block_rms` | Joint only; `block_rms` or `raw_concat` |
+| `PACK` | Required | `base_pack`, `joint_feature_pack`, `data_scale_pack`, `MoE_data_scale`, `MoE_learn` |
+| `--preset` | `full` (`demo` for `MoE_learn`) | `full`, `train_before`, `train_after`; `MoE_learn`: `demo` |
+| `--method` | All in pack | Single or joint feature route (e.g. `SCM`, `RBD_SCM`, `RBD_ELM_SCM`) |
+| `--network` | All in pack | Base/joint: 4 neural + `GRNN`; [data scale](doc/network_training/data-scale-pack.md): 6 CNN choices; [MoE](doc/network_training/moe-data-scale.md): auto + E1/E2/E4/E8; [MoE_learn](doc/network_training/moe-learn.md): `complex_MoE_learn` |
+| `--fusion` | `block_rms` | `joint_feature_pack` only: `block_rms` or `raw_concat` |
 
-**Pack alone starts its configured experiment; MoE_learn starts a small demo.**
-Omitted filters select all methods or networks. Other packs' bundled presets use 100 neural epochs and five-fold GRNN sigma
-search; GRNN has no epochs or optimizer. Epochs/seed and other advanced settings
-belong in a complete TOML passed with `--config`, instead of `--preset`.
-The [data scale pack](doc/packs/data-scale-pack.md) selects capacity before
-training using an uncalibrated count rule; it has no GRNN or fusion.
-The [MoE pack](doc/packs/moe-data-scale.md) instead varies residual expert count.
-Its RBD+SCM matrix contains four training fractions × four expert counts × three
-seeds; the pack guide provides launch/recovery commands. `validate --suite quick`
-checks structure without a data-size run.
-The [continual MoE demo](doc/packs/moe-learn.md) learns in stages, adapts existing
-experts at a lower learning rate, and validates adaptation or growth candidates.
-Its configuration controls replay and stage ordering; its short run is an
-engineering check, not evidence that expansion improves accuracy.
+`PACK` alone launches its default preset (100 neural epochs and 5-fold GRNN sigma CV for standard packs; a short 2-stage check for `MoE_learn`). Pass `--config PATH` instead of `--preset` to customize epochs, seed, or stage rules. Local dispatch requires `uv`, Python 3.11+, Git, SSH, and `rsync`; remote execution uses the locked Python 3.14 + CUDA environment.
 
-See [commands and options](doc/workflows/remote-validation.md),
-[configuration defaults](doc/workflows/command-defaults.md), and
-[pack contracts](doc/packs/README.md) before changing an experiment.
-
-To run one model instead of the complete pack:
-
-```bash
-./scripts/run.sh base_pack --preset train_before --method SCM --network ResNet18
-```
-
-Local prerequisites: uv, Python 3.11+, Git, SSH, and rsync. Edit locally;
-generation, numerical tests, training, prediction, and plotting run on haiqin.
-MATLAB source is a static reference.
-
-## Results and Source
+## Repository Layout
 
 | Path | Contents |
 |---|---|
-| `output/data/<run_id>/` | Retrieved logs, reports, prediction CSVs, and history |
-| `output/figure/<run_id>/` | Retrieved PDF figures |
-| Remote run's `project/outputs/` | Datasets, checkpoints, and GRNN references |
-| `scripts/<pack>/` | Pack-specific generation, networks, workflow, and visualization |
-| `scripts/pack_cli.py`, `scripts/packs.py` | Shared public command contract and pack registry |
-| `Origindata/` | Original inputs; excluded from Git |
-| `simulation/` | Propagation model inputs |
-| `pyproject.toml`, `uv.lock` | Frozen numerical dependencies |
+| `scripts/data_processing/` | Pure CPU feature generation (`Origindata/` -> HDF5), joint feature concatenation, dataset validation, and static `matlab_reference/` |
+| `scripts/network_training/` | Pure HDF5 -> PyTorch/GRNN training, prediction, model selection catalogs, and `MoE_learn` continual stage runner/plots |
+| `scripts/remote_workflow/` | Shared CLI/pack dispatcher (`run.py`, `packs.py`, `pack_cli.py`), `haiqin` SSH workers, TOML presets, studies, and run/study report renderers |
+| `doc/{data_processing,network_training,remote_workflow}/` | [Documentation index & pack matrix](doc/README.md), [HDF5 contracts](doc/data_processing/hdf5-datasets-and-splits.md), [models](doc/network_training/trainable-model-architecture.md), and [remote workflow](doc/remote_workflow/remote-validation.md) |
+| `notebooks/` | Split Colab/local notebooks: [CPU data processing](notebooks/01_data_processing_cpu.ipynb) and [GPU training & analysis](notebooks/02_network_training_gpu.ipynb) |
+| `output/data/<run_id>/`, `output/figure/<run_id>/` | Retrieved local reports/CSVs/logs and PDF figures (excluded from Git) |
+| `Origindata/`, `simulation/` | Raw SwellEx-96 inputs (untracked) and acoustic propagation model inputs |
 
-Use the [documentation index](doc/README.md) for detailed guides.
-[Project progress](doc/overview/project-progress.md) separates recorded pipeline
-checks from scientific validation; a PASS run alone does not establish
-accuracy or cross-track generalization.
+See [project progress](doc/project-progress.md) for retained experimental results and scientific interpretation boundaries.

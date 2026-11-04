@@ -8,6 +8,8 @@
 !AGENTS.md
 !doc/
 !doc/**
+!notebooks/
+!notebooks/**
 !scripts/
 !scripts/**
 !pyproject.toml
@@ -39,6 +41,9 @@ env/
 # Local editor and OS metadata.
 .vscode/
 .idea/
+.ipynb_checkpoints/
+**/.ipynb_checkpoints/
+**/.ipynb_checkpoints/**
 .DS_Store
 ._*
 Thumbs.db
