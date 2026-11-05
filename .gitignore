@@ -18,6 +18,12 @@
 !simulation/
 !simulation/**
 
+# Retired code/docs/notebooks are tracked; archived bulk results (archive/output) are not.
+!archive/
+!archive/**
+archive/output/*
+!archive/output/README.md
+
 # Python cache and local environments.
 __pycache__/
 *.py[cod]
@@ -65,3 +71,6 @@ source/
 
 # Agents configurations and logs (keep .env inputs).
 .agents/
+
+# The raw-input ignore rules above also match archive/source; keep the snapshots tracked.
+!archive/source/

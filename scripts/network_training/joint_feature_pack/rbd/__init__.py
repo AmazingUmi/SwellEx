@@ -1,1 +1,0 @@
-"""RBD localization package."""

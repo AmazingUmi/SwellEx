@@ -18,12 +18,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="./scripts/run.sh", description=__doc__, allow_abbrev=False,
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=("PACK alone runs its configured experiment (MoE_learn: small continual-learning demo).\n"
+        epilog=("PACK alone runs its configured experiment.\n"
                 "Examples:\n"
-                "  ./scripts/run.sh joint_feature_pack --preset train_before\n"
                 "  ./scripts/run.sh base_pack --method RBD --network complex_CNN\n"
-                "  ./scripts/run.sh MoE_learn --dry-run\n"
-                "  ./scripts/run.sh joint_feature_pack status --run RUN_ID\n"
+                "  ./scripts/run.sh base_pack --preset train_before\n"
+                "  ./scripts/run.sh base_pack status --run RUN_ID\n"
                 "Use PACK --help for available methods and commands."),
     )
     parser.add_argument("pack", metavar="PACK", choices=tuple(PACKS),

@@ -24,7 +24,7 @@ export SWELLEX_PYTHON='<uv_environment>/bin/python'
 cd "$SWELLEX_RUN/project"
 ```
 
-Use `"$SWELLEX_PYTHON"` for manual [neural](../network_training/training-and-prediction.md#manual-train-and-predict), [GRNN](../network_training/standalone-grnn.md#manual-build-and-predict), or [plotting](result-visualization.md#render-manually-on-haiqin) commands; retrieve manual outputs separately.
+Use `"$SWELLEX_PYTHON"` for manual [neural](../network_training/neural-cli.md#manual-train-and-predict), [GRNN](../network_training/grnn-cli.md#manual-build-and-predict), or [plotting](result-visualization.md#render-manually-on-haiqin) commands; retrieve manual outputs separately.
 
 ## Source Snapshot, Cache, and Validation
 

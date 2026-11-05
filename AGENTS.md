@@ -4,24 +4,24 @@ Workspace instructions for agents working in SwellEx.
 
 ## Scope and Execution
 
-Range regression on SwellEx-96 VLA data. Python generates RBD/ELM/SCM HDF5
-features; independent PyTorch packages train CNN/ResNet regressors. Standalone
-RBD/ELM/SCM GRNN uses `build`/`predict`, with no epochs or optimizer. The original
-scheme lives in `base_pack`; joint-feature experiments live in
-`joint_feature_pack`; training-count capacity experiments live in `data_scale_pack`.
-Residual MoE expert-count experiments live in `MoE_data_scale`; its quick
-validation uses synthetic inputs and does not launch a data-size matrix.
-Continual expert-growth demos live in `MoE_learn`; its default preset is `demo`.
-The public entry requires `./scripts/run.sh PACK ...`.
-PACK alone starts its configured experiment (a small demo for MoE_learn) and follows progress; disconnection does
-not stop a launched worker. Select with `--preset`, `--method`, and `--network`
-(joint also accepts `--fusion`); use `--help` without launching work.
-Keep shell argument rules in `scripts/remote_workflow/pack_cli.py`, shared by all packs.
+Range regression on SwellEx-96 VLA data. Python generates RBD/SCM HDF5 features;
+the single active pack `base_pack` trains `complex_CNN`/`ResNet18`/`ResNet50`
+regressors and a standalone GRNN per feature. GRNN uses `build`/`predict`, with no
+epochs or optimizer. ELM, `real_CNN`, `joint_feature_pack`, `data_scale_pack`,
+`MoE_data_scale` and `MoE_learn` are retired under `archive/` (code, docs,
+notebooks and results; see `archive/README.md`). They are not importable from
+`scripts/`; do not reintroduce them without moving them back deliberately.
+The public entry requires `./scripts/run.sh base_pack ...`.
+PACK alone starts its configured experiment and follows progress; disconnection does
+not stop a launched worker. Select with `--preset`, `--method`, and `--network`;
+use `--help` without launching work. Keep shell argument rules in
+`scripts/remote_workflow/pack_cli.py`; TOML presets live in
+`scripts/remote_workflow/presets/{full,train_before,train_after}.toml`.
 
 Edit code/configuration/docs locally. Run data generation, numerical tests,
 training, prediction, and plotting on SSH host `haiqin`. Use the frozen uv
 environment; keep `scripts/data_processing/matlab_reference/` static and do
-not execute MATLAB. Follow [remote validation](doc/remote_workflow/remote-validation.md)
+not execute MATLAB. Follow [remote validation](doc/remote_workflow/run-and-validate.md)
 for environment setup and command scope. From the local project root:
 
 ```bash
@@ -36,62 +36,34 @@ inside a sandbox, recheck outside it before changing drivers/packages.
 ## Architecture Contracts
 
 - Code roots are `scripts/data_processing/`, `scripts/network_training/`, and
-  `scripts/remote_workflow/` (each organized internally by `common/` and
-  `<pack>/`). Use canonical `scripts.data_processing.*`,
-  `scripts.network_training.*`, and `scripts.remote_workflow.*` imports; do not
-  add compatibility aliases for removed roots, and preserve strict layer
-  isolation (`data_processing` never imports PyTorch/matplotlib/training/workflow;
+  `scripts/remote_workflow/`; modules sit directly in them (there is no
+  per-pack directory layer; `base_pack` is only the pack/run identity). Use
+  canonical `scripts.data_processing.*`, `scripts.network_training.*`, and
+  `scripts.remote_workflow.*` imports; do not add compatibility aliases for
+  removed roots or paths, and preserve strict layer isolation
+  (`data_processing` never imports PyTorch/matplotlib/training/workflow;
   `network_training` consumes HDF5 only and never imports `scipy`/`Origindata`/`remote_workflow`).
-  Shared network logic belongs in each pack's `common/`; method-specific layouts
-  stay in their packages. Reuse `common/h5_utils.py` for paths and splits.
-- Method packages are `rbd/`, `elm/`, `scm/`, and standalone `grnn/`, each with
-  `main.py`. Public shell method names and output directories remain uppercase.
-  Use `MethodBindings` for shared neural CLI/train/predict dependencies.
-- RBD `/X` is `[sample,element,frequency,real_imag]`. ELM/SCM use
-  `[sample,pair,frequency,real_imag]`; ELM pairs require `i<j`, SCM `i<=j`.
-  Pair indices are stored 1-based in column-major order.
-- Each method owns `network/model.py:MODEL_REGISTRY` and `network/models/`.
-  RBD config uses `input_elements` plus `input_freq_bins`; ELM/SCM use
-  `input_pairs` plus `input_freq_bins`. Models return normalized `[batch,1]`.
+  `network_training/` holds `neural/` (the single RBD/SCM runtime), `grnn/`,
+  `common/` (paths, HDF5 helpers, argument types shared by both) and the
+  stdlib-only `catalog.py`. Reuse `common/h5_utils.py` for HDF5 paths and splits;
+  feature `METHODS` and axis identities come from `data_processing/input_contract.py`.
+- The neural entry is `network_training/neural/main.py {train,predict} --method RBD|SCM`;
+  the GRNN entry is `network_training/grnn/main.py {build,predict} --method RBD|SCM`.
+  Public shell method names and output directories remain uppercase. Use
+  `MethodBindings` (`neural/bindings.py`) for shared train/predict dependencies;
+  RBD and SCM differ only by dataset class and model config dataclass.
+- RBD `/X` is `[sample,element,frequency,real_imag]`. SCM uses
+  `[sample,pair,frequency,real_imag]` with pairs `i<=j`. Pair indices are stored
+  1-based in column-major order.
+- `neural/model.py:MODEL_REGISTRY` maps registry names (`catalog.neural_model_name`:
+  RBD unprefixed, SCM `scm_`) to config and model classes; architectures live in
+  `neural/models/`. RBD config uses `input_elements` plus `input_freq_bins`; SCM
+  uses `input_pairs` plus `input_freq_bins`. Models return normalized `[batch,1]`.
   Keep GRNN outside trainable model registries.
-- Joint inputs concatenate canonical RBD, ELM, SCM blocks along feature rows;
-  do not label the concatenated axis as elements or pairs. Preserve existing
-  neural layers and channels. `raw_concat` and training-fitted `block_rms` are
-  distinct experimental conditions; prediction must reuse fitted scales.
-  Joint generation requires aligned Ns=1 samples, physical axes, and sources.
-- Keep pack, feature combination, and fusion identity in run/artifact metadata.
-  Never silently reuse a checkpoint/reference or fetch a run for another pack.
-- Data scale chooses capacity only from valid unique optimizer-training rows
-  after validation splitting/subsampling. Freeze resolved structure before
-  training, persist its policy/count/parameter metadata, and restore it unchanged
-  for prediction/resume. Repeated blocks never add downsampling; the default
-  rule is uncalibrated. This pack has no GRNN or feature fusion.
-- MoE data scale fixes the shared frontend and each independent expert's
-  structure; only expert count and router output dimension vary. Experts use
-  constant-width identity residual connections and GroupNorm. Preserve sparse
-  Top-2 dispatch without dropping samples, the E1 bypass, and separate routing
-  loss/diagnostics from regression metrics. Freeze expert count before training;
-  prediction must restore it. Quick validation is synthetic CUDA evidence only.
-  `RBD_SCM` concatenates RBD then SCM feature rows with fixed `block_rms`;
-  fit scales only after retaining the optimizer-training subset and persist them
-  for validation/prediction/resume. MoE matrices use fixed E1/E2/E4/E8 and nested
-  training subsets, fixed validation within each seed, and one shared test set.
-- MoE_learn fixes stage-one block RMS, target statistics and shared frontend.
-  At each later stage, all existing experts adapt with a positive old-expert
-  learning rate smaller than the new-expert rate; the router has its own rate.
-  Warmup trains the new expert directly, then joint adaptation uses separate
-  old/new/router groups. A new expert becomes old at the next stage. Persist
-  rates, optimizer groups and update statistics. Deployment checkpoints use
-  inference freezing; candidate training re-enables expert gradients.
-  Adaptation and growth candidates start from independent deployment copies.
-  Current validation and a pooled historical guard select candidates; report
-  each historical stage because the pooled guard can conceal its regression.
-  Test data never selects actions. Replay and historical validation are
-  separate permissions. The demo has no automatic pruning or retention guarantee.
-  `distance_holdout` reserves an entire after-side distance group for test and
-  excludes that interval from all before/after training and validation. Fit
-  preprocessing only after those exclusions; persist excluded-before identities.
-  Keep this distinct from `range_bins`, which only groups after-stage additions.
+- Keep pack identity in run/artifact metadata. Never silently reuse a
+  checkpoint/reference or fetch a run for another pack. Runs recorded before the
+  cleanup (15-model plan with ELM and `real_CNN`) are historical evidence only and
+  are rejected by the active plan validation.
 - Preserve `DatasetBundle`: `train_dataset`, `val_dataset`, `train_idx`,
   `val_idx`, `train_labels`, `input_shape`, `split_mode`, `source_paths`.
   Its `input_signature` compares frequency, element/depth, and pair axes.
@@ -99,30 +71,31 @@ inside a sandbox, recheck outside it before changing drivers/packages.
 - Generation configuration is defined in `generation_config.py`; reject
   unknown/invalid fields. Adaptive frequencies fit valid training windows only.
 - Timestamped network exports use `MMDD_HHMMSS`. Resolve latest matching
-  artifacts by mtime through `common/paths.py:latest_time_suffixed_path`.
+  artifacts by mtime through `network_training/common/paths.py:latest_time_suffixed_path`.
 - Update `pyproject.toml` and `uv.lock` together. Local delivery is
   `output/data/<run_id>/` for logs/tables/reports and `output/figure/<run_id>/`
-  for figures. Data-scale and MoE study children use
-  `output/{data,figure}/<study_id>/children/<run_id>/`; independent runs keep
-  their own top-level directory. Remote intermediate artifacts use the run's `outputs/`.
+  for figures. Retired results live in `archive/output/{data,figure}/<category>/`
+  (untracked) with an index in `archive/output/README.md`. Remote intermediate
+  artifacts use the run's `outputs/`.
 
 ## Git and Required Reading
 
-The Git whitelist tracks README/AGENTS, doc, scripts, simulation, and uv project
-files. Never commit `Origindata/`, `outputs/`, `output/`, local environments,
-macOS junk (`._*`, `.DS_Store`), or stray files. Commit only on user request;
-write detailed Chinese commit messages. Push only when requested.
+The Git whitelist tracks README/AGENTS, doc, scripts, simulation, notebooks,
+`archive/` (code, docs and index files only) and uv project files. Never commit
+`Origindata/`, `outputs/`, `output/`, `archive/output/` bulk results, local
+environments, macOS junk (`._*`, `.DS_Store`), or stray files. Commit only on user
+request; write detailed Chinese commit messages. Push only when requested.
 
 Before changing sensitive areas, read:
 
 - [HDF5 datasets and splits](doc/data_processing/hdf5-datasets-and-splits.md):
   generation, windows, frequency selection, and stored fields.
-- [Python extension guide](doc/network_training/python-extension-guide.md):
+- [Python extension guide](doc/network_training/extension-guide.md):
   loaders, model registration, and interface constraints.
 - [Workflow guides](doc/README.md#remote-workflow): execution and result contracts.
 - [Project progress](doc/project-progress.md): verified scope and gaps.
-- [Experiment packs](doc/README.md#experiment-packs): cross-layer pack ownership,
-  commands, and joint feature comparison contracts.
+- [Experiment pack](doc/README.md#experiment-pack): pack ownership and commands.
+- [Archive index](archive/README.md): what was retired and how to restore it.
 
 Keep the language of the document being edited. Check current source and
 reports before stating behavior or scientific validation claims.

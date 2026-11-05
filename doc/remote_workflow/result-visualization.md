@@ -16,7 +16,7 @@ output/figure/<run_id>/
   grnn/<method-model>-sigma.pdf
 ```
 
-`MoE_learn` writes staged summaries under `output/data/<run_id>/reports/demo/` and `stage-learning.{pdf,png}` (plus `distance-learning.{pdf,png}` for `range_bins`) under `output/figure/<run_id>/reports/demo/figures/`. Matrix studies place aggregate tables/figures in `output/{data,figure}/<study_id>/` and child runs in `children/<run_id>/`.
+Runs from archived packs (ELM, joint-feature, data-scale, MoE) are filed under `archive/output/{data,figure}/<category>/`; see [archive index](../../archive/README.md).
 
 ## Choose a Figure
 
@@ -27,14 +27,14 @@ output/figure/<run_id>/
 | `absolute-error-ecdf.pdf` / `error-metrics.pdf` | Empirical CDF of absolute errors; MAE, RMSE, and max error bars (km) |
 | `models/.../history.pdf` / `grnn/...-sigma.pdf` | Neural epoch loss/MAE/RMSE curves; GRNN CV/validation MAPE vs sigma |
 
-`base_pack` grids arrange RBD/ELM/SCM rows by architecture columns; `joint_feature_pack` grids use 7 feature-combination rows and per-architecture ECDF panels; `data_scale_pack` and `MoE_data_scale` render their respective profile/expert grids.
+`base_pack` grids arrange RBD/SCM rows by architecture columns (`complex_CNN`, `ResNet18`, `ResNet50`, `GRNN`).
 
 ## Render Manually on haiqin
 
-First [enter a completed frozen run](remote-environment.md#manual-commands-in-a-frozen-run), then render all or selected models into a **new** directory (swap `base_pack` for `joint_feature_pack`, `data_scale_pack`, or `MoE_data_scale` as appropriate):
+First [enter a completed frozen run](remote-environment.md#manual-commands-in-a-frozen-run), then render all or selected models into a **new** directory:
 
 ```bash
-"$SWELLEX_PYTHON" -B scripts/remote_workflow/base_pack/visualization/plot_results.py \
+"$SWELLEX_PYTHON" -B scripts/remote_workflow/visualization/plot_results.py \
   --run "$SWELLEX_RUN" --output-dir output/figure/manual-comparison \
   --model RBD/complex_cnn_range --model SCM/scm_grnn_range
 ```

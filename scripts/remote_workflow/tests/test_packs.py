@@ -12,16 +12,14 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from scripts.remote_workflow.packs import PACKS, get_pack
+from scripts.remote_workflow.packs import PACKS
 from scripts.remote_workflow.run import PROJECT, main
 from scripts.remote_workflow.run_identity import make_run_id, parse_run_id, validate_run_identity
-
-LEGACY_PACKS = tuple(pack for pack in PACKS.values() if pack.name != "MoE_learn")
 
 
 class PackRoutingTests(unittest.TestCase):
     def test_presets_and_independent_model_filters(self):
-        for pack in LEGACY_PACKS:
+        for pack in PACKS.values():
             remote = import_module(pack.dispatcher)
             for preset, split, side in [('full','full_interleaved','before'),('train_before','range_overlap','before'),('train_after','range_overlap','after')]:
                 for method, network in [(None,None), (pack.methods[-1],None), (None,pack.networks[-1]), (pack.methods[-1],'ResNet18' if 'ResNet18' in pack.networks else pack.networks[1])]:
@@ -40,31 +38,27 @@ class PackRoutingTests(unittest.TestCase):
                     self.assertEqual({job['architecture'] for job in plan}, {network} if network else set(pack.networks))
                     self.assertFalse(no_cache)
 
-    def test_custom_config_and_fusion_override(self):
-        for pack in LEGACY_PACKS:
+    def test_custom_config_override(self):
+        for pack in PACKS.values():
             remote=import_module(pack.dispatcher)
             with tempfile.TemporaryDirectory() as tmp:
                 path=Path(tmp)/'custom config; $(literal).toml'
                 path.write_text(remote.DEFAULT_CONFIG.read_text().replace('epochs = 100','epochs = 3'))
                 args=[pack.name,'--config',str(path),'--method',pack.methods[-1],'--no-cache']
-                if pack.fusion_modes: args += ['--fusion','raw_concat']
                 with patch.object(remote,'dispatch',return_value=0) as dispatch:
                     self.assertEqual(main(args),0)
                 config,suite,no_cache=dispatch.call_args.args
                 self.assertEqual(config['training']['epochs'],3)
                 self.assertTrue(no_cache)
-                if pack.fusion_modes: self.assertEqual(config['fusion']['mode'],'raw_concat')
 
     def test_old_and_misplaced_parameters_are_rejected_without_launch(self):
         invalid=[['RBD','complex_CNN'],['run'],['--epochs','1'],['--seed','0'],['--detach'],['--dry-run'],['--no-wait'],
-                 ['--method','all'],['--network','resnet18'],['--method','RBD','--method','SCM'],
+                 ['--method','all'],['--network','resnet18'],['--method','ELM'],['--network','real_CNN'],['--study-dir','x'],['--method','RBD','--method','SCM'],
                  ['--preset','train_before','--config','missing.toml'],['--preset','before'],['--suite','quick'],
                  ['validate','--method','SCM'],['status'],['fetch','--run','x','--network','GRNN'],['check','--preset','full']]
         for pack in PACKS.values():
             remote=import_module(pack.dispatcher)
             for args in invalid:
-                if pack.name == "MoE_learn" and args == ['--dry-run']:
-                    continue  # Its bounded demo supports a stdlib-only dry run.
                 with self.subTest(pack=pack.name,args=args), patch.object(remote,'dispatch') as dispatch, patch.object(remote,'remote_python') as ssh, patch('sys.stderr',io.StringIO()), self.assertRaises(SystemExit):
                     main([pack.name,*args])
                 dispatch.assert_not_called(); ssh.assert_not_called()
@@ -100,7 +94,7 @@ class Reject(importlib.abc.MetaPathFinder):
   if fullname.split('.')[0] in {'torch','numpy','scipy','h5py','matplotlib'}: raise AssertionError(fullname)
 sys.meta_path.insert(0,Reject())
 from scripts.remote_workflow.run import main
-main(['joint_feature_pack','--help'])
+main(['base_pack','--help'])
 """
         result=subprocess.run([sys.executable,'-B','-c',code],cwd=PROJECT,capture_output=True,text=True)
         self.assertEqual(result.returncode,0,result.stderr)
@@ -127,11 +121,9 @@ class RunIdentityTests(unittest.TestCase):
         for pack in PACKS.values():
             remote=import_module(pack.dispatcher)
             invalid=['20261013T120000Z-12345678','../escape','20261313T120000Z-base-full-all-all-12345678',
-                     '20261013T120000Z-base-full-RBD_ELM-all-12345678','20261013T120000Z-base-full-all-all-block_rms-12345678',
-                     '20261013T120000Z-joint-full-all-all-12345678']
-            other=get_pack('joint_feature_pack' if pack.name=='base_pack' else 'base_pack')
-            other_remote=import_module(other.dispatcher)
-            invalid.append(make_run_id(other.name,other_remote.load_config(other_remote.DEFAULT_CONFIG)))
+                     '20261013T120000Z-base-full-ELM-all-12345678','20261013T120000Z-base-full-RBD_SCM-all-12345678',
+                     '20261013T120000Z-base-full-all-real_CNN-12345678','20261013T120000Z-base-full-all-all-block_rms-12345678',
+                     '20261013T120000Z-joint-full-all-all-12345678','20261013T120000Z-moe-full-all-all-12345678']
             for run in invalid:
                 with self.subTest(run=run),patch.object(remote,'remote_python') as ssh,self.assertRaises(ValueError):remote.status(remote.load_config(remote.DEFAULT_CONFIG),run)
                 ssh.assert_not_called()

@@ -53,17 +53,16 @@ class FollowTests(unittest.TestCase):
         self.assertIn("my-run", output.getvalue())
 
     def test_remote_application_error_is_not_retried_as_disconnect(self):
-        for pack in ("base_pack", "joint_feature_pack"):
-            remote = import_module(f"scripts.remote_workflow.{pack}.remote")
-            cfg = remote.load_config(remote.DEFAULT_CONFIG)
-            for code, expected in ((255, RemoteConnectionError), (1, RuntimeError)):
-                with patch.object(remote.subprocess, "run", return_value=subprocess.CompletedProcess([], code, "", "failure")):
-                    with self.assertRaises(expected) as caught:
-                        remote.remote_python(cfg, "probe")
-                self.assertIs(type(caught.exception), expected)
+        remote = import_module("scripts.remote_workflow.remote")
+        cfg = remote.load_config(remote.DEFAULT_CONFIG)
+        for code, expected in ((255, RemoteConnectionError), (1, RuntimeError)):
+            with patch.object(remote.subprocess, "run", return_value=subprocess.CompletedProcess([], code, "", "failure")):
+                with self.assertRaises(expected) as caught:
+                    remote.remote_python(cfg, "probe")
+            self.assertIs(type(caught.exception), expected)
 
     def test_log_probe_is_bounded_and_resumes_without_loss_or_external_files(self):
-        from scripts.remote_workflow.base_pack.remote import STATUS_CODE
+        from scripts.remote_workflow.remote import STATUS_CODE
         code = STATUS_CODE.replace("print(json.dumps(result))", LOG_PROGRESS_CODE)
         with tempfile.TemporaryDirectory() as directory:
             run = Path(directory)
