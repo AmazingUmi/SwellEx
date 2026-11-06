@@ -7,7 +7,7 @@ Run from the **local project root**. `scripts/run.sh` invokes standard-library `
 | Task | Command |
 |---|---|
 | Run all 8 `base_pack` models (`train_before`) | `./scripts/run.sh base_pack --preset train_before` |
-| Run one selected method / network | `./scripts/run.sh base_pack --preset train_before --method SCM --network ResNet18` |
+| Run selected methods / networks | `./scripts/run.sh base_pack --preset train_before --method SCM --network complex_CNN ResNet18` |
 | Check status / fetch results of a run | `./scripts/run.sh base_pack status --run 'RUN_ID'` / `./scripts/run.sh base_pack fetch --run 'RUN_ID'` |
 | Inspect syntax without launching work | `./scripts/run.sh base_pack --help` |
 
@@ -16,27 +16,27 @@ Pass only `base_pack` and `RUN_ID` to `status`/`fetch` (plus `--config PATH` onl
 ## Experiment Parameters
 
 ```text
-./scripts/run.sh base_pack [--preset PRESET | --config PATH] [--method METHOD] [--network NETWORK] [--no-cache]
+./scripts/run.sh base_pack [--preset PRESET | --config PATH] [--method METHOD ...] [--network NETWORK ...] [--no-cache]
 ```
 
 | Parameter | Default | Values and purpose |
 |---|---|---|
 | `PACK` | Required | `base_pack` (the only active pack; ELM, joint-feature, data-scale and MoE packs are archived, see [archive](../../archive/README.md)) |
 | `--preset` | `full` | `full`, `train_before`, or `train_after` (`scripts/remote_workflow/presets/<preset>.toml`) |
-| `--method` | All in pack | `RBD` or `SCM` |
-| `--network` | All in pack | `complex_CNN`, `ResNet18`, `ResNet50`, `GRNN` |
+| `--method` | `experiment.methods` | `1..N` unique values from `RBD`, `SCM` (generates and validates only selected methods on demand) |
+| `--network` | `experiment.networks` | `1..N` unique values from `complex_CNN`, `ResNet18`, `ResNet50`, `GRNN` |
 | `--config PATH` | Preset TOML | Complete custom TOML (mutually exclusive with `--preset`; unknown/missing fields fail); see [configuration defaults](workflow-config.md) |
 | `--no-cache` | Off | Force fresh HDF5 generation instead of reusing verified cached datasets |
 
-For a fast pipeline smoke test, copy `presets/full.toml`, set `dataset.segment_end_s = 59` and `training.epochs = 1`, and pass `--config` to `validate` (`range_overlap` requires spanning closest approach, so `0–59 s` is invalid there).
+For a fast pipeline smoke test, copy `presets/full.toml`, set `dataset.segment_end_s = 59.0` and `training.epochs = 1`, and pass `--config` to `validate` (`range_overlap` requires spanning closest approach, so `0–59 s` is invalid there).
 
 ## Task ID, Status, and Fetch
 
-Experiment and validation launches print `Run:` with a descriptive ID (pack tag `base`):
+Experiment and validation launches print `Run:` with a descriptive ID (pack tag `base`; multi-item subsets join canonical names with `+`, and full sets use `all`):
 
 ```text
 UTC_timestamp-pack-split-method-network-8hex
-20261013T120000Z-base-before-SCM-ResNet18-a1b2c3d4
+20261013T120000Z-base-before-SCM-complex_CNN+ResNet18-a1b2c3d4
 20261013T120000Z-base-after-all-GRNN-a1b2c3d4
 ```
 

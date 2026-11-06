@@ -30,7 +30,8 @@ Shared CLI options: `--method`, `--data DATASET` (under `outputs/Datasets/` or p
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--train-data GLOB ...` / `--val-data GLOB ...` | `*_train.h5` / auto | Validation order: `--val-data` → `*_val.h5` → seeded `--val-fraction` (`0.25`) split |
+| `--train-data GLOB ...` / `--val-data GLOB ...` | `*_train.h5` / auto | Validation order: `--val-data` → `*_val.h5` → `--val-split-mode` holdout (`--val-fraction`, default `0.25`) |
+| `--val-split-mode` / `--val-gap-s` | `random` / `0.0` | `random` seeded holdout or `blocked` chronological trailing holdout with temporal buffer `>= val_gap_s` (s) |
 | `--epochs N` / `--seed N` | `100` / `2026` | Fresh or additional resume epochs; split seed (`0..2**32-1`) |
 | `--lr` / `--weight-decay` | `3e-4` / `1e-4` | AdamW hyperparameters |
 | `--base-channels` / `--dropout` | `16` / `0.15` | Fresh CNN width; fresh dropout in `[0, 1)` |
@@ -43,7 +44,7 @@ Shared CLI options: `--method`, `--data DATASET` (under `outputs/Datasets/` or p
 `predict` accepts `--checkpoint PATH`, `--predictions-csv PATH`, `--plot-path PATH` (`.pdf`), `--no-plot`, and `--print-first N` (`10`).
 
 - **Automatic lookup**: `train` (without `--no-resume`) checks `<dataset>_last.pt` then latest-mtime `MMDD_HHMMSS` `last` file via `network_training/common/paths.py:latest_time_suffixed_path` (starting fresh if none exists); `predict` checks `<dataset>_best.pt` then latest-mtime `best` file. Explicit missing paths fail.
-- **Resume contract**: Restores weights, config, target statistics, loss settings, optimizer state, and history after verifying `input_signature`, split mode/indices, and seed. Each `train` call starts a fresh cosine LR decay from `--lr` to `0` over `--epochs`.
+- **Resume contract**: Restores weights, config, target statistics, loss settings, optimizer state, and history after verifying `input_signature`, `split_mode` (`random` / `blocked`), `val_gap_s`, split indices, and seed. Each `train` call starts a fresh cosine LR decay from `--lr` to `0` over `--epochs`.
 
 ## Remote Artifacts and Local Delivery
 

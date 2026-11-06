@@ -6,6 +6,8 @@ from dataclasses import dataclass, asdict
 import importlib
 import io
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -19,7 +21,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from scripts.network_training.neural.bindings import MethodBindings
 from scripts.network_training.neural.checkpoints import validate_checkpoint
-from scripts.network_training.common.h5_utils import split_indices
+from scripts.network_training.common.h5_utils import blocked_split_indices, split_indices
 from scripts.data_processing.input_contract import read_input_signature
 from scripts.network_training.neural.training import train
 from scripts.network_training.neural.training_utils import run_epoch
@@ -255,6 +257,193 @@ class NetworkContractTests(unittest.TestCase):
                 self.assertTrue(historical_best.is_file())
                 self.assertFalse((output / "test_model/train_outputs/test_best_0101_000001.pt").exists())
                 self.assertIn(f"Best checkpoint: {historical_best}", stdout.getvalue())
+
+    def test_blocked_split_indices_ordering_gap_and_rejections(self):
+        # Out-of-order window centers: chronological order is [1, 5, 3, 2, 4, 0] -> [0, 5, 10, 20, 25, 30].
+        centers = [30.0, 0.0, 20.0, 10.0, 25.0, 5.0]
+        train_idx, val_idx = blocked_split_indices(centers, val_fraction=1 / 3, val_gap_s=0.0)
+        self.assertEqual(train_idx, [1, 5, 3, 2])
+        self.assertEqual(val_idx, [4, 0])
+
+        # Stable tie-breaking and zero-gap retention even with equal timestamps across the boundary.
+        self.assertEqual(
+            blocked_split_indices([10.0, 20.0, 20.0, 30.0], val_fraction=0.5, val_gap_s=0.0),
+            ([0, 1], [2, 3]),
+        )
+
+        # Exact 5.0 s separation between last train (t=20.0) and first val (t=25.0) is retained.
+        train_exact, val_exact = blocked_split_indices(centers, val_fraction=1 / 3, val_gap_s=5.0)
+        self.assertEqual(train_exact, [1, 5, 3, 2])
+        self.assertEqual(val_exact, [4, 0])
+
+        # Gap of 10.0 s drops sample 2 (t=20.0, gap 5.0 s) and keeps [0.0, 5.0, 10.0].
+        train_gapped, val_gapped = blocked_split_indices(centers, val_fraction=1 / 3, val_gap_s=10.0)
+        self.assertEqual(train_gapped, [1, 5, 3])
+        self.assertEqual(val_gapped, [4, 0])
+
+        # Excessive gap drops all candidate training samples and must fail cleanly.
+        with self.assertRaisesRegex(ValueError, "empty train or validation partition"):
+            blocked_split_indices(centers, val_fraction=1 / 3, val_gap_s=30.0)
+
+        for bad_centers in ([], [5.0], [0.0, float("nan")], [0.0, float("inf")], [0.0, True]):
+            with self.subTest(bad_centers=bad_centers), self.assertRaises(ValueError):
+                blocked_split_indices(bad_centers, val_fraction=0.5, val_gap_s=0.0)
+        for bad_fraction in (0.0, 1.0, -0.25, 1.5, float("nan"), float("inf"), True):
+            with self.subTest(bad_fraction=bad_fraction), self.assertRaises(ValueError):
+                blocked_split_indices([0.0, 10.0, 20.0, 30.0], val_fraction=bad_fraction, val_gap_s=0.0)
+        for bad_gap in (-1.0, -1e-6, float("nan"), float("inf"), False, True):
+            with self.subTest(bad_gap=bad_gap), self.assertRaises(ValueError):
+                blocked_split_indices([0.0, 10.0, 20.0, 30.0], val_fraction=0.25, val_gap_s=bad_gap)
+
+    def test_blocked_split_bundle_cli_and_resume_gap_contract(self):
+        from scripts.network_training.neural.cli import build_parser
+        from scripts.network_training.neural.data import RbdRangeH5Dataset, blocked_split_bundle
+        from scripts.network_training.neural.model import models_for
+
+        parser = build_parser()
+        rbd_model = models_for("RBD")[0]
+        default_args = parser.parse_args(["train", "--method", "RBD", "--model", rbd_model, "--data", "test"])
+        self.assertEqual(default_args.val_split_mode, "random")
+        self.assertEqual(default_args.val_gap_s, 0.0)
+
+        blocked_args = parser.parse_args([
+            "train", "--method", "RBD", "--model", rbd_model, "--data", "test",
+            "--val-split-mode", "blocked", "--val-gap-s", "15.0",
+        ])
+        self.assertEqual(blocked_args.val_split_mode, "blocked")
+        self.assertEqual(blocked_args.val_gap_s, 15.0)
+
+        for bad_cli in (
+            ["--val-split-mode", "unknown"],
+            ["--val-gap-s", "-1"],
+            ["--val-gap-s", "nan"],
+            ["--val-gap-s", "inf"],
+        ):
+            with self.subTest(bad_cli=bad_cli), patch("sys.stderr", io.StringIO()), self.assertRaises(SystemExit):
+                parser.parse_args(["train", "--method", "RBD", "--model", rbd_model, "--data", "test", *bad_cli])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            h5_path = root / "blocked.h5"
+            fixture(h5_path, "RBD")
+            with h5py.File(h5_path, "r+") as handle:
+                del handle["X"], handle["y_range_km"], handle["split/source_segment_idx"], handle["time/window_center_s"]
+                values = np.ones((6, 3, 5, 2), dtype=np.float32)
+                x = handle.create_dataset("X", data=values)
+                x.attrs["axis_order"] = "sample,element,frequency,real_imag"
+                x.attrs["storage_axis_order"] = "sample,element,frequency,real_imag"
+                handle["y_range_km"] = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], dtype=float)
+                handle["split/source_segment_idx"] = np.arange(6) + 1
+                handle["time/window_center_s"] = np.array([0.0, 10.0, 20.0, 30.0, 40.0, 50.0], dtype=float)
+
+            bundle = blocked_split_bundle(
+                RbdRangeH5Dataset,
+                [h5_path],
+                normalize_input=False,
+                val_fraction=1 / 3,
+                val_gap_s=15.0,
+                split_mode="dataset_train_blocked_split",
+            )
+            try:
+                # val_idx=[4, 5] starts at 40.0 s; sample 3 (30.0 s, gap 10.0 s < 15.0 s) is dropped.
+                self.assertEqual(bundle.train_idx, [0, 1, 2])
+                self.assertEqual(bundle.val_idx, [4, 5])
+                self.assertEqual(len(bundle.train_dataset), 3)
+                self.assertEqual(len(bundle.val_dataset), 2)
+                self.assertTrue(torch.equal(bundle.train_labels, torch.tensor([[1.0], [2.0], [3.0]])))
+                self.assertEqual(bundle.split_mode, "dataset_train_blocked_split")
+            finally:
+                bundle.dataset.close()
+
+            @dataclass
+            class Config:
+                input_elements: int = 3
+                input_freq_bins: int = 5
+
+            model_api = SimpleNamespace(
+                build_model_config=lambda *a, **k: Config(),
+                build_model=lambda *a: nn.Sequential(nn.Flatten(), nn.Linear(30, 1)),
+                model_config_from_checkpoint=lambda c: (c["model_name"], Config(**c["model_config"])),
+                serialize_model_config=asdict,
+                model_uses_dataset_input_norm=lambda name: False,
+            )
+            opened_datasets = []
+
+            def tracked_blocked_bundle(*b_args, **b_kwargs):
+                created = blocked_split_bundle(*b_args, **b_kwargs)
+                opened_datasets.append(created.dataset)
+                return created
+
+            data_dir = root / "test"
+            data_dir.mkdir()
+            data_api = SimpleNamespace(blocked_split_bundle=tracked_blocked_bundle)
+            bindings = MethodBindings("RBD", model_api, data_api, RbdRangeH5Dataset, "input_elements")
+            output = root / "out"
+            args = argparse.Namespace(
+                seed=2026, no_resume=True, resume_checkpoint=None, train_data=[str(h5_path)], val_data=None,
+                data=str(data_dir), no_input_norm=True, model="complex_cnn_range", val_fraction=1 / 3,
+                val_split_mode="blocked", val_gap_s=12.0, loss_space="km", batch_size=2, num_workers=0,
+                device="cpu", base_channels=1, dropout=0.0, huber_beta=0.5, lr=0.01, weight_decay=0.0,
+                epochs=1, output_dir=output,
+            )
+            try:
+                with patch("scripts.network_training.neural.training.time_suffix", return_value="0101_000010"), patch("sys.stdout", io.StringIO()):
+                    train(args, bindings)
+                saved_last = output / "complex_cnn_range/train_outputs/test_last_0101_000010.pt"
+                ckpt = torch.load(saved_last, map_location="cpu")
+                self.assertEqual(ckpt["split_mode"], "explicit_train_data_blocked_split")
+                self.assertEqual(ckpt["val_split_mode"], "blocked")
+                self.assertEqual(ckpt["val_gap_s"], 12.0)
+                self.assertEqual(ckpt["train_indices"], [0, 1, 2])
+                self.assertEqual(ckpt["val_indices"], [4, 5])
+
+                # Changing val_gap_s from 12.0 to 15.0 produces identical indices [0, 1, 2] / [4, 5],
+                # yet resume must still reject the mismatched val_gap_s setting.
+                args.no_resume = False
+                args.resume_checkpoint = saved_last
+                args.val_gap_s = 15.0
+                with self.assertRaisesRegex(ValueError, "val_gap_s"):
+                    train(args, bindings)
+            finally:
+                for ds in opened_datasets:
+                    ds.close()
+
+    def test_lazy_model_registry_defers_resnet_import(self):
+        project_root = Path(__file__).resolve().parents[4]
+        code = """import sys
+from scripts.network_training.neural.model import MODEL_REGISTRY, build_model_config, models_for
+from scripts.network_training.neural.cli import build_parser
+
+expected = [
+    "complex_cnn_range",
+    "resnet18_range",
+    "resnet50_range",
+    "scm_complex_cnn_range",
+    "scm_resnet18_range",
+    "scm_resnet50_range",
+]
+assert sorted(MODEL_REGISTRY) == expected
+assert len(MODEL_REGISTRY) == 6
+assert "resnet18_range" in MODEL_REGISTRY
+assert "unknown_model" not in MODEL_REGISTRY
+assert list(MODEL_REGISTRY.keys()) == list(MODEL_REGISTRY)
+assert len(models_for("RBD")) == 3 and len(models_for("SCM")) == 3
+build_model_config("resnet18_range", (2, 21, 23))
+build_parser()
+assert "scripts.network_training.neural.models.resnet" not in sys.modules
+assert "scripts.network_training.neural.models.complex_cnn" not in sys.modules
+
+cnn_cfg, cnn_cls = MODEL_REGISTRY["scm_complex_cnn_range"]
+assert cnn_cls.__name__ == "ComplexRangeCNN"
+assert "scripts.network_training.neural.models.complex_cnn" in sys.modules
+assert "scripts.network_training.neural.models.resnet" not in sys.modules
+
+rn_cfg, rn_cls = MODEL_REGISTRY["resnet18_range"]
+assert rn_cls.__name__ == "ResNet18Range"
+assert "scripts.network_training.neural.models.resnet" in sys.modules
+"""
+        proc = subprocess.run([sys.executable, "-B", "-c", code], cwd=project_root, capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
 
 
 if __name__ == "__main__":

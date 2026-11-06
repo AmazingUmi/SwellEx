@@ -9,7 +9,7 @@ Run from the **local project root**; generation, training, prediction, and plott
 | Task | Command |
 |---|---|
 | Run all 8 base models (`train_before`) | `./scripts/run.sh base_pack --preset train_before` |
-| Run one selected model | `./scripts/run.sh base_pack --preset train_before --method SCM --network ResNet18` |
+| Run selected methods / networks | `./scripts/run.sh base_pack --preset train_before --method SCM --network complex_CNN ResNet18` |
 | Query status / fetch results of a run | `./scripts/run.sh base_pack status --run 'RUN_ID'` / `./scripts/run.sh base_pack fetch --run 'RUN_ID'` |
 | Inspect options without launching work | `./scripts/run.sh base_pack --help` |
 
@@ -21,10 +21,10 @@ Replace `RUN_ID` with the complete ID printed after `Run:`. Do not pass `--prese
 |---|---|---|
 | `PACK` | Required | `base_pack` (the only active pack) |
 | `--preset` | `full` | `full`, `train_before`, `train_after` |
-| `--method` | All | `RBD`, `SCM` |
-| `--network` | All | `complex_CNN`, `ResNet18`, `ResNet50`, `GRNN` |
+| `--method` | From `[experiment]` | `1..N` unique values from `RBD`, `SCM` |
+| `--network` | From `[experiment]` | `1..N` unique values from `complex_CNN`, `ResNet18`, `ResNet50`, `GRNN` |
 
-`PACK` alone launches its default preset (100 neural epochs and 5-fold GRNN sigma CV). Pass `--config PATH` instead of `--preset` to customize epochs, seed, or split rules. Local dispatch requires `uv`, Python 3.11+, Git, SSH, and `rsync`; remote execution uses the locked Python 3.14 + CUDA environment.
+`PACK` alone launches its default preset (`[experiment]` lists all methods and networks, 100 neural epochs, and 5-fold GRNN sigma CV). Pass `--config PATH` instead of `--preset` to customize `[experiment]`, multi-snapshot `[scm]`, windowing, splits, or training hyperparameters; every configuration generates isolated dataset fingerprints and run outputs. Local dispatch requires `uv`, Python 3.11+, Git, SSH, and `rsync`; remote execution uses the locked Python 3.14 + CUDA environment.
 
 ## Repository Layout
 

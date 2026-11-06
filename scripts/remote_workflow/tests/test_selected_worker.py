@@ -39,17 +39,29 @@ class SelectedWorkerTests(unittest.TestCase):
             "config_sha256": hashlib.sha256(json.dumps(self.config, sort_keys=True).encode()).hexdigest(),
         }
         self.request = {"schema_version": 1, "pack": "base_pack", "run_id": RUN_ID, "suite": "selected", "config": self.config, "use_cache": True}
-        self.generation = {"schema_version": 1, "dataset": self.config["dataset"], "rbd": self.config["rbd"], "result_path": "outputs/validation/generation_result.json"}
+        self.generation = config.generation_payload(self.config)
         self.select("SCM", "ResNet18")
 
-    def select(self, method=None, architecture=None, *, suite="selected"):
+    def select(self, method=None, architecture=None, *, suite="selected", selection_override=None):
         self.request["suite"] = self.manifest["suite"] = suite
         self.request.pop("selection", None)
         self.manifest.pop("selection", None)
         if suite == "selected":
-            selection = {"method": method, "network": architecture}
+            selection = (
+                copy.deepcopy(selection_override)
+                if selection_override is not None
+                else {"method": method, "network": architecture}
+            )
             self.request["selection"] = selection
-            self.manifest["selection"] = dict(selection)
+            self.manifest["selection"] = copy.deepcopy(selection)
+        plan = tasks.model_plan(suite, self.request.get("selection"))
+        self.generation = config.generation_payload(
+            self.config,
+            methods=config.generation_methods(self.config, plan),
+        )
+        self.manifest["config_sha256"] = hashlib.sha256(
+            json.dumps(self.config, sort_keys=True).encode()
+        ).hexdigest()
         from scripts.remote_workflow.run_identity import make_run_id
         run_id = make_run_id("base_pack", self.config, self.request.get("selection"))
         destination = self.run.with_name(run_id)
@@ -314,6 +326,137 @@ class SelectedWorkerTests(unittest.TestCase):
                 self.assertEqual((result["method"], result["model"]), (method, model))
                 self.assertEqual(result["reference"], str(reference))
                 self.assertEqual(result["mae_km"], 0.25)
+
+    def test_list_selection_forwarding_and_independent_per_method_windows(self):
+        self.config["training"].update(
+            val_split_mode="blocked",
+            val_gap_s=15.0,
+            normalize_input=False,
+            predict_batch_size=32,
+            lr=1e-3,
+            weight_decay=5e-5,
+            dropout=0.25,
+        )
+        self.config["grnn"].update(
+            cv_folds=0,
+            spread=0.35,
+            sigma_candidates=[],
+            standardize_input=True,
+            per_sample_channel_norm=True,
+            predict_batch_size=256,
+            max_reference_samples=50,
+            max_validation_samples=20,
+            max_predict_samples=1,
+        )
+        self.select(selection_override={"methods": ["SCM"], "networks": ["complex_CNN", "GRNN"]})
+        instance = self.prepare_operation()
+        model = "scm_complex_cnn_range"
+        output = self.project / "outputs/networks_results/SCM" / model
+        best = output / "train_outputs/fixture_best_1008_120000.pt"
+
+        def neural_cmd(name, argv, timeout):
+            if name.startswith("train_"):
+                best.parent.mkdir(parents=True, exist_ok=True)
+                best.write_bytes(b"checkpoint fixture")
+                history = [
+                    {
+                        "epoch": ep,
+                        "train_loss": 1.0,
+                        "val_loss": 1.0,
+                        "train_mae_km": 1.0,
+                        "val_mae_km": 1.0,
+                        "val_rmse_km": 1.0,
+                    }
+                    for ep in range(1, self.config["training"]["epochs"] + 1)
+                ]
+                worker.write_json(best.parent / "fixture_history_1008_120000.json", history)
+            else:
+                self.predictions(output / "test_outputs")
+
+        with mock.patch.object(instance, "command", side_effect=neural_cmd) as commands, \
+             mock.patch.object(instance, "test_rows", return_value=[(5, 4.5, 2.0)]):
+            instance.train_predict("SCM", model)
+        train_argv, predict_argv = [c.args[1] for c in commands.call_args_list]
+        self.assertEqual(train_argv[train_argv.index("--val-split-mode") + 1], "blocked")
+        self.assertEqual(train_argv[train_argv.index("--val-gap-s") + 1], "15.0")
+        self.assertIn("--no-input-norm", train_argv)
+        self.assertEqual(predict_argv[predict_argv.index("--batch-size") + 1], "32")
+
+        grnn_out = self.project / "outputs/networks_results/SCM/scm_grnn_range"
+        ref = grnn_out / "reference_outputs/fixture_reference_1008_120000.pt"
+
+        def grnn_cmd(name, argv, timeout):
+            if name == "grnn_SCM_build":
+                ref.parent.mkdir(parents=True, exist_ok=True)
+                ref.write_bytes(b"ref")
+            else:
+                self.predictions(grnn_out / "test_outputs")
+
+        with mock.patch.object(instance, "command", side_effect=grnn_cmd) as g_commands, \
+             mock.patch.object(instance, "test_rows", return_value=[(5, 4.5, 2.0), (10, 9.5, 3.0)]):
+            instance.grnn("SCM")
+        build_argv, g_pred_argv = [c.args[1] for c in g_commands.call_args_list]
+        self.assertNotIn("--sigma-candidates", build_argv)
+        self.assertEqual(build_argv[build_argv.index("--spread") + 1], "0.35")
+        self.assertIn("--standardize-input", build_argv)
+        self.assertIn("--per-sample-channel-norm", build_argv)
+        self.assertEqual(build_argv[build_argv.index("--max-reference-samples") + 1], "50")
+        self.assertEqual(g_pred_argv[g_pred_argv.index("--batch-size") + 1], "256")
+        self.assertEqual(g_pred_argv[g_pred_argv.index("--max-predict-samples") + 1], "1")
+
+        # Independent test windows across RBD and SCM pass; mismatch within SCM fails.
+        self.select(suite="smoke")
+        smoke_instance = self.instance()
+        with ExitStack() as stack:
+            stack.enter_context(self.prefix())
+            stack.enter_context(mock.patch.object(smoke_instance, "environment", return_value={"cuda_available": True}))
+            stack.enter_context(mock.patch.object(smoke_instance, "json_command", return_value={"status": "PASS"}))
+            stack.enter_context(mock.patch.object(smoke_instance, "data_identity", return_value={"inputs": 24}))
+            stack.enter_context(mock.patch.object(smoke_instance, "datasets"))
+            stack.enter_context(
+                mock.patch.object(
+                    smoke_instance,
+                    "train_predict",
+                    side_effect=lambda m, mod: {"method": m, "model": mod, "source_segment_indices": [1, 2, 3] if m == "RBD" else [10, 20]},
+                )
+            )
+            stack.enter_context(
+                mock.patch.object(
+                    smoke_instance,
+                    "grnn",
+                    side_effect=lambda m: {"method": m, "model": f"{m.lower()}_grnn_range", "source_segment_indices": [1, 2, 3] if m == "RBD" else [10, 20]},
+                )
+            )
+            stack.enter_context(mock.patch.object(smoke_instance, "checkpoint_resume"))
+            stack.enter_context(mock.patch.object(smoke_instance, "visualize", return_value={"status": "PASS"}))
+            self.assertEqual(smoke_instance.execute(), 0)
+
+        self.select(suite="smoke")
+        bad_instance = self.instance()
+        with ExitStack() as stack:
+            stack.enter_context(self.prefix())
+            stack.enter_context(mock.patch.object(bad_instance, "environment", return_value={"cuda_available": True}))
+            stack.enter_context(mock.patch.object(bad_instance, "json_command", return_value={"status": "PASS"}))
+            stack.enter_context(mock.patch.object(bad_instance, "data_identity", return_value={"inputs": 24}))
+            stack.enter_context(mock.patch.object(bad_instance, "datasets"))
+            stack.enter_context(
+                mock.patch.object(
+                    bad_instance,
+                    "train_predict",
+                    side_effect=lambda m, mod: {"method": m, "model": mod, "source_segment_indices": [1, 2] if m == "RBD" else [10, 20]},
+                )
+            )
+            stack.enter_context(
+                mock.patch.object(
+                    bad_instance,
+                    "grnn",
+                    side_effect=lambda m: {"method": m, "model": f"{m.lower()}_grnn_range", "source_segment_indices": [1, 2] if m == "RBD" else [10, 21]},
+                )
+            )
+            stack.enter_context(mock.patch.object(bad_instance, "checkpoint_resume"))
+            stack.enter_context(mock.patch.object(bad_instance, "visualize", return_value={"status": "PASS"}))
+            self.assertEqual(bad_instance.execute(), 1)
+        self.assertIn("SCM models did not evaluate the same test source windows", bad_instance.report["error"])
 
 
 if __name__ == "__main__":

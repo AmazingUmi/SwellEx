@@ -40,4 +40,4 @@ Shared manual CLI options: `--method RBD|SCM` (required), `--data DATASET` (name
 | `--input-data GLOB ...` / `--max-predict-samples N` | `*_test.h5` / No limit | Test files and optional cap |
 | `--predictions-csv PATH` / `--plot-path PATH` / `--no-plot` | Timestamped CSV & `.pdf` / Off | Output overrides (`--print-first` defaults to `10`) |
 
-Flattened real dimensions under `outputs/networks_results/<METHOD>/<method>_grnn_range/` are `2*E*F` (RBD) and `E*(E+1)*F` (SCM), writing `reference_outputs/<dataset>_{reference,sigma_search}_MMDD_HHMMSS.{pt,json}` and `test_outputs/<dataset>_predictions_MMDD_HHMMSS.csv`.
+Flattened real dimensions under `outputs/networks_results/<METHOD>/<method>_grnn_range/` are `2*E*F` (RBD) and `E*(E+1)*F` (SCM), writing `reference_outputs/<dataset>_reference_MMDD_HHMMSS.pt` (plus `<dataset>_sigma_search_MMDD_HHMMSS.json` when `--val-data` or `--cv-folds >= 2` is active) and `test_outputs/<dataset>_predictions_MMDD_HHMMSS.csv`.

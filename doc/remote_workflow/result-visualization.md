@@ -13,7 +13,7 @@ output/data/<run_id>/
 output/figure/<run_id>/
   range-time.pdf, prediction-scatter.pdf, residuals-time.pdf, absolute-error-ecdf.pdf, error-metrics.pdf
   models/<METHOD>/<model>/{training/history.pdf, test_outputs/prediction.pdf}
-  grnn/<method-model>-sigma.pdf
+  grnn/<method-model>-sigma.pdf       (rendered when GRNN sigma search/CV is active)
 ```
 
 Runs from archived packs (ELM, joint-feature, data-scale, MoE) are filed under `archive/output/{data,figure}/<category>/`; see [archive index](../../archive/README.md).
@@ -48,4 +48,4 @@ First [enter a completed frozen run](remote-environment.md#manual-commands-in-a-
 
 ## Input Checks and Provenance
 
-Before filtering, the renderer verifies plan completeness, PASS status, exactly one CSV per model and one history per neural model, finite consistent metrics, and identical test window indices/times/labels across models. Visualization `manifest.json` records input/output SHA256 hashes and package versions; pipeline PASS implies no scientific accuracy threshold.
+Before filtering, the renderer verifies plan completeness, PASS status, exactly one CSV per model and one history per neural model, finite consistent metrics (shared via `remote_workflow/metrics_contract.py`), and identical test window indices/times/labels across models within each `METHOD` (when `RBD` and multi-snapshot `SCM` have different window counts, each route is validated and annotated on its own test grid). Visualization `manifest.json` records input/output SHA256 hashes and package versions; pipeline PASS implies no scientific accuracy threshold.

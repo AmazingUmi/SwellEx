@@ -71,7 +71,14 @@ def render_run(run_dir: Path, output_dir: Path, dpi=300,
     (output_dir/"source-report.json").write_bytes(data.report_bytes)
     figures = []
     context = f"{data.report['run_id']} | {data.report['suite']} | {data.report['purpose']}"
-    test_note = f"n={len(data.models[0].predictions)} valid test windows; all windows used"
+    counts_by_method = {}
+    for model in data.models:
+        counts_by_method.setdefault(model.method, len(model.predictions))
+    if len(set(counts_by_method.values())) == 1:
+        test_note = f"n={len(data.models[0].predictions)} valid test windows; all windows used"
+    else:
+        parts = [f"{m} n={counts_by_method[m]}" for m in METHODS if m in counts_by_method]
+        test_note = f"valid test windows: {', '.join(parts)}; all windows used"
 
     def save(fig, stem: str, title: str, note: str = test_note):
         width = max(40, int(fig.get_figwidth()*10))
@@ -238,6 +245,7 @@ def render_run(run_dir: Path, output_dir: Path, dpi=300,
         {"path": path.relative_to(ROOT).as_posix(),
          "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
         for path in (Path(__file__).resolve(), ROOT/"scripts/remote_workflow/visualization/results.py",
+                     ROOT/"scripts/remote_workflow/metrics_contract.py",
                      ROOT/"scripts/network_training/common/prediction_utils.py",
                      ROOT/"scripts/remote_workflow/model_plan.py",
                      ROOT/"scripts/network_training/catalog.py",

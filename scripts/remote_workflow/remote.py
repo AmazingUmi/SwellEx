@@ -18,13 +18,19 @@ import uuid
 PROJECT = Path(__file__).resolve().parents[2]
 if str(PROJECT) not in sys.path:
     sys.path.insert(0, str(PROJECT))
-from scripts.remote_workflow.config import load_config, validate_config
+from scripts.remote_workflow.config import (
+    generation_methods,
+    generation_payload,
+    load_config,
+    validate_config,
+)
+from scripts.remote_workflow.model_plan import ARCHITECTURES, METHODS, model_plan, resolve_selection
+from scripts.remote_workflow.packs import DEFAULT_PACK
 from scripts.remote_workflow.run_identity import make_run_id, parse_run_id, validate_filters
 from scripts.remote_workflow.run_monitor import LOG_PROGRESS_CODE, RemoteConnectionError, follow
-from scripts.remote_workflow.model_plan import ARCHITECTURES, METHODS, model_plan, resolve_selection
 
 DEFAULT_CONFIG = Path(__file__).parent / "presets" / "full.toml"
-PACK = "base_pack"
+PACK = DEFAULT_PACK
 LOCAL_RUNS = PROJECT / "output" / "data"
 LOCAL_FIGURES = PROJECT / "output" / "figure"
 SSH_OPTIONS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"]
@@ -73,6 +79,7 @@ def source_paths(project: Path = PROJECT) -> list[Path]:
 
 def freeze_source(stage: Path, config: dict, run_id: str, suite: str, project: Path = PROJECT, *, selection: dict | None = None) -> dict:
     model_plan(suite, selection)  # Validate the complete selection before any side effects.
+    validated_selection = validate_filters(PACK, selection) if suite == "selected" else None
     inventory = []
     for rel in source_paths(project):
         dest = stage / rel
@@ -85,7 +92,7 @@ def freeze_source(stage: Path, config: dict, run_id: str, suite: str, project: P
     dirty = subprocess.run(["git", "status", "--porcelain=1"], cwd=project, check=True, capture_output=True, text=True).stdout.splitlines()
     manifest = {"schema_version": 1, "pack": PACK, "run_id": run_id, "suite": suite, "created_at": datetime.now(timezone.utc).isoformat(), "git_head": head, "git_status": dirty, "source_sha256": digest, "files": inventory, "config_sha256": hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()}
     if suite == "selected":
-        manifest["selection"] = dict(selection)
+        manifest["selection"] = validated_selection
     return manifest
 
 
@@ -297,19 +304,20 @@ def fetch(config: dict, run_id: str) -> dict:
 
 def dispatch(config: dict, suite: str, no_cache: bool, *, selection: dict | None = None) -> int:
     config = validate_config(config)
-    model_plan(suite, selection)  # Validate the complete selection before any side effects.
-    run_id = make_run_id(PACK, config, selection)
+    plan = model_plan(suite, selection)  # Validate the complete selection before any side effects.
+    validated_selection = validate_filters(PACK, selection) if suite == "selected" else None
+    run_id = make_run_id(PACK, config, validated_selection)
     remote = config["remote"]
     remote_dir = run_dir(config, run_id)
     request = {"schema_version": 1, "pack": PACK, "run_id": run_id, "suite": suite, "config": config, "use_cache": not no_cache}
     if suite == "selected":
-        request["selection"] = dict(selection)
-    generation_config = {"schema_version": 1, "dataset": config["dataset"], "rbd": config["rbd"], "result_path": "outputs/validation/generation_result.json"}
+        request["selection"] = validated_selection
+    generation_config = generation_payload(config, methods=generation_methods(config, plan))
     local = LOCAL_RUNS / run_id
     dispatch_token = uuid.uuid4().hex
     starting = {"schema_version": 1, "pack": PACK, "run_id": run_id, "suite": suite, "status": "STARTING", "started_at": datetime.now(timezone.utc).isoformat(), "checks": [], "remote_run_dir": remote_dir}
     if suite == "selected":
-        starting["selection"] = dict(selection)
+        starting["selection"] = validate_filters(PACK, validated_selection)
     # A collision never overwrites an earlier run or its evidence.
     local.mkdir(parents=True, exist_ok=False)
     dump(local / "request.json", request)
@@ -321,7 +329,7 @@ def dispatch(config: dict, suite: str, no_cache: bool, *, selection: dict | None
         stage = Path(temp)
         init_attempted = False
         try:
-            manifest = freeze_source(stage, config, run_id, suite, selection=selection) if suite == "selected" else freeze_source(stage, config, run_id, suite)
+            manifest = freeze_source(stage, config, run_id, suite, selection=validated_selection) if suite == "selected" else freeze_source(stage, config, run_id, suite)
             dump(local / "manifest.json", manifest)
             dump(stage / "manifest.json", manifest)
             dump(stage / "request.json", request)
@@ -362,15 +370,27 @@ def validate(config: dict, suite: str, no_cache: bool) -> int:
     return dispatch(config, suite, no_cache)
 
 
-def selected_run(config: dict, method: str | None, network: str | None, no_cache: bool) -> int:
-    selection = validate_filters(PACK, {"method": method, "network": network})
+def selected_run(
+    config: dict,
+    method: str | list[str] | tuple[str, ...] | None,
+    network: str | list[str] | tuple[str, ...] | None,
+    no_cache: bool,
+) -> int:
+    if isinstance(method, (list, tuple)) or isinstance(network, (list, tuple)):
+        raw_selection = {
+            "methods": list(config["experiment"]["methods"] if method is None else method),
+            "networks": list(config["experiment"]["networks"] if network is None else network),
+        }
+    else:
+        raw_selection = {"method": method, "network": network}
+    selection = validate_filters(PACK, raw_selection)
     return dispatch(config, "selected", no_cache, selection=selection)
 
 
 def local_grnn(config: dict, config_path: Path, python: Path, data: Path | None, *, method: str) -> int:
     """Launch only the explicitly selected local CPU Python."""
     validate_config(config)
-    selection = resolve_selection(method, "GRNN")
+    resolve_selection(method, "GRNN")
     if config["dataset"]["split_strategy"] != "range_overlap":
         raise ValueError("local-grnn requires --preset train_before/train_after or a range_overlap --config")
     # Keep a virtual environment's symlink path: resolving it would select the
@@ -395,7 +415,7 @@ def main(argv: list[str] | None = None) -> int:
         path = config_path(args).resolve()
         config = load_config(path)
         if args.command == "local-grnn":
-            return local_grnn(config, path, args.python, args.data, method=args.method)
+            return local_grnn(config, path, args.python, args.data, method=args.method[0])
         if args.command == "check":
             result = remote_python(config, CHECK_CODE, config)
             print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -403,9 +423,16 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "validate":
             return validate(config, args.suite, args.no_cache)
         if args.command is None:
-            if args.method is not None or args.network is not None:
-                return selected_run(config, args.method, args.network, args.no_cache)
-            return dispatch(config, "experiment", args.no_cache)
+            methods = args.method if args.method is not None else config["experiment"]["methods"]
+            networks = args.network if args.network is not None else config["experiment"]["networks"]
+            if (
+                args.method is None
+                and args.network is None
+                and set(methods) == set(METHODS)
+                and set(networks) == set(ARCHITECTURES)
+            ):
+                return dispatch(config, "experiment", args.no_cache)
+            return selected_run(config, methods, networks, args.no_cache)
         report = status(config, args.run) if args.command == "status" else fetch(config, args.run)
         summarize(report)
         return 0 if report["status"] == "PASS" else (1 if report["status"] == "FAIL" else 2)

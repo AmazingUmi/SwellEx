@@ -1,12 +1,15 @@
 """Generated HDF5, split, and cross-route acceptance checks."""
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import math
 from pathlib import Path
 import tempfile
 
 from scripts.data_processing.fixtures import expected_pairs, write_fixture
+from scripts.data_processing.generation_config import normalize_methods
 from scripts.data_processing.input_contract import FEATURE_AXIS, METHODS
 from scripts.data_processing.reporting import Report, normalize_expected, require
 
@@ -58,8 +61,13 @@ def configured_window_check(record, expected, metadata):
     if "dataset" not in expected:
         return {}
     d, method = expected["dataset"], record["method"]
-    snapshots = 1 if method == "RBD" else d["num_snapshots_per_segment"]
-    hop = 1 if method == "RBD" else snapshots - d["snapshot_overlap_count"]
+    r = expected.get("rbd", {})
+    s = expected.get("scm", {})
+    ns = s.get("num_snapshots_per_segment", 1)
+    overlap = s.get("snapshot_overlap_count", 0)
+    norm_floor = s.get("norm_floor", 1e-12)
+    snapshots = 1 if method == "RBD" else ns
+    hop = 1 if method == "RBD" else snapshots - overlap
     base_start = d["segment_start_s"] or 0.0
     step = d["segment_step_s"] * hop
     duration = d["segment_duration_s"] + (snapshots - 1) * d["segment_step_s"]
@@ -76,7 +84,7 @@ def configured_window_check(record, expected, metadata):
     full = np.arange(fft_samples // 2 + 1) * d["fs"] / fft_samples
     bins = record["freq"] * fft_samples / d["fs"]
     require(bool(((bins >= 0) & (bins <= fft_samples // 2)).all()) and np.allclose(bins, np.round(bins), rtol=0, atol=1e-8), "frequency axis is not on configured one-sided snapshot FFT grid")
-    modes = ["full"] if method == "RBD" and expected["rbd"]["frequency_estimation"] == "full" else d["frequency_selection_modes"]
+    modes = ["full"] if method == "RBD" and r.get("frequency_estimation") == "full" else d["frequency_selection_modes"]
     f = d["frequency_selection_config"]
     fixed_bins = set()
     for mode in modes:
@@ -102,14 +110,37 @@ def configured_window_check(record, expected, metadata):
         for key, value in (("fs_hz", d["fs"]), ("segment_duration_s", duration), ("segment_step_s", step)):
             require(key in metadata and math.isclose(metadata[key], value, rel_tol=0, abs_tol=1e-8), f"metadata {key} differs from expected config")
         require(metadata.get("split_strategy") == d["split_strategy"], "metadata split strategy differs from expected config")
+        if "signal_centering" in metadata and "signal_centering" in d:
+            require(metadata["signal_centering"] == d["signal_centering"], "metadata signal_centering differs from expected config")
+        if "fft_window" in metadata and "fft_window" in d:
+            require(metadata["fft_window"] == d["fft_window"], "metadata fft_window differs from expected config")
         if method == "RBD":
             actual = metadata.get("rbd_config", {})
             for key in ("normalize_spectrum", "use_plane_wave"):
-                require(actual.get(key) == expected["rbd"][key], f"metadata RBD {key} differs from expected config")
-            require(actual.get("rbd_beam_selection") == expected["rbd"]["beam_selection"], "metadata RBD beam mode differs")
-            require(actual.get("rbd_frequency_estimation") == expected["rbd"]["frequency_estimation"], "metadata RBD frequency mode differs")
-            if expected["rbd"]["beam_selection"] == "multipath":
-                require(actual.get("rbd_multipath_options") == expected["rbd"]["multipath_options"], "metadata multipath parameters differ")
+                require(actual.get(key) == r[key], f"metadata RBD {key} differs from expected config")
+            require(actual.get("rbd_beam_selection") == r["beam_selection"], "metadata RBD beam mode differs")
+            require(actual.get("rbd_frequency_estimation") == r["frequency_estimation"], "metadata RBD frequency mode differs")
+            if r["beam_selection"] == "multipath":
+                require(actual.get("rbd_multipath_options") == r["multipath_options"], "metadata multipath parameters differ")
+            if "num_angles" in r:
+                if "theta_num" in metadata:
+                    require(metadata["theta_num"] == r["num_angles"], "metadata theta_num differs from expected num_angles")
+                if "num_angles" in actual:
+                    require(actual["num_angles"] == r["num_angles"], "metadata RBD num_angles differs from expected config")
+                elif "num_arrival_slots" in actual:
+                    require(actual["num_arrival_slots"] == r["num_angles"], "metadata RBD num_arrival_slots differs from expected num_angles")
+            if "angle_min_deg" in actual and "angle_min_deg" in r:
+                require(math.isclose(actual["angle_min_deg"], r["angle_min_deg"], rel_tol=0, abs_tol=1e-8), "metadata RBD angle_min_deg differs from expected config")
+            if "angle_max_deg" in actual and "angle_max_deg" in r:
+                require(math.isclose(actual["angle_max_deg"], r["angle_max_deg"], rel_tol=0, abs_tol=1e-8), "metadata RBD angle_max_deg differs from expected config")
+        else:
+            actual = metadata.get("feature_config", {})
+            if "num_snapshots_per_segment" in actual:
+                require(actual["num_snapshots_per_segment"] == ns, "metadata SCM num_snapshots_per_segment differs from expected config")
+            if "snapshot_overlap_count" in actual:
+                require(actual["snapshot_overlap_count"] == overlap, "metadata SCM snapshot_overlap_count differs from expected config")
+            if "norm_floor" in actual:
+                require(math.isclose(actual["norm_floor"], norm_floor, rel_tol=1e-9, abs_tol=0.0), "metadata SCM norm_floor differs from expected config")
     prefix = {"RBD": "RBD_green_freq_nn_", "SCM": "SCM_freq_nn_"}[method]
     name = Path(record["path"]).name
     if name.startswith(prefix):
@@ -122,6 +153,9 @@ def configured_split_check(records, expected):
     if "dataset" not in expected:
         return {}
     d = expected["dataset"]
+    s = expected.get("scm", {})
+    ns = s.get("num_snapshots_per_segment", 1)
+    overlap_count = s.get("snapshot_overlap_count", 0)
     first = records[0]
     metadata = first.get("metadata", {})
     start = d["segment_start_s"] or 0.0
@@ -129,8 +163,8 @@ def configured_split_check(records, expected):
     require(end is not None, "null segment_end_s requires generated candidate_segment_end_s metadata")
     require(d["segment_end_s"] is None or end <= d["segment_end_s"] + 1e-8, "metadata candidate end exceeds expected config")
     base_count = int(math.floor((end - start) / d["segment_step_s"] + 1e-8)) + 1
-    snapshots = 1 if first["method"] == "RBD" else d["num_snapshots_per_segment"]
-    hop = 1 if first["method"] == "RBD" else snapshots - d["snapshot_overlap_count"]
+    snapshots = 1 if first["method"] == "RBD" else ns
+    hop = 1 if first["method"] == "RBD" else snapshots - overlap_count
     count = (base_count - snapshots) // hop + 1
     require(count > 1, "configured candidate grid has too few windows")
     if metadata:
@@ -281,6 +315,8 @@ def inspect_h5(path, method, expected):
             require(len(depth) == expected["num_elements"], "num_elements differs from expected config")
         if "freq_hz" in expected:
             require(np.allclose(frequencies, expected["freq_hz"], rtol=0, atol=1e-8), "frequency axis differs from expected config")
+        if method == "RBD" and "/rbd/theta_vec_rad" in h5 and "num_angles" in configured_rbd:
+            vector(h5, "/rbd/theta_vec_rad", count=configured_rbd["num_angles"])
         require(n >= expected.get("min_samples", 1), "split below expected min_samples")
     split = next((s for s in ("train", "val", "test") if path.stem.endswith("_" + s)), None)
     require(split is not None, f"generated HDF5 filename must end in _train/_val/_test: {path.name}")
@@ -389,6 +425,16 @@ def validator_controls_check():
                 fixtures[(method, split)] = path
             split_check([r for r in records if r["method"] == method])
         crossroute_check(records)
+        with contextlib.redirect_stdout(io.StringIO()):
+            scm_report = Report("datasets", directory / "scm_only_report.json", methods=["SCM"])
+            datasets(scm_report, directory / "SCM", {}, methods=["SCM"])
+            scm_report.save()
+            require(scm_report.data["status"] == "PASS", "single-method SCM dataset validation failed")
+            require(set(scm_report.data["dataset_directories"]) == {"SCM"}, "single-method report included unselected method")
+            mixed_report = Report("datasets", directory / "mixed_scm_report.json", methods=["SCM"])
+            datasets(mixed_report, directory, {}, methods=["SCM"])
+            mixed_report.save()
+            require(mixed_report.data["status"] == "FAIL", "unexpected method under single-method root was accepted")
         path = fixtures[("RBD", "train")]
         with h5py.File(path, "r+") as h5:
             h5["X"][0, 0, 0, 0] = np.nan
@@ -445,19 +491,29 @@ def validator_controls_check():
             h5["X"][...] = physical * 2.0
         rejected(lambda: inspect_h5(rbd_path, "RBD", multipath), "RBD multipath Green column norm")
         rejected(lambda: normalize_expected({"dataset": {"segment_typo_s": 1}}), "unknown dataset fields")
+        rejected(lambda: normalize_expected({"dataset": {"num_snapshots_per_segment": 2}}), "unknown dataset fields")
         rejected(lambda: normalize_expected({"rbd": {"beam_selecton": "best"}}), "unknown rbd fields")
-    return {"positive_controls": "two complete routes (RBD, SCM) accepted", "rejected_corruptions": ["nonfinite features", "missing axis metadata",
+        rejected(lambda: normalize_expected({"scm": {"norm_flor": 1e-12}}), "unknown scm fields")
+    return {"positive_controls": "two complete routes (RBD, SCM) and single-route SCM accepted", "rejected_corruptions": ["nonfinite features", "missing axis metadata",
             "SCM pair order", "SCM pair semantics", "split raw sample leakage", "cross-route label inconsistency",
+            "unexpected method in single-route check",
             "FFT amplitude instead of normalized Green", "multipath norm above one", "unknown canonical config fields"]}
 
 
-def datasets(report, root, expected):
+def datasets(report, root, expected, *, methods=None):
+    try:
+        required_methods = normalize_methods(methods) if methods is None else normalize_methods(methods, allow_none=False)
+    except ValueError as exc:
+        raise AssertionError(str(exc)) from exc
     paths = sorted(p for p in root.rglob("*.h5") if not p.name.startswith("._"))
     report.check("datasets.discovery", lambda: require(paths, f"no generated HDF5 files under {root}") or {"root": str(root), "files": len(paths)})
     records = []
+    classified_methods = set()
     for path in paths:
         def inspect(p=path):
             method = classify(p)
+            classified_methods.add(method)
+            require(method in required_methods, f"unexpected {method} HDF5 file {p} for selected methods {list(required_methods)}")
             directory = str(p.parent)
             bucket = report.data["dataset_directories"].setdefault(method, [])
             if directory not in bucket:
@@ -471,22 +527,53 @@ def datasets(report, root, expected):
         groups.setdefault((record["method"], record["directory"]), []).append(record)
     for (method, directory), group in sorted(groups.items()):
         report.check(f"dataset.splits.{method}.{Path(directory).name}", lambda g=group: split_check(g, expected))
-    report.check("datasets.cross_route_consistency", lambda: crossroute_check(records))
+    def check_cross_route():
+        discovered_methods = {r["method"] for r in records} | classified_methods
+        require(
+            discovered_methods == set(required_methods),
+            f"discovered HDF5 methods {sorted(discovered_methods)} differ from expected {list(required_methods)}",
+        )
+        same_samples = set(discovered_methods) == set(METHODS)
+        if same_samples and "dataset" in expected:
+            d = expected["dataset"]
+            r = expected.get("rbd", {})
+            s = expected.get("scm", {})
+            same_samples = (
+                s.get("num_snapshots_per_segment", 1) == 1
+                and s.get("snapshot_overlap_count", 0) == 0
+                and not (
+                    r.get("frequency_estimation") == "full"
+                    and d.get("frequency_selection_modes") != ["full"]
+                )
+            )
+        if same_samples:
+            return crossroute_check(records)
+        return {"mode": "independent_routes", "methods": sorted(discovered_methods)}
+    report.check("datasets.cross_route_consistency", check_cross_route)
     report.data["dataset_directories"] = {m: sorted(v) for m, v in report.data["dataset_directories"].items()}
     report.data["datasets"] = {m: dirs[0] for m, dirs in report.data["dataset_directories"].items() if len(dirs) == 1}
 
 
-def run_datasets_command(*, root: Path, report_path: Path, expected_config: Path | None = None) -> int:
-    report = Report("datasets", report_path.resolve())
+def run_datasets_command(*, root: Path, report_path: Path, expected_config: Path | None = None, methods=None) -> int:
+    initial_methods = METHODS
+    if methods is not None and not isinstance(methods, (str, bytes)):
+        try:
+            candidate = tuple(m for m in METHODS if m in set(methods))
+            if candidate:
+                initial_methods = candidate
+        except TypeError:
+            pass
+    report = Report("datasets", report_path.resolve(), methods=initial_methods)
     try:
+        selected_methods = None if methods is None else normalize_methods(methods, allow_none=False)
         expected = {}
         def read_expected():
             nonlocal expected
             raw = json.loads(expected_config.read_text(encoding="utf-8")) if expected_config else {}
-            expected = normalize_expected(raw)
+            expected = normalize_expected(raw, methods=selected_methods)
             return {"format": "canonical Python generation" if "dataset" in expected else "flat expectations", "config": expected}
         if report.check("datasets.expected_config", read_expected):
-            datasets(report, root.resolve(), expected)
+            datasets(report, root.resolve(), expected, methods=selected_methods)
     except Exception as exc:
         report.check("validation.unhandled_error", lambda: (_ for _ in ()).throw(exc))
     report.save()

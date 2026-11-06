@@ -46,7 +46,11 @@ def syntax_check():
 
 
 def imports_check():
-    names = ["scripts.data_processing.generation_config"]
+    names = [
+        "scripts.data_processing.generation_config",
+        "scripts.remote_workflow.config",
+        "scripts.remote_workflow.metrics_contract",
+    ]
     for package in ("common", "neural", "grnn"):
         for path in _python_sources(ROOT / "scripts" / "network_training" / package):
             if "tests" in path.parts:
@@ -198,6 +202,11 @@ def shared_check():
         else:
             raise AssertionError(f"invalid split accepted: n={count}, fraction={fraction}")
     require(h5_utils.split_indices(41, 0.25, 2026) != h5_utils.split_indices(41, 0.25, 2027), "seed does not affect split")
+    blocked_times = [float(i) for i in range(10)]
+    b_train, b_val = h5_utils.blocked_split_indices(blocked_times, 0.2, 2.0)
+    require(not set(b_train) & set(b_val) and b_train and b_val, "blocked split overlap or empty")
+    require(max(blocked_times[i] for i in b_train) + 2.0 <= min(blocked_times[i] for i in b_val) + 1e-9,
+            "blocked split did not enforce temporal gap")
     labels = type("Labels", (), {"labels": [2.0, 4.0, 7.0]})()
     require(torch.equal(h5_utils.subset_labels(labels, [2, 0]), torch.tensor([[7.0], [2.0]])), "subset labels/order mismatch")
     require(target_stats(torch.full((3, 1), 5.0)) == (5.0, 1.0), "constant target scale must remain usable")
@@ -317,6 +326,13 @@ def loader_check(method):
             require(bundle.source_paths == [constant] and bundle.split_mode == "validation", "bundle metadata changed")
         finally:
             bundle.dataset.close()
+        blocked = module.blocked_split_bundle(cls, [constant], normalize_input=False, val_fraction=0.25, val_gap_s=1.0, split_mode="blocked_validation")
+        try:
+            require(not set(blocked.train_idx) & set(blocked.val_idx), "blocked bundle split overlaps")
+            require(blocked.train_idx and blocked.val_idx, "blocked bundle left empty split")
+            require(blocked.split_mode == "blocked_validation", "blocked bundle metadata changed")
+        finally:
+            blocked.dataset.close()
         fixed = module.fixed_split_bundle(cls, [constant], [constant], normalize_input=False, split_mode="fixed_validation")
         try:
             require(len(fixed.train_dataset) == 5 and len(fixed.val_dataset) == 5, "fixed bundle ignores valid filtering")

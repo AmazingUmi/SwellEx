@@ -15,7 +15,7 @@ from scripts.data_processing.input_contract import (
     FEATURE_AXIS, read_input_signature, require_matching_input_signature,
 )
 from scripts.network_training.common.h5_utils import (
-    metadata_layout_axes, resolve_h5_paths, split_indices, subset_labels,
+    blocked_split_indices, metadata_layout_axes, resolve_h5_paths, split_indices, subset_labels,
 )
 
 
@@ -58,6 +58,40 @@ def random_split_bundle(
         raise RuntimeError("Dataset input shape was not initialized.")
 
     train_idx, val_idx = split_indices(len(dataset), val_fraction, seed)
+    train_labels = subset_labels(dataset, train_idx)
+    return DatasetBundle(
+        dataset=dataset,
+        train_dataset=Subset(dataset, train_idx),
+        val_dataset=Subset(dataset, val_idx),
+        train_idx=train_idx,
+        val_idx=val_idx,
+        train_labels=train_labels,
+        input_shape=dataset.input_shape,
+        split_mode=split_mode,
+        source_paths=source_paths,
+        input_signature=dataset.input_signature,
+    )
+
+
+def blocked_split_bundle(
+    dataset_class: type[RangeH5Dataset],
+    source_paths: list[Path],
+    *,
+    normalize_input: bool,
+    val_fraction: float,
+    val_gap_s: float = 0.0,
+    split_mode: str,
+) -> DatasetBundle:
+    dataset = dataset_class(source_paths, normalize_input=normalize_input)
+    if dataset.input_shape is None:
+        dataset.close()
+        raise RuntimeError("Dataset input shape was not initialized.")
+
+    try:
+        train_idx, val_idx = blocked_split_indices(dataset.window_center_s, val_fraction, val_gap_s)
+    except Exception:
+        dataset.close()
+        raise
     train_labels = subset_labels(dataset, train_idx)
     return DatasetBundle(
         dataset=dataset,

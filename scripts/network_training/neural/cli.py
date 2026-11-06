@@ -122,6 +122,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.25,
         help="Validation fraction split from training data. Default: 0.25 for 3:1 train/val.",
     )
+    train_parser.add_argument(
+        "--val-split-mode",
+        choices=["random", "blocked"],
+        default="random",
+        help="How to split validation samples from training HDF5 when --val-data is not given.",
+    )
+    train_parser.add_argument(
+        "--val-gap-s",
+        type=nonnegative_float,
+        default=0.0,
+        help="Minimum window-center gap (seconds) between train and validation in blocked split mode.",
+    )
     train_parser.add_argument("--seed", type=seed_int, default=2026)
     train_parser.add_argument("--num-workers", type=nonnegative_int, default=0)
     train_parser.add_argument(

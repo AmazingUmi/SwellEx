@@ -225,6 +225,48 @@ class CompareResultsTests(unittest.TestCase):
         self.assertEqual(len(result["records"]), 2)
         self.assertEqual(result["duplicates"], [])
 
+    def test_independent_test_windows_across_methods_and_fixed_spread_grnn(self):
+        run = self.remote_fixture()
+        report = json.loads((run / "report.json").read_text())
+        req = json.loads((run / "request.json").read_text())
+        req["config"]["rbd"] = {"beam_selection": "best"}
+        req["config"]["scm"] = {"num_snapshots_per_segment": 5, "snapshot_overlap_count": 2}
+        req["config"]["grnn"] = {"cv_folds": 0, "spread": 0.25, "max_reference_samples": 6}
+        (run / "request.json").write_text(json.dumps(req))
+
+        rbd_rows = [
+            {"sample": 0, "source_segment_idx": 1, "window_center_s": 0.5, "pred_range_km": 1.1, "true_range_km": 1.0, "abs_error_km": 0.1},
+            {"sample": 1, "source_segment_idx": 2, "window_center_s": 1.5, "pred_range_km": 2.1, "true_range_km": 2.0, "abs_error_km": 0.1},
+            {"sample": 2, "source_segment_idx": 3, "window_center_s": 2.5, "pred_range_km": 3.1, "true_range_km": 3.0, "abs_error_km": 0.1},
+        ]
+        for metric in report["metrics"]:
+            method, model = metric["method"], metric["model"]
+            model_dir = run / "project/outputs/networks_results" / method / model
+            if method == "RBD":
+                csv_path = model_dir / "test_outputs/example_predictions_1012_120000.csv"
+                with csv_path.open("w", newline="") as stream:
+                    writer = csv.DictWriter(stream, fieldnames=PREDICTION_FIELDS)
+                    writer.writeheader()
+                    writer.writerows(rbd_rows)
+                metric.update(summarize(read_predictions(csv_path.read_bytes())))
+            if model.endswith("grnn_range"):
+                for sp in (model_dir / "reference_outputs").glob("*sigma_search*.json"):
+                    sp.unlink()
+                (run / "logs" / f"grnn_{method}_build.log").write_text("Spread sigma: 0.25 (cli_spread)\n")
+        (run / "report.json").write_text(json.dumps(report))
+
+        records = compare.run_records(run, {})
+        self.assertEqual(len(records), 4)
+        by_method = {r["method"]: r for r in records if r["epochs"] is None}
+        self.assertEqual(by_method["RBD"]["samples"], 3)
+        self.assertEqual(by_method["SCM"]["samples"], 2)
+        self.assertEqual(by_method["RBD"]["reference_samples"], 6)
+        self.assertEqual(by_method["SCM"]["reference_samples"], 6)
+        self.assertEqual(by_method["SCM"]["cv_selection"], "fixed_spread")
+        self.assertIsNone(by_method["SCM"]["cv_search"])
+        self.assertIn("scm", by_method["SCM"]["grnn_computation_config"])
+        self.assertIn("rbd", by_method["RBD"]["grnn_computation_config"])
+
 
 if __name__ == "__main__":
     unittest.main()

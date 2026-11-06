@@ -6,7 +6,7 @@ import glob
 import math
 import random
 from pathlib import Path
-from typing import Iterable, Protocol
+from typing import Iterable, Protocol, Sequence
 
 import torch
 
@@ -86,6 +86,46 @@ def split_indices(n: int, val_fraction: float, seed: int) -> tuple[list[int], li
     rng.shuffle(indices)
     n_val = min(max(1, int(round(n * val_fraction))), n - 1)
     return indices[n_val:], indices[:n_val]
+
+
+def blocked_split_indices(
+    window_center_s: Sequence[float],
+    val_fraction: float,
+    val_gap_s: float = 0.0,
+) -> tuple[list[int], list[int]]:
+    if isinstance(val_fraction, bool) or not math.isfinite(val_fraction) or not 0.0 < val_fraction < 1.0:
+        raise ValueError("val_fraction must be finite and strictly between 0 and 1.")
+    if isinstance(val_gap_s, bool) or not math.isfinite(val_gap_s) or val_gap_s < 0.0:
+        raise ValueError("val_gap_s must be finite and nonnegative.")
+    count = len(window_center_s)
+    if count < 2:
+        raise ValueError("Blocked training/validation split requires at least two valid samples.")
+    times: list[float] = []
+    for value in window_center_s:
+        if isinstance(value, bool):
+            raise ValueError("window_center_s values must be finite.")
+        moment = float(value)
+        if not math.isfinite(moment):
+            raise ValueError("window_center_s values must be finite.")
+        times.append(moment)
+
+    ordered = sorted(range(count), key=lambda idx: (times[idx], idx))
+    val_count = min(max(1, int(round(count * val_fraction))), count - 1)
+    val_idx = ordered[-val_count:]
+    val_start_time = times[val_idx[0]]
+    if val_gap_s > 0.0:
+        train_idx = [
+            idx for idx in ordered[:-val_count]
+            if val_start_time - times[idx] >= val_gap_s - 1.0e-9
+        ]
+    else:
+        train_idx = ordered[:-val_count]
+    if not train_idx or not val_idx:
+        raise ValueError(
+            "Blocked validation split left an empty train or validation partition "
+            "(reduce val_fraction or val_gap_s)."
+        )
+    return train_idx, val_idx
 
 
 def subset_labels(dataset: HasLabels, indices: list[int]) -> torch.Tensor:

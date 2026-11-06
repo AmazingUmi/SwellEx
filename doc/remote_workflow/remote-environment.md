@@ -32,6 +32,6 @@ Use `"$SWELLEX_PYTHON"` for manual [neural](../network_training/neural-cli.md#ma
 |---|---|
 | `runs/<run_id>/project/` | Frozen source, symlink to `Origindata`, and intermediate `outputs/` |
 | `runs/<run_id>/{logs,reports,export}/` | Command logs, phase reports, and staged `export/{data,figure}/` |
-| `datasets/<fingerprint>/` | Hash-verified HDF5 cache and provenance |
+| `datasets/<METHOD>/<fingerprint>/` | Per-method hash-verified HDF5 cache and provenance |
 
-Dataset cache reuse requires matching generation/validation code, config, `uv.lock`, package versions, and raw-file SHA256 hashes. Validation phases cover `Quick` (runtime, model forward/backward, loaders, GRNN, workflow/plot tests), `Numerical` (feature math oracles), `HDF5` (finite values, physical axes, pair order, split separation), and `Cross-method` alignment.
+Per-method dataset cache reuse requires matching generation/validation code, method-scoped config (`[rbd]` and `ctd_file` do not pollute `SCM`, and `[scm]` does not pollute `RBD`), `uv.lock`, package versions, and raw-file SHA256 hashes (CTD files are required and hashed only when `RBD` is active). Validation phases cover `Quick` (runtime, model forward/backward, loaders, GRNN, workflow/plot tests), `Numerical` (feature math oracles), `HDF5` (finite values, physical axes, pair order, split separation), and route/cross-method checks.

@@ -448,9 +448,49 @@ class ResultsTests(unittest.TestCase):
                 stem = f"{item['method']}-{item['model']}".replace("_", "-")
                 self.assertTrue((output/f"grnn/{stem}-sigma.pdf").is_file())
                 self.assertFalse((folder/"training/history.pdf").exists())
-        self.assertEqual(len(manifest["renderer_sources"]), 6)
+        self.assertEqual(len(manifest["renderer_sources"]), 7)
         self.assertTrue((output/"metrics.csv").read_text().startswith("method,model,samples,"))
         with self.assertRaisesRegex(ValueError, "already exists"): render_run(self.run, output)
+
+    def test_independent_test_windows_across_methods_accepted_and_noted(self):
+        from matplotlib.figure import Figure
+
+        rbd_rows = [
+            [0, 2, 1.5, 1.8, 1.7, 0.1],
+            [1, 5, 4.5, 2.2, 2.0, 0.2],
+            [2, 10, 9.5, 2.5, 3.0, 0.5],
+        ]
+        scm_rows = [
+            [0, 3, 2.5, 2.1, 2.0, 0.1],
+            [1, 9, 8.5, 3.2, 3.0, 0.2],
+        ]
+        for path, metric in zip(self.csv_paths, self.report["metrics"]):
+            raw = csv_bytes(rbd_rows if metric["method"] == "RBD" else scm_rows)
+            path.write_bytes(raw)
+            metric.update(summarize(read_predictions(raw)))
+        self.save_report()
+        loaded = load_run(self.run)
+        self.assertEqual([len(m.predictions) for m in loaded.models], [3, 2, 3, 2])
+
+        titles = {}
+        original_savefig = Figure.savefig
+
+        def capture_title(fig, filename, *args, **kwargs):
+            if fig._suptitle is not None:
+                titles[Path(filename).stem] = fig._suptitle.get_text()
+            return original_savefig(fig, filename, *args, **kwargs)
+
+        with patch.object(Figure, "savefig", capture_title):
+            render_run(self.run, self.root / "independent-windows-figure", dpi=72)
+        self.assertIn("RBD n=3, SCM n=2", titles["range-time"])
+
+        # Intra-method mismatch within SCM must still fail.
+        tampered = [[0, 4, 3.5, 2.1, 2.0, 0.1], [1, 9, 8.5, 3.2, 3.0, 0.2]]
+        self.csv_paths[3].write_bytes(csv_bytes(tampered))
+        self.report["metrics"][3].update(summarize(read_predictions(csv_bytes(tampered))))
+        self.save_report()
+        with self.assertRaisesRegex(ValueError, "identical test"):
+            load_run(self.run)
 
     def test_nearly_flat_sigma_search_keeps_markers_clear_of_the_top_boundary(self):
         from matplotlib.figure import Figure

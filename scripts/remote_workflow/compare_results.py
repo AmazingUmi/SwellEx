@@ -16,7 +16,12 @@ if str(PROJECT) not in sys.path:
     sys.path.insert(0, str(PROJECT))
 
 from scripts.network_training.grnn.bindings import model_name
+from scripts.remote_workflow.metrics_contract import (
+    compute_prediction_metrics,
+    parse_prediction_file,
+)
 from scripts.remote_workflow.model_plan import validate_selection
+from scripts.remote_workflow.packs import DEFAULT_PACK
 from scripts.remote_workflow.visualization.results import LEGACY_TASKS_SHA256, TASKS_SOURCE, is_grnn, load_run
 
 def digest(value: bytes) -> str:
@@ -52,46 +57,43 @@ def selected_cv_row(search: list[dict], sigma: float) -> dict:
 
 def prediction_metrics(path: Path, reported: dict, sources: dict) -> dict:
     info = remember(path, sources)
-    with path.open(newline="", encoding="utf-8") as stream:
-        rows = list(csv.DictReader(stream))
-    if not rows or len(rows) != reported["samples"]:
+    rows = parse_prediction_file(path, check_abs_error=False)
+    if len(rows) != reported["samples"]:
         raise ValueError(f"Prediction count differs from report: {path}")
-    identity, errors, labels = [], [], []
     for index, row in enumerate(rows):
-        truth, pred, time = (float(row[k]) for k in
-                             ("true_range_km", "pred_range_km", "window_center_s"))
-        if int(row["sample"]) != index or not all(map(math.isfinite, (truth, pred, time))) or truth <= 0:
+        if row.true_km <= 0:
             raise ValueError(f"Invalid prediction row {index}: {path}")
-        identity.append([int(row["source_segment_idx"]), time, truth])
-        labels.append(truth)
-        errors.append(pred - truth)
-    if len({row[0] for row in identity}) != len(rows):
-        raise ValueError(f"Duplicate prediction source indices: {path}")
-    n = len(rows)
-    absolute = sorted(map(abs, errors))
-    mae, rmse, maximum = sum(absolute) / n, math.sqrt(sum(e * e for e in errors) / n), absolute[-1]
-    for name, computed in (("mae_km", mae), ("rmse_km", rmse), ("max_error_km", maximum)):
-        if name not in reported or not math.isclose(computed, reported[name], rel_tol=0, abs_tol=1e-8):
+    computed_metrics = compute_prediction_metrics(rows)
+    for name in ("mae_km", "rmse_km", "max_error_km"):
+        if name not in reported or not math.isclose(computed_metrics[name], reported[name], rel_tol=0, abs_tol=1e-8):
             raise ValueError(f"{name} differs from report: {path}")
-    if reported.get("source_segment_indices") != [row[0] for row in identity]:
+    if reported.get("source_segment_indices") != computed_metrics["source_segment_indices"]:
         raise ValueError(f"Prediction source indices differ from report: {path}")
-    position = (n - 1) * .95
-    lo = int(position)
-    p95 = absolute[lo] + (absolute[min(lo + 1, n - 1)] - absolute[lo]) * (position - lo)
-    return {"samples": n, "mae_m": mae * 1000, "rmse_m": rmse * 1000,
-            "mape_pct": sum(abs(e) / y for e, y in zip(errors, labels)) / n * 100,
-            "bias_m": sum(errors) / n * 1000, "p95_abs_m": p95 * 1000,
-            "max_error_m": maximum * 1000, "true_range_min_km": min(labels),
-            "true_range_max_km": max(labels), "test_time_min_s": min(row[1] for row in identity),
-            "test_time_max_s": max(row[1] for row in identity), "csv": info,
-            "test_identity_sha256": digest(json.dumps(identity, separators=(",", ":")).encode())}
+    parse_prediction_file(path, check_abs_error=True)
+    identity = [[row.source_index, row.time_s, row.true_km] for row in rows]
+    labels = [row.true_km for row in rows]
+    return {
+        "samples": computed_metrics["samples"],
+        "mae_m": computed_metrics["mae_km"] * 1000,
+        "rmse_m": computed_metrics["rmse_km"] * 1000,
+        "mape_pct": computed_metrics["mape_pct"],
+        "bias_m": computed_metrics["bias_km"] * 1000,
+        "p95_abs_m": computed_metrics["p95_abs_km"] * 1000,
+        "max_error_m": computed_metrics["max_error_km"] * 1000,
+        "true_range_min_km": min(labels),
+        "true_range_max_km": max(labels),
+        "test_time_min_s": computed_metrics["first_window_center_s"],
+        "test_time_max_s": computed_metrics["last_window_center_s"],
+        "csv": info,
+        "test_identity_sha256": digest(json.dumps(identity, separators=(",", ":")).encode()),
+    }
 
 
 def run_records(run: Path, sources: dict) -> list[dict]:
     report = read_json(run / "report.json", sources)
     if not isinstance(report, dict):
         raise ValueError(f"Invalid recorded result report: {run}")
-    if report.get("pack", "base_pack") != "base_pack":
+    if report.get("pack", DEFAULT_PACK) != DEFAULT_PACK:
         return []
     if report.get("status") != "PASS" or not ("metrics" in report or "predictions" in report):
         return []
@@ -151,7 +153,15 @@ def run_records(run: Path, sources: dict) -> list[dict]:
         grnn = is_grnn(method, model)
         model_dir = run / "project/outputs/networks_results" / method / model
         csv_path = Path(metric["path"]) if local else one_file(model_dir / "test_outputs", "*predictions*.csv")
-        record = {"pack": "base_pack", "run_id": report["run_id"], "method": method, "model": model,
+        comp_cfg = {
+            "dataset": {k: v for k, v in dataset.items() if k != "manual_dataset_variant_tag"},
+            "grnn": config["grnn"],
+            "seed": config["validation"]["seed"],
+        }
+        method_key = method.lower()
+        if method_key in config:
+            comp_cfg[method_key] = config[method_key]
+        record = {"pack": DEFAULT_PACK, "run_id": report["run_id"], "method": method, "model": model,
                   "original_split": original, "analysis_split": analysis,
                   "train_side": dataset["train_side"] if analysis == "range_overlap" else None,
                   "evidence": "csv_verified", "execution": report.get("execution", config["validation"]),
@@ -162,14 +172,12 @@ def run_records(run: Path, sources: dict) -> list[dict]:
                   "historical_source_snapshot": snapshot,
                   "source_verification": "saved_snapshot_hashes_verified" if snapshot else "recorded_inventory_only",
                   "configured_neural_epochs": config["training"]["epochs"],
-                  "grnn_computation_config": {"dataset": {k: v for k, v in dataset.items() if k != "manual_dataset_variant_tag"},
-                                              "grnn": config["grnn"], "seed": config["validation"]["seed"]},
+                  "grnn_computation_config": comp_cfg,
                   "validation_evidence": report.get("validation_evidence"),
                   "model_plan_contract": "historical_scm_only" if historical else "explicit_current",
                   **prediction_metrics(csv_path, metric, sources)}
         if grnn:
-            search_path = Path(report["sigma_search_path"]) if local else one_file(model_dir / "reference_outputs", "*sigma_search*.json")
-            search = read_json(search_path, sources)
+            cv_folds = config["grnn"]["cv_folds"]
             if local:
                 sigma, count = report["reference"]["sigma"], report["reference"]["reference_sample_count"]
                 record["evaluation_scope"] = report["evaluation_scope"]
@@ -185,12 +193,24 @@ def run_records(run: Path, sources: dict) -> list[dict]:
                          if c.get("details", {}).get("method") == method and c["details"].get("split") == "train"]
                 if len(train) != 1:
                     raise ValueError(f"Ambiguous GRNN reference count: {run}")
-                count = train[0]
-            selected = selected_cv_row(search, sigma)
-            record.update(epochs=None, reference_samples=count, sigma=sigma,
-                          cv_selection="minimum_training_random_k_fold_mean_mape_pct",
-                          cv_folds=config["grnn"]["cv_folds"], cv_candidates=len(search),
-                          cv_selected=selected, cv_search=remember(search_path, sources))
+                max_ref = config["grnn"].get("max_reference_samples", 0)
+                count = min(train[0], max_ref) if isinstance(max_ref, int) and max_ref > 0 else train[0]
+            if cv_folds == 0:
+                configured_spread = config["grnn"].get("spread")
+                if configured_spread is not None and not math.isclose(sigma, float(configured_spread), rel_tol=1e-9, abs_tol=1e-12):
+                    raise ValueError("Fixed-spread GRNN sigma differs from configured spread")
+                record.update(epochs=None, reference_samples=count, sigma=sigma,
+                              cv_selection="fixed_spread",
+                              cv_folds=0, cv_candidates=0,
+                              cv_selected=None, cv_search=None)
+            else:
+                search_path = Path(report["sigma_search_path"]) if local else one_file(model_dir / "reference_outputs", "*sigma_search*.json")
+                search = read_json(search_path, sources)
+                selected = selected_cv_row(search, sigma)
+                record.update(epochs=None, reference_samples=count, sigma=sigma,
+                              cv_selection="minimum_training_random_k_fold_mean_mape_pct",
+                              cv_folds=cv_folds, cv_candidates=len(search),
+                              cv_selected=selected, cv_search=remember(search_path, sources))
         else:
             history_path = one_file(model_dir / "train_outputs", "*history*.json")
             history = read_json(history_path, sources)
@@ -199,8 +219,12 @@ def run_records(run: Path, sources: dict) -> list[dict]:
                 raise ValueError(f"Training history does not confirm {epochs} epochs: {history_path}")
             record.update(epochs=epochs, history=remember(history_path, sources))
         records.append(record)
-    if len({r["test_identity_sha256"] for r in records}) != 1:
-        raise ValueError(f"Models in one run have different test identities: {run}")
+    by_method: dict[str, set[str]] = {}
+    for r in records:
+        by_method.setdefault(r["method"], set()).add(r["test_identity_sha256"])
+    for m, hashes in by_method.items():
+        if len(hashes) != 1:
+            raise ValueError(f"Models for {m} must use identical test identities: {run}")
     return records
 
 
@@ -246,7 +270,7 @@ def merge(input_dir: Path) -> tuple[dict, dict]:
                    r["analysis_split"] == summary["analysis_split"] and r["train_side"] == summary["train_side"]]
         summary["available_csv_matches"] = [{"run_id": r["run_id"], "mae_delta_m": r["mae_m"] - summary["mae_m"],
                                             "rmse_delta_m": r["rmse_m"] - summary["rmse_m"]} for r in matches]
-    return ({"schema_version": 1, "pack": "base_pack", "status": "PASS", "purpose": "existing_result_comparison_without_model_execution",
+    return ({"schema_version": 1, "pack": DEFAULT_PACK, "status": "PASS", "purpose": "existing_result_comparison_without_model_execution",
              "created_at": datetime.now(timezone.utc).isoformat(), "input_dir": str(input_dir),
              "historical_split_mapping": {"periodic_4_1": "full_interleaved; analysis only, no execution alias"},
              "records": sorted(canonical, key=lambda r: (r["analysis_split"], r["run_id"], r["method"], r["model"])),

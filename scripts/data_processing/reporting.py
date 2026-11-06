@@ -9,7 +9,7 @@ import sys
 import time
 import traceback
 
-from scripts.data_processing.generation_config import ROOT, normalize_config
+from scripts.data_processing.generation_config import ROOT, normalize_config, normalize_methods
 from scripts.data_processing.input_contract import METHODS
 
 
@@ -25,7 +25,7 @@ def number(value, name, *, minimum=0, integer=False, positive=False):
     require(not integer or value == int(value), f"{name} must be an integer")
 
 
-def normalize_expected(raw, *, root=ROOT):
+def normalize_expected(raw, *, root=ROOT, methods=None):
     """Use the generation schema as the single authority for configured validation."""
     require(isinstance(raw, dict), "expected config must be an object")
     flat = {"num_elements", "freq_hz", "min_samples"}
@@ -40,17 +40,18 @@ def normalize_expected(raw, *, root=ROOT):
             require(all(a < b for a, b in zip(raw["freq_hz"], raw["freq_hz"][1:])), "freq_hz must be strictly increasing")
         return raw
     try:
-        return normalize_config(raw, root=root)
+        return normalize_config(raw, root=root, methods=methods)
     except ValueError as exc:
         raise AssertionError(f"invalid canonical generation config: {exc}") from exc
 
 
 class Report:
-    def __init__(self, command, output):
+    def __init__(self, command, output, methods=METHODS):
+        active = normalize_methods(methods)
         self.output = output
         self.data = {"schema_version": 1, "command": command, "status": "FAIL",
                      "started_at": datetime.now(timezone.utc).isoformat(),
-                     "python": sys.version, "checks": [], "dataset_directories": {m: [] for m in METHODS}}
+                     "python": sys.version, "checks": [], "dataset_directories": {m: [] for m in active}}
 
     def check(self, name, function):
         start = time.monotonic()

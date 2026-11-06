@@ -131,23 +131,43 @@ def build_split(windows, config):
     return {"train": train, "test": test}, meta
 
 
-def snapshot_fft(signal, samples, step, bins=None):
+def _apply_window(x: np.ndarray, fft_window: str = "boxcar", center: bool = False) -> np.ndarray:
+    if x.ndim != 2:
+        raise ValueError("Windowed signal must have shape [element, samples]")
+    if center:
+        x = x - np.mean(x, axis=1, keepdims=True)
+    if fft_window == "boxcar":
+        return x
+    if fft_window == "hann":
+        return x * np.hanning(x.shape[1])[None, :]
+    raise ValueError(f"Unsupported fft_window: {fft_window}")
+
+
+def snapshot_fft(signal, samples, step, bins=None, *, fft_window="boxcar", center_snapshots=False):
     if signal.ndim != 2 or signal.shape[0] < 1 or samples < 2 or step < 1 or samples > signal.shape[1]:
         raise ValueError("Invalid snapshot signal dimensions")
     starts = np.arange(0, signal.shape[1]-samples+1, step)
     # [element, frequency, snapshot], including complex input one-sided FFT.
-    spectra = np.stack([np.fft.fft(signal[:, i:i+samples], axis=1)[:, :samples//2+1] for i in starts], axis=2)
+    spectra = np.stack([
+        np.fft.fft(_apply_window(signal[:, i:i+samples], fft_window=fft_window, center=center_snapshots), axis=1)[:, :samples//2+1]
+        for i in starts
+    ], axis=2)
     return spectra if bins is None else spectra[:, bins, :]
 
 
-def scm_feature(signal, samples, step, bins, pair_i, pair_j, norm_floor=1e-12):
-    spectra = snapshot_fft(signal, samples, step, bins)
+def scm_feature(signal, samples, step, bins, pair_i, pair_j, norm_floor=1e-12, *, fft_window="boxcar", center_snapshots=False):
+    if isinstance(norm_floor, bool) or not isinstance(norm_floor, (int, float, np.number)) or not np.isfinite(norm_floor) or norm_floor <= 0:
+        raise ValueError("norm_floor must be a positive finite number")
+    spectra = snapshot_fft(signal, samples, step, bins, fft_window=fft_window, center_snapshots=center_snapshots)
     vectors = spectra/np.maximum(np.linalg.norm(spectra, axis=0, keepdims=True), norm_floor)
     covariance = np.einsum("ifs,jfs->ijf", vectors, vectors.conj())/vectors.shape[2]
     return covariance[pair_i, pair_j], {"num_snapshots": spectra.shape[2]}
 
 
-def select_frequency_bins(full_frequencies, modes, config=None, *, signal=None, windows=None, train_indices=None):
+def select_frequency_bins(full_frequencies, modes, config=None, *, signal=None, windows=None, train_indices=None,
+                          fft_window="boxcar", center_snapshots=False):
+    if fft_window not in ("boxcar", "hann"):
+        raise ValueError(f"Unsupported fft_window: {fft_window}")
     frequencies = np.asarray(full_frequencies, dtype=np.float64)
     if frequencies.ndim != 1 or not len(frequencies) or not np.all(np.isfinite(frequencies)) or np.any(np.diff(frequencies) <= 0):
         raise ValueError("Frequency axis must be finite and strictly increasing")
@@ -194,7 +214,13 @@ def select_frequency_bins(full_frequencies, modes, config=None, *, signal=None, 
             sums = np.zeros(len(frequencies)); count = 0
             for index in training_candidates:
                 section = signal[:, windows["sample_start"][index]:windows["sample_stop"][index]]
-                spectra = snapshot_fft(section, windows["snapshot_num_samples"], windows["snapshot_step_samples"])
+                spectra = snapshot_fft(
+                    section,
+                    windows["snapshot_num_samples"],
+                    windows["snapshot_step_samples"],
+                    fft_window=fft_window,
+                    center_snapshots=center_snapshots,
+                )
                 sums += np.nansum(np.nanmean(np.abs(spectra)**2, axis=0), axis=1)
                 count += spectra.shape[2]
             if not count:
@@ -307,16 +333,18 @@ def select_beam_peaks(power, theta, delays, omega, options, psf=None):
     return np.asarray(sorted(selected or [best])), np.asarray(sorted(rejected), dtype=int), predicted, psf
 
 
-def rbd_decompose(signal, fs, theta, delays, bins=None, normalize_spectrum=False, multipath=False, multipath_options=None, psf=None):
+def rbd_decompose(signal, fs, theta, delays, bins=None, normalize_spectrum=False, multipath=False,
+                  multipath_options=None, psf=None, *, fft_window="boxcar", center_window=False):
     if signal.ndim != 2 or signal.shape[0] < 1 or signal.shape[1] < 2:
         raise ValueError("RBD signal must have shape [element,time] with at least two samples")
     theta = np.asarray(theta, dtype=float)
     if delays.shape != (signal.shape[0], len(theta)):
         raise ValueError("Steering delay matrix does not match array/angle dimensions")
+    windowed = _apply_window(signal, fft_window=fft_window, center=center_window)
     frequencies = np.arange(signal.shape[1]//2+1)*fs/signal.shape[1]
     bins = np.arange(len(frequencies)) if bins is None else np.asarray(bins, dtype=np.int64)
     frequencies = frequencies[bins]; omega = 2*np.pi*frequencies
-    spectrum = np.fft.fft(signal, axis=1)[:, bins]
+    spectrum = np.fft.fft(windowed, axis=1)[:, bins]
     normalized = spectrum/(np.linalg.norm(spectrum, axis=0, keepdims=True)+EPS)
     scale = float(np.sqrt(np.sum(np.abs(spectrum)**2)/signal.shape[0])) if normalize_spectrum else 1.0
     working = spectrum/(scale+EPS) if normalize_spectrum else spectrum

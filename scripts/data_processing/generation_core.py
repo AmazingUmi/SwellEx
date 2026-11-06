@@ -19,7 +19,9 @@ from scripts.data_processing.feature_math import (
     extend_profile, steering_delays, sidelobe_psf, rbd_decompose,
     scm_feature, round_positive,
 )
-from scripts.data_processing.generation_config import ROOT, normalize_config, output_path
+from scripts.data_processing.generation_config import (
+    ROOT, SIGNAL_CENTERING_MODES, normalize_config, normalize_methods, output_path,
+)
 from scripts.data_processing.input_contract import FEATURE_AXIS, METHODS
 
 GENERATOR_VERSION = "python-features-v2"
@@ -93,9 +95,12 @@ def _input_file_identity(path):
             "mtime_ns": stat.st_mtime_ns, "sha256": digest.hexdigest()}
 
 
-def load_inputs(root, config):
+def load_inputs(root, config, *, methods=METHODS):
+    selected_methods = normalize_methods(methods, allow_none=False)
     origin = Path(root)/"Origindata"
     d = config["dataset"]; event = d["event_name"]
+    if d["signal_centering"] not in SIGNAL_CENTERING_MODES:
+        raise ValueError(f"Unsupported signal_centering: {d['signal_centering']}")
     positions_path = origin/"positions/positions_vla.txt"
     positions = np.loadtxt(positions_path, ndmin=2)
     if positions.shape[1] < 2 or positions.shape[0] < 2 or not np.all(np.isfinite(positions[:, :2])):
@@ -110,8 +115,9 @@ def load_inputs(root, config):
         if len(channel) != signal.shape[1]:
             raise ValueError(f"Channel {index+1} sample count does not match channel 1")
         signal[index] = channel; paths.append(path)
-    # Preserve DS_load_vla_signals' full-record per-element mean centering.
-    signal -= np.mean(signal, axis=1, keepdims=True)
+    if d["signal_centering"] == "full_record":
+        # Preserve DS_load_vla_signals' full-record per-element mean centering.
+        signal -= np.mean(signal, axis=1, keepdims=True)
     range_path = origin/"events/range"/f"RangeEvent{event}"/f"SproulToVLA.{event}.txt"
     range_data = np.loadtxt(range_path, skiprows=1, usecols=(2, 3), ndmin=2)
     keep = np.all(np.isfinite(range_data), axis=1); range_data = range_data[keep]
@@ -122,19 +128,25 @@ def load_inputs(root, config):
     if np.any(np.diff(range_times) <= 0):
         raise ValueError("Range label times must be unique and strictly increasing")
     paths.append(range_path)
-    # read_ctd_i9605.m constructs its opaque MATLAB table from these same five
-    # columns. Reading the original numeric PRN preserves that source without
-    # depending on MATLAB table deserialization.
-    ctd_path = origin/"environments/ctds/i9605.prn"
-    ctd = np.loadtxt(ctd_path, ndmin=2)
-    if ctd.shape[1] < 5:
-        raise ValueError("CTD PRN must contain at least five numeric columns")
-    ctd = ctd[:, :5]; ctd = ctd[np.all(np.isfinite(ctd), axis=1)]
-    if len(ctd) < 2 or np.any(np.diff(ctd[:, 0]) <= 0) or np.any(ctd[:, 3] <= 0):
-        raise ValueError("CTD profile needs increasing finite depths and positive sound speeds")
-    profile_depths, speeds = extend_profile(ctd[:, 0], ctd[:, 3], np.max(depths)); paths.append(ctd_path)
+    if "RBD" in selected_methods:
+        # read_ctd_i9605.m constructs its opaque MATLAB table from these same five
+        # columns. Reading the original numeric PRN preserves that source without
+        # depending on MATLAB table deserialization.
+        ctd_path = origin/"environments/ctds"/d["ctd_file"]
+        ctd = np.loadtxt(ctd_path, ndmin=2)
+        if ctd.shape[1] < 5:
+            raise ValueError("CTD PRN must contain at least five numeric columns")
+        ctd = ctd[:, :5]; ctd = ctd[np.all(np.isfinite(ctd), axis=1)]
+        if len(ctd) < 2 or np.any(np.diff(ctd[:, 0]) <= 0) or np.any(ctd[:, 3] <= 0):
+            raise ValueError("CTD profile needs increasing finite depths and positive sound speeds")
+        profile_depths, speeds = extend_profile(ctd[:, 0], ctd[:, 3], np.max(depths)); paths.append(ctd_path)
+        ctd_path_str = str(ctd_path)
+    else:
+        ctd_path_str = None
+        profile_depths = None
+        speeds = None
     return {"signal": signal, "depths": depths, "range_times": range_times, "ranges": ranges,
-            "range_path": str(range_path), "ctd_path": str(ctd_path),
+            "range_path": str(range_path), "ctd_path": ctd_path_str,
             "profile_depths": profile_depths, "sound_speeds": speeds,
             "input_files": [_input_file_identity(path) for path in paths]}
 
@@ -143,16 +155,29 @@ def _seconds_tag(value):
     return f"{value:.12g}".replace(".", "p")
 
 
-def generation_identity(config):
+def generation_identity(config, method: str | None = None) -> str:
     """Hash normalized computation settings, independent of output/report locations."""
-    payload = {"generator_version": GENERATOR_VERSION, "schema_version": config["schema_version"],
-               "dataset": config["dataset"], "rbd": config["rbd"]}
+    if method is None:
+        payload = {"generator_version": GENERATOR_VERSION, "schema_version": config["schema_version"],
+                   "dataset": config["dataset"], "rbd": config["rbd"], "scm": config["scm"]}
+    elif method == "RBD":
+        payload = {"generator_version": GENERATOR_VERSION, "schema_version": config["schema_version"],
+                   "method": "RBD", "dataset": config["dataset"], "rbd": config["rbd"]}
+    elif method == "SCM":
+        payload = {"generator_version": GENERATOR_VERSION, "schema_version": config["schema_version"],
+                   "method": "SCM",
+                   "dataset": {k: v for k, v in config["dataset"].items() if k != "ctd_file"},
+                   "scm": config["scm"]}
+    else:
+        raise ValueError(f"Generation method must be one of {', '.join(METHODS)}")
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:12]
 
 
 def dataset_names(method, config, modes, split, windows):
-    d, r = config["dataset"], config["rbd"]
+    if method not in METHODS:
+        raise ValueError(f"Generation method must be one of {', '.join(METHODS)}")
+    d, r, s = config["dataset"], config["rbd"], config["scm"]
     frequency = "_".join(mode+str(d["frequency_selection_config"].get(mode+"_num_bins", 64 if mode == "mel" else 16))
                          if mode in {"mel", "adapt"} else mode for mode in modes)
     if method == "RBD":
@@ -162,7 +187,7 @@ def dataset_names(method, config, modes, split, windows):
                    f"{'bestbeam' if r['beam_selection']=='best' else 'multipath'}")
     else:
         variant = (f"scm_upper_diag_{frequency}_snap{_seconds_tag(d['segment_duration_s'])}s"
-                   f"_ns{d['num_snapshots_per_segment']}_ov{d['snapshot_overlap_count']}")
+                   f"_ns{s['num_snapshots_per_segment']}_ov{s['snapshot_overlap_count']}")
     if d["manual_dataset_variant_tag"]:
         variant += "_"+d["manual_dataset_variant_tag"]
     if d["split_strategy"] == "full_interleaved":
@@ -177,7 +202,7 @@ def dataset_names(method, config, modes, split, windows):
         high = max(split["left_time_end_s"], split["right_time_end_s"])
         time_tag = (f"selected_s{int(round_positive(low))}_to_s{int(round_positive(high))}"
                     f"_min_s{int(round_positive(split['range_min_time_s']))}_step_s{int(round_positive(windows['step_s']))}")
-    name = split_name+"_"+variant+"_"+generation_identity(config)
+    name = split_name+"_"+variant+"_"+generation_identity(config, method)
     prefix = {"RBD": "RBD_green_freq_nn", "SCM": "SCM_freq_nn"}[method]
     return name, variant, f"{prefix}_{d['event_name']}_{time_tag}_{variant}"
 
@@ -258,17 +283,36 @@ def _rbd_diagnostics(handle, local, result, slots):
 def generate_method(method, config, inputs, base_windows, root=ROOT):
     if method not in METHODS:
         raise ValueError(f"Generation method must be one of {', '.join(METHODS)}")
-    d, r = config["dataset"], config["rbd"]
-    windows = base_windows if method == "RBD" else combine_snapshots(base_windows, d["num_snapshots_per_segment"],
-                  d["snapshot_overlap_count"], inputs["range_times"], inputs["ranges"])
+    d, r, s = config["dataset"], config["rbd"], config["scm"]
+    per_window_center = d["signal_centering"] == "per_window"
+    if method == "RBD":
+        if inputs.get("profile_depths") is None or inputs.get("sound_speeds") is None:
+            raise ValueError("RBD generation requires loaded CTD profile depths and sound speeds")
+        windows = base_windows
+    else:
+        windows = combine_snapshots(
+            base_windows,
+            s["num_snapshots_per_segment"],
+            s["snapshot_overlap_count"],
+            inputs["range_times"],
+            inputs["ranges"],
+        )
     splits, split_metadata = build_split(windows, d)
     full_frequencies = np.arange(windows["snapshot_num_samples"]//2+1)*d["fs"]/windows["snapshot_num_samples"]
     modes = ["full"] if method == "RBD" and r["frequency_estimation"] == "full" else d["frequency_selection_modes"]
-    bins, frequencies, frequency_info = select_frequency_bins(full_frequencies, modes, d["frequency_selection_config"],
-                                  signal=inputs["signal"], windows=windows, train_indices=splits["train"])
+    bins, frequencies, frequency_info = select_frequency_bins(
+        full_frequencies,
+        modes,
+        d["frequency_selection_config"],
+        signal=inputs["signal"],
+        windows=windows,
+        train_indices=splits["train"],
+        fft_window=d["fft_window"],
+        center_snapshots=per_window_center,
+    )
     name, variant, stem = dataset_names(method, config, modes, split_metadata, windows)
     directory = Path(root)/"outputs/Datasets"/name; directory.mkdir(parents=True, exist_ok=False)
-    theta = np.deg2rad(np.linspace(-90, 90, 181)) if method == "RBD" else None
+    theta = np.deg2rad(np.linspace(r["angle_min_deg"], r["angle_max_deg"], r["num_angles"])) if method == "RBD" else None
     if method == "RBD":
         pair_i = pair_j = None; size = len(inputs["depths"])
         delays = steering_delays(theta, inputs["depths"], inputs["sound_speeds"], inputs["profile_depths"], r["use_plane_wave"])
@@ -282,15 +326,35 @@ def generate_method(method, config, inputs, base_windows, root=ROOT):
                 start_idx, stop_idx = windows["sample_start"][index], windows["sample_stop"][index]
                 section = inputs["signal"][:, start_idx:stop_idx]
                 if method == "RBD":
-                    _, returned_frequencies, result = rbd_decompose(section, d["fs"], theta, delays, bins=bins,
-                          normalize_spectrum=r["normalize_spectrum"], multipath=r["beam_selection"] == "multipath",
-                          multipath_options=r["multipath_options"], psf=psf)
+                    _, returned_frequencies, result = rbd_decompose(
+                        section,
+                        d["fs"],
+                        theta,
+                        delays,
+                        bins=bins,
+                        normalize_spectrum=r["normalize_spectrum"],
+                        multipath=r["beam_selection"] == "multipath",
+                        multipath_options=r["multipath_options"],
+                        psf=psf,
+                        fft_window=d["fft_window"],
+                        center_window=per_window_center,
+                    )
                     if not np.array_equal(returned_frequencies, frequencies):
                         raise ValueError("RBD frequency axis does not match frozen frequency selection")
                     feature = result["green_freq"]
                     _rbd_diagnostics(handle, local, result, len(theta))
                 else:
-                    feature, _ = scm_feature(section, windows["snapshot_num_samples"], windows["snapshot_step_samples"], bins, pair_i, pair_j)
+                    feature, _ = scm_feature(
+                        section,
+                        windows["snapshot_num_samples"],
+                        windows["snapshot_step_samples"],
+                        bins,
+                        pair_i,
+                        pair_j,
+                        norm_floor=s["norm_floor"],
+                        fft_window=d["fft_window"],
+                        center_snapshots=per_window_center,
+                    )
                 if not np.all(np.isfinite(feature)):
                     raise ValueError(f"Nonfinite {method} feature at source window {index+1}")
                 handle["X"][local, :, :, 0] = np.real(feature).astype(np.float32)
@@ -302,21 +366,25 @@ def generate_method(method, config, inputs, base_windows, root=ROOT):
                 "split_strategy": d["split_strategy"], "split_strategy_dir_name": name, "dataset_variant_tag": variant,
                 "global_num_segments": len(windows["start"]), "candidate_segment_start_s": windows["candidate_start_s"],
                 "candidate_segment_end_s": windows["candidate_end_s"], "fs_hz": d["fs"], "segment_duration_s": windows["duration_s"],
-                "segment_step_s": windows["step_s"], "range_file": inputs["range_path"], "ctd_file": inputs["ctd_path"],
+                "segment_step_s": windows["step_s"], "signal_centering": d["signal_centering"], "fft_window": d["fft_window"],
+                "range_file": inputs["range_path"], "ctd_file": inputs["ctd_path"],
                 "freq_num": len(frequencies), "freq_min_hz": float(frequencies[0]), "freq_max_hz": float(frequencies[-1]),
                 "num_elements": len(inputs["depths"]), "split": split_metadata,
                 "input_files": inputs["input_files"],
                 "files": [{"name": split, "file": str(path)} for split, path in paths.items()], "effective_config": config}
     feature_config = {"frequency_selection": "combined_frequency_selection_modes", "frequency_selection_modes": modes,
                       "selected_fft_bin_idx": bins+1, "selected_freq_hz": frequencies, "frequency_selection_info": frequency_info,
-                      "num_freq_bins": len(frequencies), "manual_dataset_variant_tag": d["manual_dataset_variant_tag"]}
+                      "num_freq_bins": len(frequencies), "signal_centering": d["signal_centering"], "fft_window": d["fft_window"],
+                      "manual_dataset_variant_tag": d["manual_dataset_variant_tag"]}
     if method == "RBD":
         feature_config.update(normalize_spectrum=r["normalize_spectrum"], use_plane_wave=r["use_plane_wave"],
                        rbd_beam_selection=r["beam_selection"], multipath_beam=r["beam_selection"] == "multipath",
                        rbd_frequency_estimation=r["frequency_estimation"], rbd_selected_frequency_modes=modes,
-                       rbd_multipath_options=r["multipath_options"], num_arrival_slots=len(theta),
+                       rbd_multipath_options=r["multipath_options"], angle_min_deg=r["angle_min_deg"],
+                       angle_max_deg=r["angle_max_deg"], num_angles=r["num_angles"], num_arrival_slots=len(theta),
                        full_num_freq_bins=len(full_frequencies), output_definition="rbd_result.green_freq")
         metadata.update(rbd_config=feature_config, normalize_spectrum=r["normalize_spectrum"], use_plane_wave=r["use_plane_wave"],
+                        angle_min_deg=r["angle_min_deg"], angle_max_deg=r["angle_max_deg"], num_angles=r["num_angles"],
                         theta_num=len(theta), theta_min_rad=float(theta[0]), theta_max_rad=float(theta[-1]))
     else:
         feature_config.update(mode="spatial_covariance_matrix",
@@ -324,10 +392,10 @@ def generate_method(method, config, inputs, base_windows, root=ROOT):
                    num_pairs=len(pair_i), pair_selection="upper_triangle_i_le_j",
                    pair_numerator_element_idx=pair_i+1, pair_denominator_element_idx=pair_j+1,
                    snapshot_duration_s=d["segment_duration_s"], snapshot_step_s=d["segment_step_s"],
-                   num_snapshots_per_segment=d["num_snapshots_per_segment"], snapshot_overlap_count=d["snapshot_overlap_count"],
+                   num_snapshots_per_segment=s["num_snapshots_per_segment"], snapshot_overlap_count=s["snapshot_overlap_count"],
                    snapshot_num_samples=windows["snapshot_num_samples"], snapshot_step_samples=windows["snapshot_step_samples"],
-                   actual_num_snapshots=d["num_snapshots_per_segment"],
-                   norm_floor=1e-12)
+                   actual_num_snapshots=s["num_snapshots_per_segment"],
+                   norm_floor=s["norm_floor"])
         metadata["feature_config"] = feature_config
     metadata_path = directory/f"{stem}_metadata.json"; write_json(metadata_path, metadata, root)
     return {"method": method, "dataset_name": name, "dataset_dir": str(directory), "train_file": str(paths["train"]),
@@ -337,22 +405,26 @@ def generate_method(method, config, inputs, base_windows, root=ROOT):
             "effective_segment_end_s": windows["candidate_end_s"]}
 
 
-def generate_datasets(raw_config, root=ROOT):
-    root = Path(root).resolve(); config = normalize_config(raw_config, root)
+def generate_datasets(raw_config, root=ROOT, *, methods=METHODS):
+    selected_methods = normalize_methods(methods, allow_none=False)
+    root = Path(root).resolve(); config = normalize_config(raw_config, root, methods=selected_methods)
     report = {"schema_version": 1, "status": "RUNNING", "generator_version": GENERATOR_VERSION,
               "project_dir": str(root), "python_version": platform.python_version(),
               "dependencies": {"numpy": np.__version__, "scipy": scipy.__version__, "h5py": h5py.__version__},
+              "methods": list(selected_methods),
               "config": config, "datasets": {}, "metadata": {}, "dataset_results": {},
               "source_manifest": source_manifest(),
               "provenance": {"frequency_fit_scope": "training_split_only", "split_train_side": config["dataset"]["train_side"],
-                             "random_numbers_used": False, "signal_centering": "per_element_full_record_mean",
-                             "ctd_source": "original i9605.prn numeric depth/sound_speed columns", "rbd_output": "actual Green estimate"}}
+                             "random_numbers_used": False, "signal_centering": config["dataset"]["signal_centering"],
+                             "fft_window": config["dataset"]["fft_window"],
+                             "ctd_source": config["dataset"]["ctd_file"] if "RBD" in selected_methods else None,
+                             "rbd_output": "actual Green estimate"}}
     try:
-        inputs = load_inputs(root, config); report["input_files"] = inputs["input_files"]
+        inputs = load_inputs(root, config, methods=selected_methods); report["input_files"] = inputs["input_files"]
         d = config["dataset"]
         base = segments(inputs["signal"], d["fs"], d["segment_duration_s"], d["segment_step_s"], d["segment_start_s"],
                         d["segment_end_s"], inputs["range_times"], inputs["ranges"])
-        for method in METHODS:
+        for method in selected_methods:
             result = generate_method(method, config, inputs, base, root)
             report["dataset_results"][method] = result; report["datasets"][method] = result["dataset_dir"]
             report["metadata"][method] = result["metadata_file"]

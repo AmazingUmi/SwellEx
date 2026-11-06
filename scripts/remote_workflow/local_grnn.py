@@ -30,8 +30,11 @@ from scripts.network_training.grnn.cli import (
 from scripts.network_training.grnn.data import load_grnn_features
 from scripts.data_processing.dataset_validation import classify, inspect_h5, split_check
 from scripts.remote_workflow.config import load_config
-from scripts.remote_workflow.remote import EXCLUDED, PACK
+from scripts.remote_workflow.packs import DEFAULT_PACK
+from scripts.remote_workflow.remote import EXCLUDED
 from scripts.remote_workflow.worker import prediction_metrics
+
+PACK = DEFAULT_PACK
 
 
 def file_record(path: Path) -> dict:
@@ -63,18 +66,32 @@ def python_source_paths(project: Path) -> list[Path]:
     return paths
 
 
-def raw_input_records(metadata: dict) -> list[dict]:
+def raw_input_records(metadata: dict, *, method: str | None = None) -> list[dict]:
     """Verify the generator's complete raw input inventory before fitting GRNN."""
     inventory = metadata.get("input_files")
     required = {"path", "size_bytes", "mtime_ns", "sha256"}
     if not isinstance(inventory, list) or not inventory:
         raise ValueError("Dataset metadata requires a nonempty raw input_files inventory")
     elements = metadata.get("num_elements")
-    event = metadata.get("effective_config", {}).get("dataset", {}).get("event_name")
+    dataset_cfg = metadata.get("effective_config", {}).get("dataset", {})
+    event = dataset_cfg.get("event_name")
     if type(elements) is not int or elements <= 0 or not isinstance(event, str):
         raise ValueError("Dataset metadata cannot determine its complete raw input inventory")
-    expected_names = {"positions_vla.txt", "i9605.prn", f"SproulToVLA.{event}.txt",
-                      *(f"{event}_VLA_NO_{index}.mat" for index in range(1, elements + 1))}
+    ctd_path_value = metadata.get("ctd_file")
+    if method == "RBD" and ctd_path_value is None:
+        raise ValueError("Dataset metadata raw input inventory does not contain its ctd_file")
+    expected_names = {
+        "positions_vla.txt",
+        f"SproulToVLA.{event}.txt",
+        *(f"{event}_VLA_NO_{index}.mat" for index in range(1, elements + 1)),
+    }
+    if ctd_path_value is not None:
+        configured_ctd = dataset_cfg.get("ctd_file")
+        if not isinstance(ctd_path_value, str) or (
+            isinstance(configured_ctd, str) and Path(ctd_path_value).name != configured_ctd
+        ):
+            raise ValueError("Dataset metadata raw input inventory does not contain its ctd_file")
+        expected_names.add(Path(ctd_path_value).name)
     if len(inventory) != len(expected_names):
         raise ValueError("Dataset metadata raw input inventory does not contain every original input")
     records, seen = [], set()
@@ -100,7 +117,8 @@ def raw_input_records(metadata: dict) -> list[dict]:
         records.append(record)
     if {Path(record["path"]).name for record in records} != expected_names:
         raise ValueError("Dataset metadata raw input inventory differs from its event and element axes")
-    for field in ("range_file", "ctd_file"):
+    required_fields = ("range_file", "ctd_file") if (method == "RBD" or ctd_path_value is not None) else ("range_file",)
+    for field in required_fields:
         path = metadata.get(field)
         if not isinstance(path, str) or str(Path(path).resolve()) not in seen:
             raise ValueError(f"Dataset metadata raw input inventory does not contain its {field}")
@@ -151,7 +169,7 @@ def run(config_path: Path, *, method: str, data: Path | None = None, root: Path 
     if config["dataset"]["split_strategy"] != "range_overlap":
         raise ValueError("Local GRNN range_overlap computation requires split_strategy=range_overlap")
     from scripts.remote_workflow.run_identity import make_run_id
-    run_id = make_run_id("base_pack", config, {"method": method, "network": "GRNN"})
+    run_id = make_run_id(PACK, config, {"method": method, "network": "GRNN"})
     print(f"Run: {run_id}", flush=True)
     delivery = root / "output/data" / run_id
     figures = root / "output/figure" / run_id
@@ -160,6 +178,18 @@ def run(config_path: Path, *, method: str, data: Path | None = None, root: Path 
     (delivery / "logs").mkdir()
     report_path = delivery / "report.json"
     side = config["dataset"]["train_side"]
+    g, v = config["grnn"], config["validation"]
+    centering_mode = config["dataset"]["signal_centering"]
+    signal_centering = (
+        "per_element_full_record_mean"
+        if centering_mode == "full_record"
+        else centering_mode
+    )
+    sigma_selection = (
+        "training_side_random_k_fold_only"
+        if g["cv_folds"] >= 2
+        else "fixed_spread"
+    )
     report = {"schema_version": 1, "pack": PACK, "run_id": run_id, "status": "RUNNING",
               "method": method, "model": model,
               "selection": {"method": method, "architecture": "GRNN", "model": model},
@@ -169,9 +199,9 @@ def run(config_path: Path, *, method: str, data: Path | None = None, root: Path 
                             "dependencies": {name: importlib.metadata.version(name)
                                              for name in ("torch", "numpy", "scipy", "h5py", "matplotlib")}},
               "config": config, "config_file": file_record(config_path), "checks": [],
-              "evaluation_scope": {"sigma_selection": "training_side_random_k_fold_only",
+              "evaluation_scope": {"sigma_selection": sigma_selection,
                                    "test_role": "final_evaluation_only",
-                                   "signal_centering": "per_element_full_record_mean",
+                                   "signal_centering": signal_centering,
                                    "range_selection": "intersection_of_both_sides_true_range_intervals"}}
     save_json(delivery / "config.json", config)
     shutil.copyfile(config_path, delivery / "config.toml")
@@ -212,14 +242,23 @@ def run(config_path: Path, *, method: str, data: Path | None = None, root: Path 
     started = time.monotonic()
     try:
         torch.set_num_threads(config["validation"]["threads"])
-        expected = normalize_config({"schema_version": 1, "dataset": config["dataset"],
-                                     "rbd": config["rbd"], "result_path": f"outputs/local_grnn/{run_id}.json"}, root)
+        expected = normalize_config(
+            {
+                "schema_version": 1,
+                "dataset": config["dataset"],
+                "rbd": config["rbd"],
+                "scm": config["scm"],
+                "result_path": f"outputs/local_grnn/{run_id}.json",
+            },
+            root,
+            methods=(method,),
+        )
         if data is None:
             # A unique generation tag preserves existing data and failed runs.
             tag = expected["dataset"]["manual_dataset_variant_tag"]
             expected["dataset"]["manual_dataset_variant_tag"] = f"{tag + '_' if tag else ''}local_grnn_{run_id}"
             def generate():
-                inputs = load_inputs(root, expected)
+                inputs = load_inputs(root, expected, methods=(method,))
                 d = expected["dataset"]
                 base = segments(inputs["signal"], d["fs"], d["segment_duration_s"], d["segment_step_s"],
                                 d["segment_start_s"], d["segment_end_s"], inputs["range_times"], inputs["ranges"])
@@ -233,7 +272,7 @@ def run(config_path: Path, *, method: str, data: Path | None = None, root: Path 
         def validate():
             # Reuse requires the complete generation contract, not just equal axes.
             metadata = json.loads(metadata_path.read_text())
-            report["raw_inputs"] = raw_input_records(metadata)
+            report["raw_inputs"] = raw_input_records(metadata, method=method)
             saved_config = metadata.get("effective_config", {})
             saved = saved_config.get("dataset", {})
             actual, wanted = dict(saved), dict(expected["dataset"])
@@ -243,6 +282,8 @@ def run(config_path: Path, *, method: str, data: Path | None = None, root: Path 
                 raise ValueError(f"{method} generation configuration differs from requested range_overlap configuration")
             if method == "RBD" and saved_config.get("rbd") != expected["rbd"]:
                 raise ValueError("RBD estimator configuration differs from requested generation configuration")
+            if method == "SCM" and saved_config.get("scm") != expected["scm"]:
+                raise ValueError("SCM estimator configuration differs from requested generation configuration")
             if any(classify(path) != method for path in (train_path, test_path)):
                 raise ValueError(f"Dataset feature method differs from requested {method}")
             records = [inspect_h5(path, method, expected)[0] for path in (train_path, test_path)]
@@ -262,22 +303,44 @@ def run(config_path: Path, *, method: str, data: Path | None = None, root: Path 
                                     for key, field in (("source_segment_idx", "sources"), ("window_center_s", "centers"))}
         model_output = delivery / "models" / method
         parser = build_parser()
-        g, v = config["grnn"], config["validation"]
-        build_argv = ["build", "--method", method, "--data", str(directory), "--train-data", str(train_path),
-                      "--output-dir", str(model_output), "--device", "cpu", "--cv-folds", str(g["cv_folds"]),
-                      "--sigma-candidates", *map(str, g["sigma_candidates"]), "--seed", str(v["seed"]),
-                      "--batch-size", str(g["batch_size"])]
+        build_argv = [
+            "build", "--method", method, "--data", str(directory), "--train-data", str(train_path),
+            "--output-dir", str(model_output), "--device", "cpu",
+            "--cv-folds", str(g["cv_folds"]), "--spread", str(g["spread"]),
+        ]
+        if g["sigma_candidates"]:
+            build_argv.extend(["--sigma-candidates", *map(str, g["sigma_candidates"])])
+        build_argv.extend(["--seed", str(v["seed"]), "--batch-size", str(g["batch_size"])])
+        if g["standardize_input"]:
+            build_argv.append("--standardize-input")
+        if g["per_sample_channel_norm"]:
+            build_argv.append("--per-sample-channel-norm")
+        if g["max_reference_samples"] > 0:
+            build_argv.extend(["--max-reference-samples", str(g["max_reference_samples"])])
+        if g["max_validation_samples"] > 0:
+            build_argv.extend(["--max-validation-samples", str(g["max_validation_samples"])])
         args = parser.parse_args(build_argv)
         validate_arguments(args, parser)
         phase("build_reference", lambda: build_command(args))
         model_dir = model_output / model
         reference = unique(model_dir / "reference_outputs", "*_reference_*.pt")
         artifact = load_artifact(reference, torch.device("cpu"), method=method)
-        train_bundle = load_grnn_features([train_path], method=method)
+        max_ref = g["max_reference_samples"] or None
+        train_bundle = load_grnn_features(
+            [train_path],
+            method=method,
+            per_sample_channel_norm=g["per_sample_channel_norm"],
+            max_samples=max_ref,
+        )
         require_matching_input_signature(artifact["input_signature"], train_bundle.input_signature,
                                          "GRNN reference/training data")
-        if artifact["reference_sample_count"] != report["dataset"]["train_count"]:
-            raise ValueError("Reference must include every training window")
+        expected_ref_count = (
+            min(report["dataset"]["train_count"], g["max_reference_samples"])
+            if g["max_reference_samples"] > 0
+            else report["dataset"]["train_count"]
+        )
+        if artifact["reference_sample_count"] != expected_ref_count:
+            raise ValueError("Reference sample count differs from expected training window count")
         torch.testing.assert_close(artifact["x_reference"], train_bundle.x, rtol=0, atol=0)
         torch.testing.assert_close(artifact["y_reference_km"], train_bundle.y_range_km, rtol=0, atol=0)
         artifact.update(split_strategy="range_overlap", train_side=side,
@@ -289,10 +352,14 @@ def run(config_path: Path, *, method: str, data: Path | None = None, root: Path 
                                "sigma_source": artifact["sigma_source"],
                                "reference_sample_count": artifact["reference_sample_count"]}
         report["commands"] = {"build": build_argv}
-        predict_argv = ["predict", "--method", method, "--data", str(directory), "--input-data", str(test_path),
-                        "--reference", str(reference), "--output-dir", str(model_output),
-                        "--device", "cpu", "--batch-size", str(g["batch_size"]), "--print-first", "0",
-                        "--plot-path", str(figures / "prediction.pdf")]
+        predict_argv = [
+            "predict", "--method", method, "--data", str(directory), "--input-data", str(test_path),
+            "--reference", str(reference), "--output-dir", str(model_output),
+            "--device", "cpu", "--batch-size", str(g["predict_batch_size"]), "--print-first", "0",
+            "--plot-path", str(figures / "prediction.pdf"),
+        ]
+        if g["max_predict_samples"] > 0:
+            predict_argv.extend(["--max-predict-samples", str(g["max_predict_samples"])])
         report["commands"]["predict"] = predict_argv
         args = parser.parse_args(predict_argv)
         validate_arguments(args, parser)
@@ -300,19 +367,17 @@ def run(config_path: Path, *, method: str, data: Path | None = None, root: Path 
         csv = unique(model_dir / "test_outputs", "*_predictions_*.csv")
         expected_rows = [(int(i), float(t), float(y)) for i, t, y in
                          zip(records[1]["sources"], records[1]["centers"], records[1]["labels"])]
+        if g["max_predict_samples"] > 0:
+            expected_rows = expected_rows[: g["max_predict_samples"]]
         metrics = phase("verify_predictions", lambda: prediction_metrics(csv, expected_rows))
-        # CSV rounding is part of the delivered metrics, as in the remote workflow.
-        import csv as csv_module
-        with csv.open() as handle:
-            rows = list(csv_module.DictReader(handle))
-        metrics["mape_pct"] = sum(abs(float(row["pred_range_km"]) - float(row["true_range_km"]))
-                                  / max(abs(float(row["true_range_km"])), 1e-12)
-                                  for row in rows) / len(rows) * 100
         report["predictions"] = {"path": str(csv), **metrics}
-        search_path = unique(model_dir / "reference_outputs", "*_sigma_search_*.json")
-        report["sigma_search_path"] = str(search_path)
-        phase("plot_sigma", lambda: plot_sigma(json.loads(search_path.read_text()), artifact["spread"],
-                                               figures / "sigma_search.pdf", side, method))
+        if g["cv_folds"] >= 2:
+            search_path = unique(model_dir / "reference_outputs", "*_sigma_search_*.json")
+            report["sigma_search_path"] = str(search_path)
+            phase("plot_sigma", lambda: plot_sigma(json.loads(search_path.read_text()), artifact["spread"],
+                                                   figures / "sigma_search.pdf", side, method))
+        else:
+            report["sigma_search_path"] = None
         def verify_inputs():
             for item in [*report["source_files"], *report["input_files"], *report.get("raw_inputs", []),
                          report["config_file"], report["lockfile"]]:

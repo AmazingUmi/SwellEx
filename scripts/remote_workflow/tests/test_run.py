@@ -82,6 +82,27 @@ class PlanTests(unittest.TestCase):
         for method, architecture, evaluation in (("SCM", "ResNet50", "evaluate_SCM_scm_resnet50_range"), ("RBD", "GRNN", "evaluate_RBD_rbd_grnn_range"), ("SCM", "GRNN", "evaluate_SCM_scm_grnn_range")):
             self.assertEqual(tasks.expected_phases("selected", {"method": method, "network": architecture}), base | data | {evaluation})
 
+    def test_list_selection_format_canonical_ordering_and_validation(self):
+        plan = tasks.model_plan("selected", {"methods": ["SCM", "RBD"], "networks": ["GRNN", "complex_CNN"]})
+        self.assertEqual(
+            plan,
+            [
+                tasks.resolve_selection("RBD", "complex_CNN"),
+                tasks.resolve_selection("RBD", "GRNN"),
+                tasks.resolve_selection("SCM", "complex_CNN"),
+                tasks.resolve_selection("SCM", "GRNN"),
+            ],
+        )
+        for bad in (
+            {"methods": [], "networks": ["GRNN"]},
+            {"methods": ["SCM"], "networks": []},
+            {"methods": ["SCM", "SCM"], "networks": ["GRNN"]},
+            {"methods": ["SCM"], "networks": ["GRNN", "GRNN"]},
+            {"methods": ["ELM"], "networks": ["GRNN"]},
+        ):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                tasks.model_plan("selected", bad)
+
 
 class FrozenSelectionTests(unittest.TestCase):
     def setUp(self):
@@ -185,7 +206,13 @@ class ShellEntryTests(unittest.TestCase):
         self.assertFalse(marker.exists())
 
     def test_global_config_selection_and_management_commands(self):
-        for args in [["base_pack", "--config", "experiment config.toml", "--method", "SCM", "--network", "GRNN"], ["base_pack", "status", "--run", RUN_ID, "--config", "a b.toml"], ["base_pack", "validate", "--suite", "quick"], ["--help"]]:
+        for args in [
+            ["base_pack", "--config", "experiment config.toml", "--method", "SCM", "--network", "GRNN"],
+            ["base_pack", "--method", "RBD", "SCM", "--network", "complex_CNN", "GRNN"],
+            ["base_pack", "status", "--run", RUN_ID, "--config", "a b.toml"],
+            ["base_pack", "validate", "--suite", "quick"],
+            ["--help"],
+        ]:
             expected = args
             with self.subTest(args=args):
                 result, forwarded = self.invoke(args)

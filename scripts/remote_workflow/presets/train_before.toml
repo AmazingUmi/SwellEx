@@ -1,6 +1,11 @@
 # range_overlap: Train before closest approach; test after it.
 schema_version = 1
 
+[experiment]
+# Default feature routes and network architectures when CLI --method/--network are omitted.
+methods = ["RBD", "SCM"]
+networks = ["complex_CNN", "ResNet18", "ResNet50", "GRNN"]
+
 [remote]
 host = "haiqin"
 repository = "/mnt/SDD/project/SwellEx"
@@ -19,48 +24,93 @@ training_timeout_s = 7200
 
 [dataset]
 event_name = "S5"
+# Sound-speed profile under Origindata/environments/ctds/ (required for RBD only).
+ctd_file = "i9605.prn"
 fs = 1500
-segment_start_s = 0
-# S5 has 4500 s of VLA data; this is the last 1 s window's start time.
-segment_end_s = 4499
+# Use -1.0 for automatic recording start/end bounds; S5 has 4500 s of VLA data.
+segment_start_s = 0.0
+segment_end_s = 4499.0
 segment_duration_s = 1.0
 segment_step_s = 1.0
-# Keep RBD/SCM rows aligned with disjoint, single-snapshot windows.
-num_snapshots_per_segment = 1
-snapshot_overlap_count = 0
+signal_centering = "full_record"
+fft_window = "boxcar"
 frequency_selection_modes = ["deep", "shallow"]
 split_strategy = "range_overlap"
 # Required by the schema and unused for range_overlap.
 train_test_ratio = [4, 1]
 # Limit each side to half_duration_s, exclude the central gap, then keep the shared range interval.
 train_side = "before"
-half_duration_s = 800
-gap_s = 15
-test_step_s = 1
+half_duration_s = 800.0
+gap_s = 15.0
+# Use 0.0 to inherit the effective feature window step on the test split.
+test_step_s = 1.0
 manual_dataset_variant_tag = ""
+
+[dataset.frequency_selection_config]
+mel_num_bins = 64
+mel_min_freq_hz = 1.0
+mel_max_freq_hz = 750.0
+deep_target_freq_hz = [49, 64, 79, 94, 112, 130, 148, 166, 201, 235, 283, 338, 388]
+shallow_target_freq_hz = [109, 127, 145, 163, 198, 232, 280, 335, 385]
+adapt_num_bins = 16
+adapt_min_freq_hz = 1.0
+adapt_max_freq_hz = 750.0
+# 0 uses all valid training windows when fitting adaptive frequencies.
+adapt_max_num_segments = 0
 
 [rbd]
 beam_selection = "best"
 frequency_estimation = "selected"
 use_plane_wave = false
 normalize_spectrum = false
+angle_min_deg = -90.0
+angle_max_deg = 90.0
+num_angles = 181
+
+[rbd.multipath_options]
+peak_threshold_db = -6.0
+min_separation_deg = 2.0
+max_num_peaks = 181
+sidelobe_reject_db = 3.0
+
+[scm]
+# Multi-snapshot SCM combines Ns consecutive base snapshots per SCM window.
+num_snapshots_per_segment = 1
+snapshot_overlap_count = 0
+norm_floor = 1e-12
 
 [training]
 epochs = 100
 # A5000: near batch-128 throughput with about 5 GiB peak reserved on SCM ResNet50.
 batch_size = 64
+predict_batch_size = 64
+lr = 3e-4
+weight_decay = 1e-4
 base_channels = 16
+dropout = 0.15
 loss_space = "km"
 huber_beta = 0.5
+normalize_input = true
+val_split_mode = "random"
 val_fraction = 0.25
+val_gap_s = 0.0
+num_workers = 0
 
 [grnn]
+# Set cv_folds = 0 to skip training CV and use fixed spread directly.
 cv_folds = 5
+spread = 0.01
 # Match the standalone GRNN search grid: 0.01-0.10, then 0.20-2.00.
 sigma_candidates = [
     0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.10,
     0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 1.00, 1.10,
     1.20, 1.30, 1.40, 1.50, 1.60, 1.70, 1.80, 1.90, 2.00,
 ]
-# Prediction block size; reference/test row counts depend on the split.
+standardize_input = false
+per_sample_channel_norm = false
+# Prediction/evaluation block sizes; 0 sample caps keep all valid windows.
 batch_size = 1024
+predict_batch_size = 1024
+max_reference_samples = 0
+max_validation_samples = 0
+max_predict_samples = 0

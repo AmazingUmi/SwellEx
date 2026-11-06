@@ -18,10 +18,13 @@ from scripts.data_processing.feature_math import (
     extend_profile, select_beam_peaks, sidelobe_psf, segments, combine_snapshots,
     build_split, select_frequency_bins,
 )
-from scripts.data_processing.generation_config import ROOT, normalize_config, output_path
+from scripts.data_processing.generation_config import (
+    ROOT, normalize_config, output_path, validate_generation_tables,
+)
 from scripts.data_processing.generation_core import (
     GENERATOR_VERSION, create_h5, load_channel, source_manifest, write_json,
 )
+from scripts.data_processing.input_contract import METHODS
 
 TOLERANCE = 1e-12
 
@@ -60,6 +63,21 @@ def test_scm():
     check(np.min(np.linalg.eigvalsh(covariance)) >= -TOLERANCE and info["num_snapshots"] == 2, "SCM must be PSD and use both snapshots")
     zero, _ = scm_feature(np.zeros((3, n)), n, n, np.asarray([f]), i, j)
     check(np.all(np.isfinite(zero)) and np.all(zero == 0), "SCM zero signal must remain finite zero")
+    dc = np.asarray([100.0, -250.0, 75.0])[:, None]
+    centered_hann, _ = scm_feature(
+        signal + np.concatenate([dc * np.ones((1, n)), -2.0 * dc * np.ones((1, n))], axis=1),
+        n, n, np.asarray([0, f]), i, j, norm_floor=1e-9, fft_window="hann", center_snapshots=True,
+    )
+    hann_window = np.hanning(n)[None, :]
+    manual_a = np.fft.fft((a[:, None] * tone) * hann_window, axis=1)[:, [0, f]]
+    manual_b = np.fft.fft((b[:, None] * tone) * hann_window, axis=1)[:, [0, f]]
+    manual_a /= np.maximum(np.linalg.norm(manual_a, axis=0, keepdims=True), 1e-9)
+    manual_b /= np.maximum(np.linalg.norm(manual_b, axis=0, keepdims=True), 1e-9)
+    expected_hann = 0.5 * (manual_a[i] * manual_a[j].conj() + manual_b[i] * manual_b[j].conj())
+    close(centered_hann, expected_hann, "Centered Hann SCM must match manual per-snapshot centered Hann outer products")
+    raises(lambda: scm_feature(signal, n, n, np.asarray([f]), i, j, norm_floor=0.0))
+    raises(lambda: scm_feature(signal, n, n, np.asarray([f]), i, j, norm_floor=-1e-12))
+    raises(lambda: scm_feature(signal, n, n, np.asarray([f]), i, j, fft_window="hamming"))
 
 
 def test_rbd():
@@ -97,6 +115,18 @@ def test_rbd():
     close(two_beams["green_freq_weights"],[9/13,4/13], "Multipath weights must use beam power, not equal or square-root-power weights")
     expected_mixed_green = array_vector/np.sqrt(26)*(9/13-4j/13)
     close(two_beams["green_freq"][:,0],expected_mixed_green, "Weighted phase-rotated Green estimate must match independent two-source closed form")
+    biased_wave = wave + (np.arange(1, len(depths) + 1, dtype=float) * 50.0)[:, None]
+    hann_spec, _, hann_rbd = rbd_decompose(
+        biased_wave, fs, theta, tau, np.asarray([f]), fft_window="hann", center_window=True,
+    )
+    expected_hann_spec = np.fft.fft(
+        (biased_wave - np.mean(biased_wave, axis=1, keepdims=True)) * np.hanning(n)[None, :],
+        axis=1,
+    )[:, [f]]
+    close(hann_spec, expected_hann_spec, "Centered Hann RBD spectrum must match manual centered Hann FFT")
+    close(hann_rbd["theta_best"], np.deg2rad(25), "Centered Hann RBD must recover true plane-wave arrival")
+    close(np.sum(np.abs(hann_rbd["green_freq"])**2, axis=0), 1, "Centered Hann RBD Green vectors must keep unit norm")
+    raises(lambda: rbd_decompose(wave, fs, theta, tau, np.asarray([f]), fft_window="blackman"))
 
 
 def test_ray_delays_and_multipath():
@@ -192,27 +222,116 @@ def test_frequency_training_only():
     close(frequencies, sorted([49,64,79,94,112,130,148,166,201,235,283,338,388,109,127,145,163,198,232,280,335,385]), "Named physical frequencies must be preserved")
     raises(lambda: select_frequency_bins(np.arange(33), ["full","adapt"]))
     raises(lambda: select_frequency_bins(np.arange(33), ["adapt"], options, signal=signal, windows=windows, train_indices=np.asarray([],dtype=int)))
+    dc_signal = np.asarray([np.concatenate([1e5 + np.exp(2j*np.pi*8*t), np.zeros(n)])])
+    uncentered_bins, _, _ = select_frequency_bins(
+        np.arange(33), ["adapt"], options, signal=dc_signal, windows=windows,
+        train_indices=np.asarray([0]), fft_window="hann", center_snapshots=False,
+    )
+    centered_bins, _, _ = select_frequency_bins(
+        np.arange(33), ["adapt"], options, signal=dc_signal, windows=windows,
+        train_indices=np.asarray([0]), fft_window="hann", center_snapshots=True,
+    )
+    check(uncentered_bins.tolist() == [1] and centered_bins.tolist() == [8],
+          "Adaptive Hann selection must apply snapshot centering before windowing")
 
 
 def test_configuration():
     defaults = normalize_config({})
     check(defaults["dataset"]["segment_end_s"] is None and defaults["dataset"]["train_side"] == "before", "Canonical manual defaults must retain full record and shared explicit train side")
+    check(defaults["dataset"]["ctd_file"] == "i9605.prn"
+          and defaults["dataset"]["signal_centering"] == "full_record"
+          and defaults["dataset"]["fft_window"] == "boxcar",
+          "Dataset defaults must expose ctd_file, full_record centering, and boxcar FFT window")
+    check(defaults["rbd"]["angle_min_deg"] == -90.0
+          and defaults["rbd"]["angle_max_deg"] == 90.0
+          and defaults["rbd"]["num_angles"] == 181,
+          "RBD defaults must expose canonical angle grid")
+    check(defaults["scm"] == {"num_snapshots_per_segment": 1, "snapshot_overlap_count": 0, "norm_floor": 1e-12},
+          "SCM defaults must hold snapshot and norm_floor parameters")
+    d_tab, r_tab, s_tab = validate_generation_tables({}, {}, {})
+    check((d_tab, r_tab, s_tab) == (defaults["dataset"], defaults["rbd"], defaults["scm"]),
+          "validate_generation_tables must match normalize_config table defaults")
+    sentinels = normalize_config({"dataset": {"segment_start_s": -1, "segment_end_s": -1.0, "test_step_s": 0}})["dataset"]
+    check(sentinels["segment_start_s"] is None and sentinels["segment_end_s"] is None and sentinels["test_step_s"] is None,
+          "TOML/JSON sentinels -1 and 0 must normalize to None")
+    check(normalize_config({"dataset": {"test_step_s": 0.0}})["dataset"]["test_step_s"] is None,
+          "Float 0.0 test_step_s sentinel must normalize to None")
+    custom = normalize_config({
+        "dataset": {
+            "split_strategy": "range_overlap",
+            "ctd_file": "i9605_alt.prn",
+            "signal_centering": "per_window",
+            "fft_window": "hann",
+            "frequency_selection_config": {"adapt_max_num_segments": 0},
+            "test_step_s": 3.0,
+        },
+        "rbd": {"angle_min_deg": -45.0, "angle_max_deg": 45.0, "num_angles": 91},
+        "scm": {"num_snapshots_per_segment": 4, "snapshot_overlap_count": 1, "norm_floor": 1e-8},
+    })
+    check(custom["dataset"]["fft_window"] == "hann"
+          and custom["dataset"]["signal_centering"] == "per_window"
+          and custom["scm"]["num_snapshots_per_segment"] == 4
+          and custom["rbd"]["num_angles"] == 91,
+          "Valid custom dataset/rbd/scm settings must normalize cleanly")
+    scm_full = normalize_config({"dataset": {"frequency_selection_modes": ["full"]}}, methods=("SCM",))
+    check(scm_full["dataset"]["frequency_selection_modes"] == ["full"],
+          "SCM-only normalization must allow full frequency selection without RBD full estimation")
+    rbd_step = normalize_config(
+        {"dataset": {"test_step_s": 1.0}, "scm": {"num_snapshots_per_segment": 4, "snapshot_overlap_count": 2}},
+        methods=("RBD",),
+    )
+    check(rbd_step["dataset"]["test_step_s"] == 1.0,
+          "RBD-only normalization must ignore SCM combined step and SCM overlap on full_interleaved")
     invalid_cases = [{"typo": 1}, {"dataset": {"fs": float("nan")}},
-                     {"dataset": {"num_snapshots_per_segment": 1,"snapshot_overlap_count": 1}},
-                     {"rbd": {"normalize_spectrum": 1}}, {"result_path": "../report.json"},
+                     {"dataset": {"num_snapshots_per_segment": 1}},
+                     {"dataset": {"snapshot_overlap_count": 0}},
+                     {"scm": {"num_snapshots_per_segment": 1, "snapshot_overlap_count": 1}},
+                     {"scm": {"num_snapshots_per_segment": 4.0}},
+                     {"scm": {"snapshot_overlap_count": 0.0}},
+                     {"scm": {"norm_floor": 0.0}},
+                     {"scm": {"norm_floor": -1e-12}},
+                     {"scm": {"norm_floor": 1.5}},
+                     {"scm": {"unknown_scm_field": 1}},
+                     {"rbd": {"normalize_spectrum": 1}},
+                     {"rbd": {"angle_min_deg": -95.0}},
+                     {"rbd": {"angle_max_deg": 95.0}},
+                     {"rbd": {"angle_min_deg": 10.0, "angle_max_deg": 10.0}},
+                     {"rbd": {"num_angles": 1}},
+                     {"rbd": {"num_angles": 90.0}},
+                     {"result_path": "../report.json"},
                      {"dataset": {"frequency_selection_modes": ["full","deep"]}},
+                     {"dataset": {"frequency_selection_modes": ["full"]}},
+                     {"dataset": {"ctd_file": ""}},
+                     {"dataset": {"ctd_file": "../i9605.prn"}},
+                     {"dataset": {"ctd_file": "bad..name.prn"}},
+                     {"dataset": {"ctd_file": ".hidden"}},
+                     {"dataset": {"signal_centering": "window"}},
+                     {"dataset": {"fft_window": "hamming"}},
+                     {"dataset": {"segment_start_s": -2}},
+                     {"dataset": {"segment_end_s": -0.5}},
+                     {"dataset": {"test_step_s": -1}},
+                     {"dataset": {"segment_start_s": False}},
+                     {"dataset": {"test_step_s": False}},
+                     {"dataset": {"test_step_s": 0.5}},
+                     {"dataset": {"split_strategy": "range_overlap", "test_step_s": 2.0}, "scm": {"num_snapshots_per_segment": 4, "snapshot_overlap_count": 1}},
+                     {"dataset": {"split_strategy": "full_interleaved", "segment_step_s": 0.5}},
+                     {"dataset": {"split_strategy": "full_interleaved"}, "scm": {"num_snapshots_per_segment": 2, "snapshot_overlap_count": 1}},
+                     {"dataset": {"split_strategy": "range_overlap", "gap_s": 0.0}, "scm": {"num_snapshots_per_segment": 4, "snapshot_overlap_count": 3}},
                      {"schema_version": 1.0}, {"schema_version": True},
                      {"dataset": {"fs": 1500.0}},
-                     {"dataset": {"num_snapshots_per_segment": 4.0}},
-                     {"dataset": {"snapshot_overlap_count": 0.0}},
                      {"dataset": {"train_test_ratio": [4.0,1]}},
                      {"dataset": {"split_strategy": "periodic"}},
                      {"dataset": {"split_strategy": "Range_nearby"}},
                      {"dataset": {"frequency_selection_config": {"adapt_max_num_segments": 2.0}}},
+                     {"dataset": {"frequency_selection_config": {"adapt_max_num_segments": -1}}},
                      {"dataset": {"frequency_selection_config": {"mel_num_bins": 64.0}}},
                      {"rbd": {"multipath_options": {"max_num_peaks": 2.0}}}]
     for invalid in invalid_cases:
         raises(lambda invalid=invalid: normalize_config(invalid))
+    raises(lambda: normalize_config({"dataset": {"test_step_s": 0.5}}, methods=("RBD",)))
+    raises(lambda: normalize_config({"dataset": {"frequency_selection_modes": ["full"]}}, methods=("RBD",)))
+    raises(lambda: normalize_config({}, methods=()))
+    raises(lambda: normalize_config({}, methods=("UNKNOWN",)))
 
 
 def test_numeric_mat_and_hdf_contract(report_directory):
@@ -271,9 +390,10 @@ def run_cli(argv: list[str] | None = None) -> int:
         parser.add_argument("--root", type=Path, required=True)
         parser.add_argument("--report", type=Path, required=True)
         parser.add_argument("--expected-config", type=Path)
+        parser.add_argument("--methods", nargs="+", choices=METHODS, default=None)
         args = parser.parse_args(raw_argv[1:])
         return run_datasets_command(root=args.root, report_path=args.report,
-                                    expected_config=args.expected_config)
+                                    expected_config=args.expected_config, methods=args.methods)
     parser = argparse.ArgumentParser(
         description="Run pure-Python generator numerical validation, or pass `datasets --root ... --report ...`.",
         allow_abbrev=False,

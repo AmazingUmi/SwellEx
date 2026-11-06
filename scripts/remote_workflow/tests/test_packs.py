@@ -54,6 +54,8 @@ class PackRoutingTests(unittest.TestCase):
     def test_old_and_misplaced_parameters_are_rejected_without_launch(self):
         invalid=[['RBD','complex_CNN'],['run'],['--epochs','1'],['--seed','0'],['--detach'],['--dry-run'],['--no-wait'],
                  ['--method','all'],['--network','resnet18'],['--method','ELM'],['--network','real_CNN'],['--study-dir','x'],['--method','RBD','--method','SCM'],
+                 ['--method','SCM','SCM'],['--network','GRNN','GRNN'],
+                 ['local-grnn','--method','RBD','SCM','--python',sys.executable],
                  ['--preset','train_before','--config','missing.toml'],['--preset','before'],['--suite','quick'],
                  ['validate','--method','SCM'],['status'],['fetch','--run','x','--network','GRNN'],['check','--preset','full']]
         for pack in PACKS.values():
@@ -87,6 +89,41 @@ class PackRoutingTests(unittest.TestCase):
                     self.assertEqual(main([pack.name,command,'--run',run_id]),0)
                 self.assertEqual(action.call_args.args[1],run_id)
 
+    def test_multi_value_cli_and_experiment_table_scope(self):
+        for pack in PACKS.values():
+            remote = import_module(pack.dispatcher)
+            with patch.object(remote, 'dispatch', return_value=0) as dispatch:
+                self.assertEqual(
+                    main([pack.name, '--method', 'SCM', 'RBD', '--network', 'GRNN', 'complex_CNN']),
+                    0,
+                )
+            cfg, suite, no_cache = dispatch.call_args.args
+            selection = dispatch.call_args.kwargs['selection']
+            self.assertEqual(suite, 'selected')
+            self.assertEqual(selection, {'methods': ['SCM', 'RBD'], 'networks': ['GRNN', 'complex_CNN']})
+            plan = remote.model_plan(suite, selection)
+            self.assertEqual(
+                [(j['method'], j['architecture']) for j in plan],
+                [('RBD', 'complex_CNN'), ('RBD', 'GRNN'), ('SCM', 'complex_CNN'), ('SCM', 'GRNN')],
+            )
+            with tempfile.TemporaryDirectory() as tmp:
+                subset_toml = Path(tmp) / 'subset.toml'
+                text = remote.DEFAULT_CONFIG.read_text()
+                text = text.replace('methods = ["RBD", "SCM"]', 'methods = ["SCM"]')
+                text = text.replace(
+                    'networks = ["complex_CNN", "ResNet18", "ResNet50", "GRNN"]',
+                    'networks = ["complex_CNN", "GRNN"]',
+                )
+                subset_toml.write_text(text)
+                with patch.object(remote, 'dispatch', return_value=0) as dispatch:
+                    self.assertEqual(main([pack.name, '--config', str(subset_toml)]), 0)
+                _, suite, _ = dispatch.call_args.args
+                self.assertEqual(suite, 'selected')
+                self.assertEqual(
+                    dispatch.call_args.kwargs['selection'],
+                    {'methods': ['SCM'], 'networks': ['complex_CNN', 'GRNN']},
+                )
+
     def test_imports_do_not_load_numerical_dependencies(self):
         code="""import importlib.abc,sys
 class Reject(importlib.abc.MetaPathFinder):
@@ -116,6 +153,25 @@ class RunIdentityTests(unittest.TestCase):
                     changed=copy.deepcopy(cfg);changed['dataset']['train_side']='after' if side=='before' else 'before'
                     with self.assertRaises(ValueError): validate_run_identity(run,pack.name,changed,selection)
                     self.assertNotEqual(run,make_run_id(pack.name,cfg,selection))
+
+    def test_multi_network_subset_run_id_encoding_and_canonical_order(self):
+        for pack in PACKS.values():
+            remote = import_module(pack.dispatcher)
+            cfg = remote.load_config(remote.DEFAULT_CONFIG)
+            selection = {'methods': ['SCM'], 'networks': ['GRNN', 'complex_CNN']}
+            run = make_run_id(pack.name, cfg, selection)
+            fields = parse_run_id(run, pack.name)
+            self.assertEqual(fields['method'], 'SCM')
+            self.assertEqual(fields['network'], 'complex_CNN+GRNN')
+            validate_run_identity(run, pack.name, cfg, selection)
+            for bad in (
+                '20261013T120000Z-base-full-SCM-GRNN+complex_CNN-12345678',
+                '20261013T120000Z-base-full-SCM-GRNN+GRNN-12345678',
+                '20261013T120000Z-base-full-RBD+SCM-all-12345678',
+                '20261013T120000Z-base-full-all-complex_CNN+ResNet18+ResNet50+GRNN-12345678',
+            ):
+                with self.subTest(bad=bad), self.assertRaises(ValueError):
+                    parse_run_id(bad, pack.name)
 
     def test_old_unsafe_and_cross_pack_ids_rejected_before_ssh(self):
         for pack in PACKS.values():

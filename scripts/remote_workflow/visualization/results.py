@@ -1,24 +1,26 @@
 """Read one recorded run without importing numerical or training libraries."""
 from __future__ import annotations
 
-import csv
 from dataclasses import dataclass
 import hashlib
-import io
 import json
 import math
 from pathlib import Path
 import re
 
-from scripts.remote_workflow.model_plan import model_plan, validate_selection
 from scripts.network_training.grnn.bindings import METHODS, model_name
-
-PREDICTION_FIELDS = (
-    "sample", "source_segment_idx", "window_center_s", "pred_range_km",
-    "true_range_km", "abs_error_km",
+from scripts.remote_workflow.metrics_contract import (
+    ERROR_TOLERANCE,
+    PREDICTION_FIELDS,
+    PredictionRow,
+    TIME_TOLERANCE,
+    compute_prediction_metrics,
+    parse_prediction_bytes,
 )
-TIME_TOLERANCE = 1.1e-6
-ERROR_TOLERANCE = 2.1e-6
+from scripts.remote_workflow.model_plan import model_plan, validate_selection
+from scripts.remote_workflow.packs import DEFAULT_PACK
+
+Prediction = PredictionRow
 # This recorded source version predates RBD GRNN. Historical reports do
 # not carry model_plan, so their manifest must identify that exact contract.
 LEGACY_TASKS_SHA256 = "3457c6a2ae05096af371a74d2744cb6d4cbbf8132ec6365d7480035c38dd93eb"
@@ -59,19 +61,6 @@ def recorded_model_plan(report: dict, run_dir: Path, sources: list[dict]) -> tup
     if report["suite"] == "selected" and manifest.get("selection") != report.get("selection"):
         raise ValueError("Historical manifest selection differs from the selected run")
     return legacy, True
-
-
-@dataclass(frozen=True)
-class Prediction:
-    sample: int
-    source_index: int
-    time_s: float
-    predicted_km: float
-    true_km: float
-
-    @property
-    def residual_km(self) -> float:
-        return self.predicted_km - self.true_km
 
 
 @dataclass
@@ -137,44 +126,11 @@ def _unique(directory: Path, pattern: str, *, optional=False) -> Path | None:
 
 
 def read_predictions(raw: bytes) -> list[Prediction]:
-    reader = csv.DictReader(io.StringIO(raw.decode("utf-8"), newline=""))
-    if tuple(reader.fieldnames or ()) != PREDICTION_FIELDS:
-        raise ValueError("Prediction CSV must have the canonical six columns")
-    predictions = []
-    for row in reader:
-        if None in row or any(value is None for value in row.values()):
-            raise ValueError("Malformed prediction CSV row")
-        try:
-            sample, index = int(row["sample"]), int(row["source_segment_idx"])
-            moment, pred, target, error = (
-                float(row[key]) for key in PREDICTION_FIELDS[2:]
-            )
-        except (ValueError, TypeError) as exc:
-            raise ValueError("Invalid prediction value") from exc
-        if not all(math.isfinite(x) for x in (moment, pred, target, error)):
-            raise ValueError("Nonfinite prediction value")
-        if sample != len(predictions) or index < 1:
-            raise ValueError("Invalid sample/source window index")
-        if predictions and (index <= predictions[-1].source_index or moment <= predictions[-1].time_s):
-            raise ValueError("Source windows and timestamps must strictly increase")
-        if error < 0 or abs(error - abs(pred-target)) > ERROR_TOLERANCE:
-            raise ValueError("Reported absolute error differs from prediction and label")
-        predictions.append(Prediction(sample, index, moment, pred, target))
-    if not predictions:
-        raise ValueError("Empty prediction CSV")
-    return predictions
+    return parse_prediction_bytes(raw)
 
 
 def summarize(rows: list[Prediction]) -> dict:
-    residuals = [row.residual_km for row in rows]
-    errors = [abs(value) for value in residuals]
-    worst = max(range(len(rows)), key=errors.__getitem__)
-    return {"samples": len(rows), "mae_km": math.fsum(errors)/len(rows),
-            "rmse_km": math.sqrt(math.fsum(value*value for value in errors)/len(rows)),
-            "bias_km": math.fsum(residuals)/len(rows), "max_error_km": errors[worst],
-            "max_error_window_center_s": rows[worst].time_s,
-            "source_segment_indices": [row.source_index for row in rows],
-            "first_window_center_s": rows[0].time_s, "last_window_center_s": rows[-1].time_s}
+    return compute_prediction_metrics(rows)
 
 
 def _verify_metrics(actual: dict, expected: dict) -> None:
@@ -235,7 +191,7 @@ def load_run(run_dir: Path, models: list[str] | None = None, *, require_pass=Tru
     report = _json(raw_report)
     if not isinstance(report, dict) or type(report.get("schema_version")) is not int or report["schema_version"] != 1:
         raise ValueError("Unsupported run report")
-    if report.get("pack", "base_pack") != "base_pack":
+    if report.get("pack", DEFAULT_PACK) != DEFAULT_PACK:
         raise ValueError("Visualization report belongs to another experiment pack")
     allowed = {"PASS"} if require_pass else {"PASS", "RUNNING"}
     if report.get("status") not in allowed or report.get("suite") not in {"selected", "smoke", "experiment"}:
@@ -297,14 +253,15 @@ def load_run(run_dir: Path, models: list[str] | None = None, *, require_pass=Tru
             path = _unique(directory/"train_outputs", "*_history_*.json")
             history = read_history(_read(path, run_dir, sources), epochs)
         results.append(ModelResult(method, model, predictions, history, sigma_search, summary))
-    base = results[0].predictions
-    for result in results[1:]:
+    base_by_method: dict[str, list[Prediction]] = {}
+    for result in results:
+        base = base_by_method.setdefault(result.method, result.predictions)
         rows = result.predictions
         if len(rows) != len(base) or any(
             a.source_index != b.source_index or abs(a.time_s-b.time_s) > TIME_TOLERANCE
             or abs(a.true_km-b.true_km) > TIME_TOLERANCE for a, b in zip(base, rows)
         ):
-            raise ValueError("Models must use identical test source windows, times and labels")
+            raise ValueError(f"Models for {result.method} must use identical test source windows, times and labels")
     if models is not None:
         # Filtering only controls rendering, after the whole recorded suite has
         # been validated. Missing or damaged unselected inputs must still fail.

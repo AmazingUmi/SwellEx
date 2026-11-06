@@ -12,6 +12,7 @@ from scripts.data_processing.input_contract import METHODS
 from scripts.network_training.catalog import ARCHITECTURES
 
 
+DEFAULT_PACK = "base_pack"
 NETWORKS = ARCHITECTURES
 
 
@@ -29,7 +30,7 @@ class Pack:
 
 
 PACKS = {
-    "base_pack": Pack("base_pack", METHODS, local_grnn=True, tag="base"),
+    DEFAULT_PACK: Pack(DEFAULT_PACK, METHODS, local_grnn=True, tag="base"),
 }
 
 

@@ -22,6 +22,10 @@ class PackArgumentParser(argparse.ArgumentParser):
                     self.error(f"option {option} may only be supplied once")
                 seen.add(option)
         result = super().parse_args(arguments, namespace)
+        if result.method and len(set(result.method)) != len(result.method):
+            self.error("duplicate --method values")
+        if result.network and len(set(result.network)) != len(result.network):
+            self.error("duplicate --network values")
         command = result.command
         allowed = {
             None: {"--preset", "--config", "--method", "--network", "--no-cache"},
@@ -36,22 +40,29 @@ class PackArgumentParser(argparse.ArgumentParser):
             self.error(f"{command or 'experiment'} does not accept {', '.join(sorted(invalid))}")
         if command in {"status", "fetch"} and result.run is None:
             self.error(f"{command} requires --run")
-        if command == "local-grnn" and (result.method is None or result.python is None):
-            self.error("local-grnn requires --method and --python")
+        if command == "local-grnn" and (
+            result.method is None or len(result.method) != 1 or result.python is None
+        ):
+            self.error("local-grnn requires a single --method and --python")
         return result
 
 
-def make_pack_parser(pack_name: str, default_config: Path,
-                     methods: tuple[str, ...], architectures: tuple[str, ...]) -> argparse.ArgumentParser:
+def make_pack_parser(
+    pack_name: str,
+    default_config: Path,
+    methods: tuple[str, ...],
+    architectures: tuple[str, ...],
+) -> argparse.ArgumentParser:
     pack = get_pack(pack_name)
     if tuple(methods) != pack.methods:
         raise ValueError(f"{pack_name} methods differ from the pack registry")
     if tuple(architectures) != pack.networks:
         raise ValueError(f"{pack_name} networks differ from the pack registry")
     parser = PackArgumentParser(
-        prog=f"./scripts/run.sh {pack_name}", allow_abbrev=False,
+        prog=f"./scripts/run.sh {pack_name}",
+        allow_abbrev=False,
         description="Start immediately, follow progress, and fetch results. The remote task survives disconnection.",
-        epilog="Omit --method or --network to select all. Epochs and seed belong in the complete TOML configuration.",
+        epilog="Omit --method or --network to use the [experiment] scope from the TOML configuration.",
     )
     parser.pack_name = pack_name
     commands = ["check", "validate", "status", "fetch"]
@@ -64,8 +75,8 @@ def make_pack_parser(pack_name: str, default_config: Path,
     default_preset = "full"
     source.add_argument("--preset", choices=tuple(presets), help=f"Bundled dataset preset (default: {default_preset})")
     source.add_argument("--config", type=Path, help="Complete custom TOML; mutually exclusive with --preset")
-    experiment.add_argument("--method", choices=methods, help="Feature selection (default: all)")
-    experiment.add_argument("--network", choices=architectures, help="Network family (default: all)")
+    experiment.add_argument("--method", nargs="+", choices=methods, help="Feature selection (default: from [experiment])")
+    experiment.add_argument("--network", nargs="+", choices=architectures, help="Network family (default: from [experiment])")
     maintenance = parser.add_argument_group("Maintenance")
     maintenance.add_argument("--suite", choices=("quick", "smoke", "experiment"), default="smoke", help="validate only (default: smoke)")
     maintenance.add_argument("--no-cache", action="store_true", help="Regenerate feature datasets")

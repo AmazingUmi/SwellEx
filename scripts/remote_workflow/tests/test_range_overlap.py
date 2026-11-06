@@ -60,6 +60,25 @@ def write_numeric_inputs(root: Path) -> None:
     np.savetxt(ctd, [[0, 0, 0, 1500, 0], [40, 0, 0, 1500, 0]])
 
 
+def _serialize_toml(config: dict) -> str:
+    lines = [f"schema_version = {config['schema_version']}"]
+    for table, values in config.items():
+        if table == "schema_version":
+            continue
+        lines.extend(("", f"[{table}]"))
+        subtables = []
+        for key, value in values.items():
+            if isinstance(value, dict):
+                subtables.append((key, value))
+            else:
+                lines.append(f"{key} = {json.dumps(value)}")
+        for subkey, subvalues in subtables:
+            lines.extend(("", f"[{table}.{subkey}]"))
+            for key, value in subvalues.items():
+                lines.append(f"{key} = {json.dumps(value)}")
+    return "\n".join(lines) + "\n"
+
+
 def write_small_config(root: Path, side: str, *, split: str = "range_overlap") -> Path:
     """Keep the complete existing workflow contract while reducing fixture size."""
     config = load_config(CONFIG_DIR / f"train_{side}.toml")
@@ -67,15 +86,15 @@ def write_small_config(root: Path, side: str, *, split: str = "range_overlap") -
     config["dataset"].update(fs=100, segment_end_s=39, half_duration_s=14,
                              gap_s=1, frequency_selection_modes=["deep"],
                              split_strategy=split)
-    config["grnn"].update(cv_folds=3, sigma_candidates=[0.01, 0.1, 1.0], batch_size=4)
-    lines = [f"schema_version = {config['schema_version']}"]
-    for table, values in config.items():
-        if table == "schema_version":
-            continue
-        lines.extend(("", f"[{table}]"))
-        lines.extend(f"{key} = {json.dumps(value)}" for key, value in values.items())
+    config["dataset"]["frequency_selection_config"].update(
+        mel_max_freq_hz=50.0,
+        adapt_max_freq_hz=50.0,
+        deep_target_freq_hz=[49.0, 50.0],
+        shallow_target_freq_hz=[49.0, 50.0],
+    )
+    config["grnn"].update(cv_folds=3, sigma_candidates=[0.01, 0.1, 1.0], batch_size=4, predict_batch_size=4)
     path = root / f"{split}_{side}.toml"
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    path.write_text(_serialize_toml(config), encoding="utf-8")
     load_config(path)
     return path
 

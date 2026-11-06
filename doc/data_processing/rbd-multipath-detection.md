@@ -1,10 +1,10 @@
 # RBD Multipath Peak Detection
 
-`feature_math.py:rbd_decompose` forms equivalent Green features from 181-angle (`-90°..90°`) Bartlett beamforming. `rbd.beam_selection="best"` uses the strongest angle; `"multipath"` aggregates accepted local peaks into `/X` (see [HDF5 datasets](hdf5-datasets-and-splits.md)).
+`feature_math.py:rbd_decompose` forms equivalent Green features from Bartlett beamforming over `rbd.{angle_min_deg,angle_max_deg,num_angles}` (preset default: 181 angles on `-90°..90°`). `rbd.beam_selection="best"` uses the strongest angle; `"multipath"` aggregates accepted local peaks into `/X` (see [HDF5 datasets](hdf5-datasets-and-splits.md)).
 
-## Standalone Generation JSON Options
+## Multipath Options (`[rbd.multipath_options]`)
 
-Workflow TOML uses the defaults below; override `rbd.multipath_options` in standalone generation JSON:
+Configure `[rbd.multipath_options]` in workflow TOML (see [workflow configuration](../remote_workflow/workflow-config.md)) or `rbd.multipath_options` in standalone generation JSON:
 
 | Parameter | Default | Constraint / meaning |
 |---|---|---|

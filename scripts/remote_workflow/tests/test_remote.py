@@ -66,8 +66,18 @@ class ConfigurationTests(unittest.TestCase):
             ("dataset", "split_strategy", "periodic"),
             ("dataset", "split_strategy", "Range_nearby"),
             ("dataset", "snapshot_overlap_count", 1),
+            ("scm", "snapshot_overlap_count", 1),
+            ("scm", "num_snapshots_per_segment", 0),
+            ("experiment", "methods", []),
+            ("experiment", "networks", []),
+            ("experiment", "methods", ["SCM", "SCM"]),
+            ("experiment", "networks", ["GRNN", "GRNN"]),
+            ("training", "val_split_mode", "invalid"),
+            ("training", "dropout", 1.0),
+            ("training", "normalize_input", 1),
             ("grnn", "cv_folds", 1),
             ("grnn", "sigma_candidates", [0.0]),
+            ("grnn", "max_reference_samples", -1),
         ]
         for table, key, value in cases:
             with self.subTest(table=table, key=key, value=value):
@@ -107,6 +117,61 @@ class ConfigurationTests(unittest.TestCase):
             candidate[table][field] = "obsolete"
             with self.subTest(table=table, field=field), self.assertRaises(ValueError):
                 config.validate_config(candidate)
+
+    def test_expanded_generation_training_and_grnn_schema_contracts(self):
+        cfg = valid_config()
+        cfg["dataset"].update(
+            event_name="S59",
+            split_strategy="range_overlap",
+            segment_start_s=-1.0,
+            segment_end_s=-1.0,
+            segment_step_s=0.5,
+            test_step_s=0.0,
+            signal_centering="per_window",
+            fft_window="hann",
+        )
+        cfg["scm"].update(num_snapshots_per_segment=5, snapshot_overlap_count=2, norm_floor=1e-10)
+        cfg["training"].update(
+            val_split_mode="blocked",
+            val_gap_s=15.0,
+            normalize_input=False,
+            predict_batch_size=32,
+            lr=1e-3,
+            weight_decay=0.0,
+            dropout=0.0,
+        )
+        cfg["grnn"].update(
+            cv_folds=0,
+            spread=0.25,
+            sigma_candidates=[],
+            standardize_input=True,
+            per_sample_channel_norm=True,
+            predict_batch_size=512,
+            max_reference_samples=100,
+            max_validation_samples=50,
+            max_predict_samples=25,
+        )
+        snapshot = copy.deepcopy(cfg)
+        self.assertEqual(config.validate_config(cfg), snapshot)
+        payload = config.generation_payload(cfg)
+        self.assertIsNone(payload["dataset"]["segment_start_s"])
+        self.assertIsNone(payload["dataset"]["segment_end_s"])
+        self.assertIsNone(payload["dataset"]["test_step_s"])
+        self.assertEqual(payload["scm"]["num_snapshots_per_segment"], 5)
+        self.assertEqual(payload["scm"]["snapshot_overlap_count"], 2)
+        self.assertEqual(cfg["dataset"]["segment_start_s"], -1.0)
+        self.assertEqual(cfg["dataset"]["test_step_s"], 0.0)
+
+        leaky_interleaved = valid_config()
+        leaky_interleaved["scm"].update(num_snapshots_per_segment=2, snapshot_overlap_count=1)
+        with self.assertRaises(ValueError):
+            config.validate_config(leaky_interleaved)
+
+        scm_only = valid_config()
+        scm_only["experiment"]["methods"] = ["SCM"]
+        scm_only["dataset"]["frequency_selection_modes"] = ["full"]
+        scm_only["rbd"]["frequency_estimation"] = "selected"
+        self.assertEqual(config.validate_config(copy.deepcopy(scm_only)), scm_only)
 
 
 class SnapshotTests(unittest.TestCase):
@@ -653,7 +718,7 @@ class UvRuntimeTests(unittest.TestCase):
             request = {"schema_version": 1, "pack": "base_pack", "run_id": RUN_ID, "suite": "quick", "config": cfg, "use_cache": True}
             manifest = {"pack": "base_pack", "run_id": RUN_ID, "suite": "quick", "git_head": "fixture", "files": [], "source_sha256": "a" * 64,
                         "config_sha256": hashlib.sha256(json.dumps(cfg, sort_keys=True).encode()).hexdigest()}
-            generation = {"schema_version": 1, "dataset": cfg["dataset"], "rbd": cfg["rbd"], "result_path": "outputs/validation/generation_result.json"}
+            generation = config.generation_payload(cfg)
             for name, value in (("request.json", request), ("manifest.json", manifest), ("generation_config.json", generation)):
                 worker.write_json(run / name, value)
             with mock.patch.object(worker, "verify_snapshot"), mock.patch.object(sys, "prefix", str(workspace / ".venv")):
@@ -676,7 +741,10 @@ class UvRuntimeTests(unittest.TestCase):
             for name in names:
                 path = raw / name
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(b"raw input identity fixture")
+                if name == "positions/positions_vla.txt":
+                    path.write_text("\n".join(f"{n} {10.0 * n}" for n in range(1, 22)) + "\n", encoding="utf-8")
+                else:
+                    path.write_bytes(b"raw input identity fixture")
             instance.project.mkdir()
             (instance.project / "Origindata").symlink_to(raw, target_is_directory=True)
             instance.config["remote"]["repository"] = str(repository)
@@ -709,6 +777,99 @@ class UvRuntimeTests(unittest.TestCase):
                 self.assertEqual(instance.data_identity()["cache_key"], previous)
                 (raw / names[2]).write_bytes(b"changed sound speed profile")
                 self.assertNotEqual(instance.data_identity()["cache_key"], previous)
+
+    def test_per_method_data_identity_and_partial_cache_reuse(self):
+        with tempfile.TemporaryDirectory(prefix="swellex-method-cache-test-") as directory:
+            run = Path(directory).resolve() / "run"
+            run.mkdir()
+            instance = worker.Worker(run)
+            instance.config = valid_config()
+            instance.config["dataset"]["test_step_s"] = 0.0
+            repository = Path(directory).resolve() / "raw_repository"
+            raw = repository / "Origindata"
+            (raw / "positions").mkdir(parents=True)
+            (raw / "positions/positions_vla.txt").write_text("1 10.0\n2 20.0\n3 30.0\n", encoding="utf-8")
+            range_path = raw / "events/range/RangeEventS5/SproulToVLA.S5.txt"
+            range_path.parent.mkdir(parents=True)
+            range_path.write_bytes(b"range fixture")
+            for n in range(1, 4):
+                mat = raw / f"events/S5/vla_matfiles/S5_VLA_NO_{n}.mat"
+                mat.parent.mkdir(parents=True, exist_ok=True)
+                mat.write_bytes(f"mat {n}".encode())
+            instance.project.mkdir()
+            instance.python = sys.executable
+            (instance.project / "Origindata").symlink_to(raw, target_is_directory=True)
+            instance.config["remote"]["repository"] = str(repository)
+            instance.config["remote"]["workspace"] = str(Path(directory).resolve() / "workspace")
+            instance.lock_hash = "a" * 64
+            instance.manifest = {"source_sha256": "f" * 64, "files": [{"path": "scripts/data_processing/generate.py", "sha256": "b" * 64}]}
+
+            # Pure-SCM selected run does not require a CTD file.
+            instance.request = {"suite": "selected", "selection": {"methods": ["SCM"], "networks": ["GRNN"]}, "use_cache": True}
+            with mock.patch.object(worker.importlib.metadata, "version", return_value="pinned"):
+                scm_only_info = instance.data_identity()
+            self.assertEqual(scm_only_info["inputs"], 5)
+            self.assertEqual(set(scm_only_info["method_cache_keys"]), {"SCM"})
+
+            # Add CTD file and compare independent RBD/SCM method cache keys.
+            ctd = raw / "environments/ctds/i9605.prn"
+            ctd.parent.mkdir(parents=True)
+            ctd.write_bytes(b"ctd v1")
+            instance.request = {"suite": "smoke", "use_cache": True}
+            with mock.patch.object(worker.importlib.metadata, "version", return_value="pinned"):
+                both_v1 = instance.data_identity()["method_cache_keys"]
+                instance.config["rbd"]["num_angles"] = 91
+                both_rbd_changed = instance.data_identity()["method_cache_keys"]
+                self.assertNotEqual(both_rbd_changed["RBD"], both_v1["RBD"])
+                self.assertEqual(both_rbd_changed["SCM"], both_v1["SCM"])
+                instance.config["scm"]["num_snapshots_per_segment"] = 3
+                both_scm_changed = instance.data_identity()["method_cache_keys"]
+                self.assertEqual(both_scm_changed["RBD"], both_rbd_changed["RBD"])
+                self.assertNotEqual(both_scm_changed["SCM"], both_rbd_changed["SCM"])
+                ctd.write_bytes(b"ctd v2")
+                both_ctd_changed = instance.data_identity()["method_cache_keys"]
+                self.assertNotEqual(both_ctd_changed["RBD"], both_scm_changed["RBD"])
+                self.assertEqual(both_ctd_changed["SCM"], both_scm_changed["SCM"])
+
+            # Populate RBD cache only, then verify datasets() reuses RBD and generates SCM only.
+            rbd_cache = instance.method_caches["RBD"]
+            rbd_cached_ds = rbd_cache / "Datasets/rbd_cached_dir"
+            rbd_cached_ds.mkdir(parents=True)
+            (rbd_cached_ds / "sample_train.h5").write_bytes(b"rbd h5")
+            worker.write_json(
+                rbd_cache / "provenance.json",
+                {
+                    "pack": "base_pack",
+                    "method": "RBD",
+                    "cache_key": instance.method_cache_keys["RBD"],
+                    "producer_run_id": "20261008T120000Z-base-full-RBD-GRNN-11111111",
+                    "source_sha256": "f" * 64,
+                    "dataset_name": "rbd_cached_dir",
+                    "files": {"sample_train.h5": worker.file_hash(rbd_cached_ds / "sample_train.h5")},
+                },
+            )
+
+            def fake_json_command(name, argv, report_path, timeout, *, env=None):
+                if name == "data_generation":
+                    scm_ds = instance.project / "outputs/Datasets/scm_generated_dir"
+                    scm_ds.mkdir(parents=True, exist_ok=True)
+                    (scm_ds / "scm_train.h5").write_bytes(b"scm h5")
+                    payload = {"status": "PASS", "datasets": {"SCM": str(scm_ds)}}
+                    worker.write_json(report_path, payload)
+                    return payload
+                payload = {"status": "PASS"}
+                worker.write_json(report_path, payload)
+                return payload
+
+            with mock.patch.object(instance, "json_command", side_effect=fake_json_command) as cmd:
+                instance.datasets()
+            gen_argv = cmd.call_args_list[0].args[1]
+            val_argv = cmd.call_args_list[1].args[1]
+            self.assertEqual(gen_argv[gen_argv.index("--method") + 1 :], ["SCM"])
+            self.assertEqual(val_argv[val_argv.index("--methods") + 1 :], ["RBD", "SCM"])
+            self.assertTrue((instance.method_caches["SCM"] / "provenance.json").is_file())
+            self.assertTrue((Path(instance.dataset_dirs["RBD"]) / "sample_train.h5").is_symlink())
+            self.assertTrue((Path(instance.dataset_dirs["SCM"]) / "scm_train.h5").is_symlink())
 
 
 class DispatchTests(unittest.TestCase):

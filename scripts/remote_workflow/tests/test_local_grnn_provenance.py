@@ -48,7 +48,7 @@ class LocalGrnnProvenanceTests(unittest.TestCase):
         original = self.run_grnn()
         directory = Path(original["dataset"]["directory"])
         metadata = json.loads(Path(original["dataset"]["metadata_file"]).read_text())
-        loaded = local_grnn.load_inputs(self.root, metadata["effective_config"])
+        loaded = local_grnn.load_inputs(self.root, metadata["effective_config"], methods=("SCM",))
         self.assertEqual(metadata["input_files"], loaded["input_files"])
         expected_raw = [local_grnn.file_record(Path(item["path"])) for item in loaded["input_files"]]
         self.assertEqual(original["raw_inputs"], expected_raw)
@@ -125,6 +125,27 @@ class LocalGrnnProvenanceTests(unittest.TestCase):
         self.assertEqual(report["status"], "FAIL")
         self.assertEqual(report["checks"][-1]["phase"], "verify_provenance")
         self.assertEqual(report["checks"][-1]["status"], "FAIL")
+
+    def test_scm_local_grnn_succeeds_without_ctd_and_supports_fixed_spread(self):
+        (self.root / "Origindata/environments/ctds/i9605.prn").unlink()
+        fixed_cfg = self.root / "fixed_scm.toml"
+        text = self.config.read_text()
+        text = text.replace("cv_folds = 3", "cv_folds = 0")
+        text = text.replace("spread = 0.01", "spread = 0.25")
+        text = text.replace("sigma_candidates = [0.01, 0.1, 1.0]", "sigma_candidates = []")
+        fixed_cfg.write_text(text, encoding="utf-8")
+        with redirect_stdout(io.StringIO()):
+            report = local_grnn.run(fixed_cfg, method="SCM", root=self.root)
+        self.assertEqual(report["status"], "PASS")
+        self.assertIsNone(report["sigma_search_path"])
+        self.assertEqual(report["reference"]["sigma"], 0.25)
+        self.assertEqual(report["reference"]["sigma_source"], "cli_spread")
+        self.assertEqual(report["evaluation_scope"]["sigma_selection"], "fixed_spread")
+        records = compare_results.run_records(self.root / "output/data" / report["run_id"], {})
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["cv_selection"], "fixed_spread")
+        self.assertEqual(records[0]["sigma"], 0.25)
+        self.assertIsNone(records[0]["cv_search"])
 
 
 if __name__ == "__main__":

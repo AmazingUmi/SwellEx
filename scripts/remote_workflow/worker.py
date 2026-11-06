@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import csv
 from datetime import datetime, timezone
 import fcntl
 import hashlib
@@ -21,12 +20,28 @@ import time
 PROJECT = Path(__file__).resolve().parents[2]
 if str(PROJECT) not in sys.path:
     sys.path.insert(0, str(PROJECT))
-from scripts.remote_workflow.config import validate_config
-from scripts.remote_workflow.run_identity import validate_filters, validate_run_identity
+from scripts.remote_workflow.config import (
+    generation_methods,
+    generation_payload,
+    validate_config,
+)
+from scripts.remote_workflow.metrics_contract import (
+    compute_prediction_metrics,
+    parse_prediction_file,
+)
+from scripts.remote_workflow.model_plan import (
+    METHODS,
+    SUITES,
+    entry_script,
+    expected_phases,
+    model_plan,
+    resolve_selection,
+)
+from scripts.remote_workflow.packs import DEFAULT_PACK
 from scripts.remote_workflow.processes import run_process
-from scripts.remote_workflow.model_plan import SUITES, entry_script, expected_phases, model_plan, resolve_selection
+from scripts.remote_workflow.run_identity import validate_filters, validate_run_identity
 
-PACK = "base_pack"
+PACK = DEFAULT_PACK
 
 
 def stamp() -> str:
@@ -70,38 +85,39 @@ def verify_snapshot(project: Path, manifest: dict) -> None:
 
 
 def prediction_metrics(csv_path: Path, expected: list[tuple[int, float, float]] | None = None) -> dict:
-    with csv_path.open(newline="", encoding="utf-8") as handle:
-        rows = list(csv.DictReader(handle))
-    if not rows:
-        raise ValueError(f"No predictions: {csv_path}")
-    errors = []
-    indices = []
-    previous_time = None
-    if expected is not None and len(expected) != len(rows):
-        raise ValueError(f"Prediction count does not match test dataset in {csv_path}")
-    for position, row in enumerate(rows):
-        pred, target, moment = (float(row[key]) for key in ("pred_range_km", "true_range_km", "window_center_s"))
-        reported_error = float(row["abs_error_km"])
-        if not all(math.isfinite(x) for x in (pred, target, moment, reported_error)):
-            raise ValueError(f"Nonfinite predictions in {csv_path}")
-        error = abs(pred - target)
-        if reported_error < 0 or abs(error - reported_error) > 2.1e-6:
-            raise ValueError(f"Prediction error column does not match values in {csv_path}")
-        index = int(row["source_segment_idx"])
-        if int(row["sample"]) != position or index < 1 or (indices and index <= indices[-1]):
-            raise ValueError(f"Prediction sample/source indices are invalid in {csv_path}")
-        if previous_time is not None and moment <= previous_time:
-            raise ValueError(f"Prediction timestamps are not increasing in {csv_path}")
-        previous_time = moment
-        if expected is not None:
-            expected_index, expected_time, expected_target = expected[position]
-            if index != expected_index or abs(moment-expected_time) > 1.1e-6 or abs(target-expected_target) > 1.1e-6:
-                raise ValueError(f"Prediction rows differ from the test dataset in {csv_path}")
-        errors.append(error)
-        indices.append(index)
-    worst = max(range(len(rows)), key=errors.__getitem__)
-    return {"samples": len(rows), "mae_km": sum(errors) / len(rows), "rmse_km": math.sqrt(sum(x*x for x in errors) / len(rows)), "max_error_km": errors[worst], "max_error_window_center_s": float(rows[worst]["window_center_s"]), "source_segment_indices": indices}
+    return compute_prediction_metrics(parse_prediction_file(csv_path, expected=expected))
 
+
+def _count_vla_elements(positions_path: Path) -> int:
+    if not positions_path.is_file():
+        raise ValueError(f"Missing VLA positions file: {positions_path}")
+    rows = 0
+    for raw_line in positions_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        parts = line.split()
+        if len(parts) < 2:
+            raise ValueError(f"VLA positions row requires at least two columns: {positions_path}")
+        try:
+            values = (float(parts[0]), float(parts[1]))
+        except ValueError as exc:
+            raise ValueError(f"Invalid numeric VLA position in {positions_path}") from exc
+        if not all(math.isfinite(v) for v in values):
+            raise ValueError(f"Nonfinite VLA position value in {positions_path}")
+        rows += 1
+    if rows < 2:
+        raise ValueError(f"VLA positions need at least two finite channel/depth rows: {positions_path}")
+    return rows
+
+
+def _link_cached_files(cached_dir: Path, target_dir: Path) -> None:
+    target_dir.mkdir(parents=True, exist_ok=False)
+    for item in sorted(cached_dir.rglob("*")):
+        if item.is_file():
+            dest = target_dir / item.relative_to(cached_dir)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.symlink_to(item)
 
 
 def workspace_environment(config: dict, lock_hash: str) -> Path:
@@ -113,7 +129,13 @@ class Worker:
         self.run = run.resolve()
         self.project = self.run / "project"
         self.report = {"schema_version": 1, "pack": PACK, "run_id": self.run.name, "status": "RUNNING", "started_at": stamp(), "checks": [], "purpose": "engineering_validation"}
+        self.request = None
         self.config = None
+        self.required_methods = list(METHODS)
+        self.cache_key = None
+        self.method_cache_keys: dict[str, str] = {}
+        self.method_caches: dict[str, Path] = {}
+        self.dataset_dirs: dict[str, str] = {}
         self.env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONUNBUFFERED": "1", "MPLBACKEND": "Agg"}
 
     def save(self) -> None:
@@ -128,13 +150,13 @@ class Worker:
         print(f"START {name}", flush=True)
         try:
             value = action()
-            row.update(status="PASS", elapsed_s=round(time.monotonic()-started, 3))
+            row.update(status="PASS", elapsed_s=round(time.monotonic() - started, 3))
             if isinstance(value, dict):
                 row["result"] = value
             print(f"PASS {name}", flush=True)
             return value
         except BaseException as exc:
-            row.update(status="FAIL", detail=str(exc), elapsed_s=round(time.monotonic()-started, 3))
+            row.update(status="FAIL", detail=str(exc), elapsed_s=round(time.monotonic() - started, 3))
             raise
         finally:
             row["finished_at"] = stamp()
@@ -192,17 +214,19 @@ class Worker:
         if config_hash != manifest["config_sha256"]:
             raise ValueError("Request configuration hash mismatch")
         verify_snapshot(self.project, manifest)
+        plan = model_plan(request["suite"], request.get("selection"))
+        self.required_methods = [m for m in METHODS if any(job["method"] == m for job in plan)]
         generation = json.loads((self.run / "generation_config.json").read_text())
-        expected_generation = {"schema_version": 1, "dataset": self.config["dataset"], "rbd": self.config["rbd"], "result_path": "outputs/validation/generation_result.json"}
+        expected_generation = generation_payload(self.config, methods=generation_methods(self.config, plan))
         if generation != expected_generation:
             raise ValueError("Generation configuration differs from the frozen request")
         self.manifest = manifest
         self.report.update(suite=request["suite"], source_sha256=manifest["source_sha256"], git_head=manifest["git_head"], config_sha256=config_hash,
-                           model_plan=model_plan(request["suite"], request.get("selection")))
+                           model_plan=plan)
         if request["suite"] == "experiment":
             self.report["purpose"] = "configured_experiment_without_accuracy_acceptance_threshold"
         elif request["suite"] == "selected":
-            self.report.update(selection=dict(request["selection"]), purpose="configured_model_selection_without_accuracy_acceptance_threshold")
+            self.report.update(selection=validate_filters(PACK, request["selection"]), purpose="configured_model_selection_without_accuracy_acceptance_threshold")
         threads = str(self.config["validation"]["threads"])
         self.env.update(OMP_NUM_THREADS=threads, MKL_NUM_THREADS=threads, OPENBLAS_NUM_THREADS=threads)
         self.python = sys.executable
@@ -229,64 +253,264 @@ class Worker:
         raw = Path(self.config["remote"]["repository"]) / "Origindata"
         if (self.project / "Origindata").resolve() != raw.resolve():
             raise ValueError("Snapshot original-data link has an unexpected target")
-        relative = ["positions/positions_vla.txt", "events/range/RangeEventS5/SproulToVLA.S5.txt", "environments/ctds/i9605.prn"]
-        channels = sorted((raw / "events/S5/vla_matfiles").glob("S5_VLA_NO_*.mat"))
-        if len(channels) != 21:
-            raise ValueError(f"Expected 21 S5 VLA MAT files, found {len(channels)}")
-        relative += [p.relative_to(raw).as_posix() for p in channels]
-        inputs = [{"path": name, "size": (raw/name).stat().st_size, "sha256": file_hash(raw/name)} for name in relative]
-        generation_sources = [item for item in self.manifest["files"] if item["path"].endswith(".py") and "tests" not in PurePosixPath(item["path"]).parts and item["path"].startswith("scripts/data_processing/")]
+        if self.request is not None:
+            plan = model_plan(self.request["suite"], self.request.get("selection"))
+            self.required_methods = [m for m in METHODS if any(job["method"] == m for job in plan)] or list(METHODS)
+        else:
+            self.required_methods = list(METHODS)
+        num_elements = _count_vla_elements(raw / "positions/positions_vla.txt")
+        event = self.config["dataset"]["event_name"]
+        channels = sorted((raw / f"events/{event}/vla_matfiles").glob(f"{event}_VLA_NO_*.mat"))
+        if len(channels) != num_elements:
+            raise ValueError(f"Expected {num_elements} {event} VLA MAT files, found {len(channels)}")
+        base_relative = [
+            "positions/positions_vla.txt",
+            f"events/range/RangeEvent{event}/SproulToVLA.{event}.txt",
+            *(p.relative_to(raw).as_posix() for p in channels),
+        ]
+        resolved_raw = raw.resolve()
+        for name in base_relative:
+            candidate = raw / name
+            if not candidate.is_file() or not candidate.resolve().is_relative_to(resolved_raw):
+                raise ValueError(f"Missing or external raw input: {name}")
+        base_inputs = [{"path": name, "size": (raw / name).stat().st_size, "sha256": file_hash(raw / name)} for name in base_relative]
+        if "RBD" in self.required_methods:
+            ctd_rel = f"environments/ctds/{self.config['dataset']['ctd_file']}"
+            ctd_path = raw / ctd_rel
+            if not ctd_path.is_file() or not ctd_path.resolve().is_relative_to(resolved_raw):
+                raise ValueError(f"Missing or external CTD profile: {ctd_rel}")
+            ctd_input = {"path": ctd_rel, "size": ctd_path.stat().st_size, "sha256": file_hash(ctd_path)}
+            rbd_inputs = [base_inputs[0], base_inputs[1], ctd_input, *base_inputs[2:]]
+            all_inputs = rbd_inputs
+        else:
+            rbd_inputs = []
+            all_inputs = base_inputs
+
+        generation_sources = [
+            item for item in self.manifest["files"]
+            if item["path"].endswith(".py")
+            and "tests" not in PurePosixPath(item["path"]).parts
+            and item["path"].startswith("scripts/data_processing/")
+        ]
         shared_validators = {"scripts/network_training/common/h5_utils.py"}
-        validator = [item for item in self.manifest["files"]
-                     if item["path"].endswith(".py") and "tests" not in PurePosixPath(item["path"]).parts
-                     and (item["path"].startswith("scripts/remote_workflow/validation/")
-                          or item["path"] in shared_validators)]
-        cache_identity = {"schema_version": 1, "pack": PACK, "dataset": self.config["dataset"], "rbd": self.config["rbd"], "inputs": inputs, "generator_sources": generation_sources, "validator_sources": validator, "uv_lock_sha256": self.lock_hash, "numerical_dependencies": {name: importlib.metadata.version(name) for name in ("numpy", "scipy", "h5py")}}
-        key = hashlib.sha256(json.dumps(cache_identity, sort_keys=True).encode()).hexdigest()
-        write_json(self.run / "data_identity.json", {"cache_key": key, **cache_identity})
+        validator = [
+            item for item in self.manifest["files"]
+            if item["path"].endswith(".py")
+            and "tests" not in PurePosixPath(item["path"]).parts
+            and (item["path"].startswith("scripts/remote_workflow/validation/") or item["path"] in shared_validators)
+        ]
+        normalized = generation_payload(self.config, methods=self.required_methods)
+        num_deps = {name: importlib.metadata.version(name) for name in ("numpy", "scipy", "h5py")}
+
+        method_identities: dict[str, dict] = {}
+        method_keys: dict[str, str] = {}
+        for method in self.required_methods:
+            if method == "RBD":
+                m_dataset = dict(normalized["dataset"])
+                m_estimator = {"rbd": normalized["rbd"]}
+                m_inputs = rbd_inputs
+            else:
+                m_dataset = {k: v for k, v in normalized["dataset"].items() if k != "ctd_file"}
+                m_estimator = {"scm": normalized["scm"]}
+                m_inputs = base_inputs
+            m_identity = {
+                "schema_version": 1,
+                "pack": PACK,
+                "method": method,
+                "dataset": m_dataset,
+                **m_estimator,
+                "inputs": m_inputs,
+                "generator_sources": generation_sources,
+                "validator_sources": validator,
+                "uv_lock_sha256": self.lock_hash,
+                "numerical_dependencies": num_deps,
+            }
+            method_identities[method] = m_identity
+            method_keys[method] = hashlib.sha256(json.dumps(m_identity, sort_keys=True).encode()).hexdigest()
+
+        overall = {
+            "schema_version": 1,
+            "pack": PACK,
+            "methods": self.required_methods,
+            "method_cache_keys": method_keys,
+            "method_identities": method_identities,
+        }
+        key = hashlib.sha256(json.dumps(overall, sort_keys=True).encode()).hexdigest()
+        write_json(
+            self.run / "data_identity.json",
+            {
+                "schema_version": 1,
+                "pack": PACK,
+                "cache_key": key,
+                "methods": self.required_methods,
+                "method_cache_keys": method_keys,
+                "inputs": all_inputs,
+                "method_identities": method_identities,
+                "generator_sources": generation_sources,
+                "validator_sources": validator,
+                "uv_lock_sha256": self.lock_hash,
+                "numerical_dependencies": num_deps,
+            },
+        )
+        workspace_datasets = Path(self.config["remote"]["workspace"]) / "datasets"
         self.cache_key = key
-        self.cache = Path(self.config["remote"]["workspace"]) / "datasets" / key
-        return {"inputs": len(inputs), "cache_key": key}
+        self.cache = workspace_datasets / key
+        self.method_cache_keys = method_keys
+        self.method_caches = {m: workspace_datasets / m / m_key for m, m_key in method_keys.items()}
+        return {"inputs": len(all_inputs), "cache_key": key, "method_cache_keys": method_keys}
 
     def datasets(self) -> dict:
         root = self.project / "outputs/Datasets"
-        root.parent.mkdir(parents=True, exist_ok=True)
+        root.mkdir(parents=True, exist_ok=True)
         generation_report = self.project / "outputs/validation/generation_result.json"
-        cached = self.request["use_cache"] and (self.cache / "provenance.json").is_file()
-        if cached:
-            provenance = json.loads((self.cache / "provenance.json").read_text())
-            if provenance.get("pack") != PACK or provenance["cache_key"] != self.cache_key:
-                raise ValueError("Dataset cache identity mismatch")
-            cached_root = self.cache / "Datasets"
-            if cached_root.resolve() != cached_root or not cached_root.is_dir():
-                raise ValueError("Invalid cached dataset directory")
-            current = {p.relative_to(cached_root).as_posix(): file_hash(p) for p in cached_root.rglob("*") if p.is_file()}
-            if current != provenance["files"]:
-                raise ValueError("Dataset cache content hash mismatch; use --no-cache to regenerate")
-            root.symlink_to(cached_root, target_is_directory=True)
-            dirs = {method: str(root / name) for method, name in provenance["dataset_names"].items()}
-            self.report["dataset_cache"] = {"reused": True, "producer_run_id": provenance["producer_run_id"], "cache_key": self.cache_key}
-            self.report["checks"].append({"name": "data_generation", "status": "SKIP", "detail": f"Reusing hash-verified datasets from {provenance['producer_run_id']}"})
+        dirs: dict[str, str] = {}
+        reused_methods: dict[str, str] = {}
+
+        if self.request["use_cache"]:
+            for method in self.required_methods:
+                m_cache = self.method_caches[method]
+                prov_path = m_cache / "provenance.json"
+                if not prov_path.is_file():
+                    continue
+                provenance = json.loads(prov_path.read_text())
+                if (
+                    provenance.get("pack") != PACK
+                    or provenance.get("method") != method
+                    or provenance.get("cache_key") != self.method_cache_keys[method]
+                ):
+                    raise ValueError(f"Dataset cache identity mismatch for {method}")
+                dataset_name = provenance.get("dataset_name")
+                if (
+                    not isinstance(dataset_name, str)
+                    or not dataset_name
+                    or "/" in dataset_name
+                    or dataset_name in {".", ".."}
+                ):
+                    raise ValueError(f"Invalid cached dataset name for {method}")
+                cached_dir = m_cache / "Datasets" / dataset_name
+                if cached_dir.resolve() != cached_dir or not cached_dir.is_dir():
+                    raise ValueError(f"Invalid cached dataset directory for {method}")
+                current = {
+                    p.relative_to(cached_dir).as_posix(): file_hash(p)
+                    for p in cached_dir.rglob("*")
+                    if p.is_file()
+                }
+                if not current or current != provenance.get("files"):
+                    raise ValueError(f"Dataset cache content hash mismatch for {method}; use --no-cache to regenerate")
+                target_dir = root / dataset_name
+                _link_cached_files(cached_dir, target_dir)
+                dirs[method] = str(target_dir)
+                reused_methods[method] = provenance["producer_run_id"]
+
+        missing = [m for m in self.required_methods if m not in dirs]
+        if not missing:
+            detail = "Reusing hash-verified datasets: " + ", ".join(
+                f"{m} from {reused_methods[m]}" for m in self.required_methods
+            )
+            self.report["checks"].append({"name": "data_generation", "status": "SKIP", "detail": detail})
         else:
-            self.phase("data_generation", lambda: self.json_command("data_generation", [self.python, "-B", str(self.project / "scripts/data_processing/generate.py"), "--config", str(self.run / "generation_config.json")], generation_report, self.config["validation"]["generation_timeout_s"]))
+            self.phase(
+                "data_generation",
+                lambda: self.json_command(
+                    "data_generation",
+                    [
+                        self.python,
+                        "-B",
+                        str(self.project / "scripts/data_processing/generate.py"),
+                        "--config",
+                        str(self.run / "generation_config.json"),
+                        "--method",
+                        *missing,
+                    ],
+                    generation_report,
+                    self.config["validation"]["generation_timeout_s"],
+                ),
+            )
             generated = json.loads(generation_report.read_text())
-            dirs = generated["datasets"]
-            self.report["dataset_cache"] = {"reused": False, "producer_run_id": self.run.name, "cache_key": self.cache_key}
-        if set(dirs) != {"RBD", "SCM"}:
-            raise ValueError("Generation must produce RBD and SCM directories")
+            gen_dirs = generated.get("datasets", {})
+            if set(gen_dirs) != set(missing):
+                raise ValueError(f"Generation expected {missing}, produced {sorted(gen_dirs)}")
+            for method, value in gen_dirs.items():
+                if not Path(value).resolve().is_relative_to(root.resolve()):
+                    raise ValueError("Generated dataset path is outside dataset root")
+                dirs[method] = value
+
+        if set(dirs) != set(self.required_methods):
+            raise ValueError(f"Dataset directories {sorted(dirs)} do not match required {self.required_methods}")
         for value in dirs.values():
             if not Path(value).resolve().is_relative_to(root.resolve()):
-                raise ValueError("Generated dataset path is outside dataset root")
-        self.dataset_dirs = dirs
+                raise ValueError("Dataset path is outside dataset root")
+
+        producer = (
+            next(iter(reused_methods.values()))
+            if not missing and len(set(reused_methods.values())) == 1
+            else self.run.name
+        )
+        self.report["dataset_cache"] = {
+            "reused": not missing,
+            "reused_methods": reused_methods,
+            "generated_methods": missing,
+            "producer_run_id": producer,
+            "cache_key": self.cache_key,
+            "method_cache_keys": self.method_cache_keys,
+        }
+        self.dataset_dirs = {m: dirs[m] for m in self.required_methods}
         report_path = self.run / "reports/datasets.json"
-        result = self.phase("dataset_contract", lambda: self.json_command("dataset_contract", [self.python, "-B", str(self.project / "scripts/data_processing/validate.py"), "datasets", "--root", str(root), "--report", str(report_path), "--expected-config", str(self.run / "generation_config.json")], report_path, self.config["validation"]["quick_timeout_s"]))
-        if not cached and self.request["use_cache"] and not self.cache.exists():
-            self.cache.mkdir(parents=True)
-            shutil.move(str(root), str(self.cache / "Datasets"))
-            root.symlink_to(self.cache / "Datasets", target_is_directory=True)
-            provenance = {"pack": PACK, "cache_key": self.cache_key, "producer_run_id": self.run.name, "source_sha256": self.manifest["source_sha256"], "dataset_names": {m: Path(p).relative_to(root).as_posix() for m,p in dirs.items()}, "files": {p.relative_to(self.cache / "Datasets").as_posix(): file_hash(p) for p in (self.cache / "Datasets").rglob("*") if p.is_file()}}
-            write_json(self.cache / "provenance.json", provenance)
-        self.report["dataset_directories"] = dirs
+        result = self.phase(
+            "dataset_contract",
+            lambda: self.json_command(
+                "dataset_contract",
+                [
+                    self.python,
+                    "-B",
+                    str(self.project / "scripts/data_processing/validate.py"),
+                    "datasets",
+                    "--root",
+                    str(root),
+                    "--report",
+                    str(report_path),
+                    "--expected-config",
+                    str(self.run / "generation_config.json"),
+                    "--methods",
+                    *self.required_methods,
+                ],
+                report_path,
+                self.config["validation"]["quick_timeout_s"],
+            ),
+        )
+        if self.request["use_cache"]:
+            for method in missing:
+                m_cache = self.method_caches[method]
+                src_dir = Path(dirs[method])
+                dataset_name = src_dir.name
+                if m_cache.exists():
+                    continue
+                staging = m_cache.with_name(f"{m_cache.name}.tmp.{os.getpid()}")
+                if staging.exists():
+                    shutil.rmtree(staging)
+                (staging / "Datasets").mkdir(parents=True)
+                shutil.move(str(src_dir), str(staging / "Datasets" / dataset_name))
+                cached_target = staging / "Datasets" / dataset_name
+                files_hashes = {
+                    p.relative_to(cached_target).as_posix(): file_hash(p)
+                    for p in cached_target.rglob("*")
+                    if p.is_file()
+                }
+                provenance = {
+                    "pack": PACK,
+                    "method": method,
+                    "cache_key": self.method_cache_keys[method],
+                    "producer_run_id": self.run.name,
+                    "source_sha256": self.manifest["source_sha256"],
+                    "dataset_name": dataset_name,
+                    "files": files_hashes,
+                }
+                write_json(staging / "provenance.json", provenance)
+                m_cache.parent.mkdir(parents=True, exist_ok=True)
+                staging.replace(m_cache)
+                _link_cached_files(m_cache / "Datasets" / dataset_name, src_dir)
+
+        self.report["dataset_directories"] = self.dataset_dirs
         self.save()
         return result
 
@@ -296,7 +520,51 @@ class Worker:
         output = self.project / "outputs/networks_results" / method
         entry = str(self.project / entry_script(resolve_selection(method, "complex_CNN")))
         name = f"{method}_{model}"
-        train_args = [self.python, "-B", entry, "train", "--method", method, "--model", model, "--data", data, "--output-dir", str(output), "--no-resume", "--epochs", str(cfg["epochs"]), "--batch-size", str(cfg["batch_size"]), "--base-channels", str(cfg["base_channels"]), "--loss-space", cfg["loss_space"], "--huber-beta", str(cfg["huber_beta"]), "--val-fraction", str(cfg["val_fraction"]), "--seed", str(v["seed"]), "--device", v["device"], "--num-workers", "0"]
+        train_args = [
+            self.python,
+            "-B",
+            entry,
+            "train",
+            "--method",
+            method,
+            "--model",
+            model,
+            "--data",
+            data,
+            "--output-dir",
+            str(output),
+            "--no-resume",
+            "--epochs",
+            str(cfg["epochs"]),
+            "--batch-size",
+            str(cfg["batch_size"]),
+            "--lr",
+            str(cfg["lr"]),
+            "--weight-decay",
+            str(cfg["weight_decay"]),
+            "--base-channels",
+            str(cfg["base_channels"]),
+            "--dropout",
+            str(cfg["dropout"]),
+            "--loss-space",
+            cfg["loss_space"],
+            "--huber-beta",
+            str(cfg["huber_beta"]),
+            "--val-split-mode",
+            cfg["val_split_mode"],
+            "--val-fraction",
+            str(cfg["val_fraction"]),
+            "--val-gap-s",
+            str(cfg["val_gap_s"]),
+            "--seed",
+            str(v["seed"]),
+            "--num-workers",
+            str(cfg["num_workers"]),
+            "--device",
+            v["device"],
+        ]
+        if not cfg["normalize_input"]:
+            train_args.append("--no-input-norm")
         self.phase(f"train_{name}", lambda: self.command(f"train_{name}", train_args, v["training_timeout_s"]))
         checkpoints = sorted((output / model / "train_outputs").glob("*_best_*.pt"))
         if len(checkpoints) != 1:
@@ -305,13 +573,38 @@ class Worker:
         if len(histories) != 1:
             raise ValueError(f"Expected one training history for {name}")
         history = json.loads(histories[0].read_text())
-        if len(history) != cfg["epochs"] or [row["epoch"] for row in history] != list(range(1, cfg["epochs"]+1)):
+        if len(history) != cfg["epochs"] or [row["epoch"] for row in history] != list(range(1, cfg["epochs"] + 1)):
             raise ValueError(f"Unexpected training epoch history for {name}")
         for row in history:
             for key in ("train_loss", "val_loss", "train_mae_km", "val_mae_km", "val_rmse_km"):
                 if not math.isfinite(row[key]):
                     raise ValueError(f"Nonfinite training metric {key} for {name}")
-        self.phase(f"predict_{name}", lambda: self.command(f"predict_{name}", [self.python, "-B", entry, "predict", "--method", method, "--model", model, "--data", data, "--output-dir", str(output), "--checkpoint", str(checkpoints[0]), "--batch-size", str(cfg["batch_size"]), "--device", v["device"], "--print-first", "0", "--no-plot"], v["training_timeout_s"]))
+        predict_args = [
+            self.python,
+            "-B",
+            entry,
+            "predict",
+            "--method",
+            method,
+            "--model",
+            model,
+            "--data",
+            data,
+            "--output-dir",
+            str(output),
+            "--checkpoint",
+            str(checkpoints[0]),
+            "--batch-size",
+            str(cfg["predict_batch_size"]),
+            "--num-workers",
+            str(cfg["num_workers"]),
+            "--device",
+            v["device"],
+            "--print-first",
+            "0",
+            "--no-plot",
+        ]
+        self.phase(f"predict_{name}", lambda: self.command(f"predict_{name}", predict_args, v["training_timeout_s"]))
         csvs = list((output / model / "test_outputs").glob("*_predictions_*.csv"))
         if len(csvs) != 1:
             raise ValueError(f"Expected one prediction CSV for {name}")
@@ -326,15 +619,75 @@ class Worker:
         output = self.project / "outputs/networks_results" / method
         entry = str(self.project / entry_script(selection))
         build_name, predict_name = f"grnn_{method}_build", f"grnn_{method}_predict"
-        self.phase(build_name, lambda: self.command(build_name, [self.python, "-B", entry, "build", "--method", method, "--data", data, "--output-dir", str(output), "--cv-folds", str(g["cv_folds"]), "--sigma-candidates", *map(str, g["sigma_candidates"]), "--seed", str(v["seed"]), "--batch-size", str(g["batch_size"]), "--device", v["device"]], v["training_timeout_s"]))
+        build_args = [
+            self.python,
+            "-B",
+            entry,
+            "build",
+            "--method",
+            method,
+            "--data",
+            data,
+            "--output-dir",
+            str(output),
+            "--cv-folds",
+            str(g["cv_folds"]),
+            "--spread",
+            str(g["spread"]),
+        ]
+        if g["sigma_candidates"]:
+            build_args.extend(["--sigma-candidates", *map(str, g["sigma_candidates"])])
+        build_args.extend([
+            "--seed",
+            str(v["seed"]),
+            "--batch-size",
+            str(g["batch_size"]),
+            "--device",
+            v["device"],
+        ])
+        if g["standardize_input"]:
+            build_args.append("--standardize-input")
+        if g["per_sample_channel_norm"]:
+            build_args.append("--per-sample-channel-norm")
+        if g["max_reference_samples"] > 0:
+            build_args.extend(["--max-reference-samples", str(g["max_reference_samples"])])
+        if g["max_validation_samples"] > 0:
+            build_args.extend(["--max-validation-samples", str(g["max_validation_samples"])])
+        self.phase(build_name, lambda: self.command(build_name, build_args, v["training_timeout_s"]))
         references = list((output / model / "reference_outputs").glob("*_reference_*.pt"))
         if len(references) != 1:
             raise ValueError("Expected one GRNN reference artifact")
-        self.phase(predict_name, lambda: self.command(predict_name, [self.python, "-B", entry, "predict", "--method", method, "--data", data, "--output-dir", str(output), "--reference", str(references[0]), "--batch-size", str(g["batch_size"]), "--device", v["device"], "--print-first", "0", "--no-plot"], v["training_timeout_s"]))
+        predict_args = [
+            self.python,
+            "-B",
+            entry,
+            "predict",
+            "--method",
+            method,
+            "--data",
+            data,
+            "--output-dir",
+            str(output),
+            "--reference",
+            str(references[0]),
+            "--batch-size",
+            str(g["predict_batch_size"]),
+            "--device",
+            v["device"],
+            "--print-first",
+            "0",
+            "--no-plot",
+        ]
+        if g["max_predict_samples"] > 0:
+            predict_args.extend(["--max-predict-samples", str(g["max_predict_samples"])])
+        self.phase(predict_name, lambda: self.command(predict_name, predict_args, v["training_timeout_s"]))
         csvs = list((output / model / "test_outputs").glob("*_predictions_*.csv"))
         if len(csvs) != 1:
             raise ValueError("Expected one GRNN prediction CSV")
-        return {"method": method, "model": model, "reference": str(references[0]), **prediction_metrics(csvs[0], self.test_rows(data))}
+        expected_test = self.test_rows(data)
+        if g["max_predict_samples"] > 0:
+            expected_test = expected_test[: g["max_predict_samples"]]
+        return {"method": method, "model": model, "reference": str(references[0]), **prediction_metrics(csvs[0], expected_test)}
 
     def test_rows(self, dataset_dir: str) -> list[tuple[int, float, float]]:
         import h5py
@@ -361,13 +714,64 @@ class Worker:
 
     def checkpoint_resume(self) -> None:
         # Isolated second output verifies actual optimizer/scheduler/checkpoint restore.
+        plan = model_plan(self.request["suite"], self.request.get("selection"))
+        job = next((item for item in plan if item["architecture"] != "GRNN"), None)
+        if job is None:
+            raise ValueError("Checkpoint resume requires at least one neural model in the execution plan")
+        method, model = job["method"], job["model"]
         cfg, v = self.config["training"], self.config["validation"]
-        source = self.project / "outputs/networks_results/RBD/complex_cnn_range/train_outputs"
+        source = self.project / "outputs/networks_results" / method / model / "train_outputs"
         last = list(source.glob("*_last_*.pt"))
         if len(last) != 1:
             raise ValueError("Expected one last checkpoint for resume validation")
-        target = self.project / "outputs/resume_validation/RBD"
-        self.command("checkpoint_resume", [self.python, "-B", str(self.project / entry_script(resolve_selection("RBD", "complex_CNN"))), "train", "--method", "RBD", "--model", "complex_cnn_range", "--data", self.dataset_dirs["RBD"], "--output-dir", str(target), "--resume-checkpoint", str(last[0]), "--epochs", "1", "--batch-size", str(cfg["batch_size"]), "--seed", str(v["seed"]), "--loss-space", cfg["loss_space"], "--huber-beta", str(cfg["huber_beta"]), "--val-fraction", str(cfg["val_fraction"]), "--device", v["device"]], v["training_timeout_s"])
+        target = self.project / "outputs/resume_validation" / method
+        resume_args = [
+            self.python,
+            "-B",
+            str(self.project / entry_script(job)),
+            "train",
+            "--method",
+            method,
+            "--model",
+            model,
+            "--data",
+            self.dataset_dirs[method],
+            "--output-dir",
+            str(target),
+            "--resume-checkpoint",
+            str(last[0]),
+            "--epochs",
+            "1",
+            "--batch-size",
+            str(cfg["batch_size"]),
+            "--lr",
+            str(cfg["lr"]),
+            "--weight-decay",
+            str(cfg["weight_decay"]),
+            "--base-channels",
+            str(cfg["base_channels"]),
+            "--dropout",
+            str(cfg["dropout"]),
+            "--loss-space",
+            cfg["loss_space"],
+            "--huber-beta",
+            str(cfg["huber_beta"]),
+            "--val-split-mode",
+            cfg["val_split_mode"],
+            "--val-fraction",
+            str(cfg["val_fraction"]),
+            "--val-gap-s",
+            str(cfg["val_gap_s"]),
+            "--seed",
+            str(v["seed"]),
+            "--num-workers",
+            str(cfg["num_workers"]),
+            "--device",
+            v["device"],
+        ]
+        if not cfg["normalize_input"]:
+            resume_args.append("--no-input-norm")
+        self.command("checkpoint_resume", resume_args, v["training_timeout_s"])
         import torch
         resumed_paths = list(target.rglob("*_last_*.pt"))
         if len(resumed_paths) != 1:
@@ -452,16 +856,19 @@ class Worker:
                 self.phase("original_data_identity", self.data_identity)
                 self.datasets()
                 metrics = []
-                for job in model_plan(suite, selection):
+                plan = model_plan(suite, selection)
+                for job in plan:
                     method, model = job["method"], job["model"]
                     if job["architecture"] == "GRNN":
                         metrics.append(self.phase(f"evaluate_{method}_{model}", lambda m=method: self.grnn(m)))
                     else:
-                        metrics.append(self.phase(f"evaluate_{method}_{model}", lambda m=method,n=model: self.train_predict(m,n)))
-                expected_indices = metrics[0]["source_segment_indices"]
-                if any(row["source_segment_indices"] != expected_indices for row in metrics):
-                    raise ValueError("Models did not evaluate the same test source windows")
-                if suite in {"smoke", "experiment"}:
+                        metrics.append(self.phase(f"evaluate_{method}_{model}", lambda m=method, n=model: self.train_predict(m, n)))
+                indices_by_method: dict[str, list[int]] = {}
+                for row in metrics:
+                    expected_indices = indices_by_method.setdefault(row["method"], row["source_segment_indices"])
+                    if row["source_segment_indices"] != expected_indices:
+                        raise ValueError(f"{row['method']} models did not evaluate the same test source windows")
+                if suite in {"smoke", "experiment"} and any(item["architecture"] != "GRNN" for item in plan):
                     self.phase("checkpoint_resume", self.checkpoint_resume)
                 self.report["metrics"] = metrics
                 self.save()
@@ -475,7 +882,7 @@ class Worker:
             print(self.report["error"], flush=True)
         finally:
             completed = {row["name"] for row in self.report["checks"]}
-            self.report["not_run"] = sorted(planned_phases-completed)
+            self.report["not_run"] = sorted(planned_phases - completed)
             self.report["finished_at"] = stamp()
             terminal = self.report["status"]
             self.report["status"] = "EXPORTING"

@@ -35,6 +35,15 @@ def train(args: argparse.Namespace, bindings: MethodBindings) -> None:
         raise ValueError("epochs/batch_size must be positive and num_workers nonnegative.")
     if not math.isfinite(args.val_fraction) or not 0 < args.val_fraction < 1:
         raise ValueError("val_fraction must be finite and strictly between 0 and 1.")
+    val_split_mode = getattr(args, "val_split_mode", "random")
+    raw_val_gap_s = getattr(args, "val_gap_s", 0.0)
+    if isinstance(raw_val_gap_s, bool):
+        raise ValueError("val_gap_s must be finite and nonnegative.")
+    val_gap_s = float(raw_val_gap_s)
+    if val_split_mode not in {"random", "blocked"}:
+        raise ValueError("val_split_mode must be 'random' or 'blocked'.")
+    if not math.isfinite(val_gap_s) or val_gap_s < 0.0:
+        raise ValueError("val_gap_s must be finite and nonnegative.")
     for key in ("lr", "weight_decay", "dropout", "huber_beta"):
         if not math.isfinite(getattr(args, key)):
             raise ValueError(f"{key} must be finite.")
@@ -56,10 +65,8 @@ def train(args: argparse.Namespace, bindings: MethodBindings) -> None:
 
     if args.train_data is None:
         train_paths = resolve_h5_paths([dataset_train_glob(args.data)])
-        split_mode = "dataset_train_random_split"
     else:
         train_paths = resolve_h5_paths(args.train_data)
-        split_mode = "explicit_train_data_random_split"
 
     if args.val_data is None:
         val_paths = resolve_h5_paths([dataset_val_glob(args.data)], required=False)
@@ -69,10 +76,6 @@ def train(args: argparse.Namespace, bindings: MethodBindings) -> None:
         val_paths = resolve_h5_paths(args.val_data)
 
     source_paths = train_paths if not val_paths else [*train_paths, *val_paths]
-    if val_paths:
-        split_mode = "dataset_explicit_train_val_split"
-        if args.train_data is not None or args.val_data is not None:
-            split_mode = "explicit_train_val_split"
 
     if resume_checkpoint is None:
         input_normalized = (not args.no_input_norm) and bindings.model.model_uses_dataset_input_norm(
@@ -81,15 +84,38 @@ def train(args: argparse.Namespace, bindings: MethodBindings) -> None:
     else:
         input_normalized = resume_checkpoint["input_normalized_per_sample"]
     if val_paths is None:
-        data_bundle = bindings.data.random_split_bundle(
-            bindings.dataset_class,
-            train_paths,
-            normalize_input=input_normalized,
-            val_fraction=args.val_fraction,
-            seed=args.seed,
-            split_mode=split_mode,
-        )
+        if val_split_mode == "random":
+            split_mode = (
+                "dataset_train_random_split"
+                if args.train_data is None
+                else "explicit_train_data_random_split"
+            )
+            data_bundle = bindings.data.random_split_bundle(
+                bindings.dataset_class,
+                train_paths,
+                normalize_input=input_normalized,
+                val_fraction=args.val_fraction,
+                seed=args.seed,
+                split_mode=split_mode,
+            )
+        else:
+            split_mode = (
+                "dataset_train_blocked_split"
+                if args.train_data is None
+                else "explicit_train_data_blocked_split"
+            )
+            data_bundle = bindings.data.blocked_split_bundle(
+                bindings.dataset_class,
+                train_paths,
+                normalize_input=input_normalized,
+                val_fraction=args.val_fraction,
+                val_gap_s=val_gap_s,
+                split_mode=split_mode,
+            )
     else:
+        split_mode = "dataset_explicit_train_val_split"
+        if args.train_data is not None or args.val_data is not None:
+            split_mode = "explicit_train_val_split"
         data_bundle = bindings.data.fixed_split_bundle(
             bindings.dataset_class,
             train_paths,
@@ -106,6 +132,8 @@ def train(args: argparse.Namespace, bindings: MethodBindings) -> None:
                             ("split_mode", data_bundle.split_mode), ("seed", args.seed)):
             if resume_checkpoint[key] != actual:
                 raise ValueError(f"Resume data split differs from checkpoint: {key}.")
+        if "val_gap_s" in resume_checkpoint and resume_checkpoint["val_gap_s"] != val_gap_s:
+            raise ValueError("Resume data split differs from checkpoint: val_gap_s.")
     train_count = len(data_bundle.train_idx)
     val_count = len(data_bundle.val_idx)
     if not train_count or not val_count:
@@ -274,6 +302,8 @@ def train(args: argparse.Namespace, bindings: MethodBindings) -> None:
             "huber_beta": huber_beta,
             "input_normalized_per_sample": input_normalized,
             "split_mode": split_mode,
+            "val_split_mode": val_split_mode,
+            "val_gap_s": val_gap_s,
             "source_h5_paths": [str(p) for p in source_paths],
             "val_fraction": args.val_fraction,
             "train_indices": data_bundle.train_idx,
